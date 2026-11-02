@@ -1,5 +1,5 @@
+import 'dart:ui' show ImageFilter;
 import 'package:flutter/material.dart';
-import '../../config/app_theme.dart';
 import '../../models/agent_state.dart';
 
 class DynamicAgentCapsule extends StatefulWidget {
@@ -8,19 +8,19 @@ class DynamicAgentCapsule extends StatefulWidget {
   final VoidCallback? onPause;
   final VoidCallback? onResume;
   final VoidCallback? onStop;
-  final VoidCallback? onQuickSummarize;
   final VoidCallback? onConfirmCaptcha;
+  final VoidCallback? onConfirmAction;
 
   const DynamicAgentCapsule({
-    Key? key,
+    super.key,
     required this.state,
     required this.onTap,
     this.onPause,
     this.onResume,
     this.onStop,
-    this.onQuickSummarize,
     this.onConfirmCaptcha,
-  }) : super(key: key);
+    this.onConfirmAction,
+  });
 
   @override
   State<DynamicAgentCapsule> createState() => _DynamicAgentCapsuleState();
@@ -79,42 +79,50 @@ class _DynamicAgentCapsuleState extends State<DynamicAgentCapsule>
     final state = widget.state;
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    // Determine Capsule Theme and Colors based on Agent Status
-    Color capsuleBg = isDark ? const Color(0xF012161D) : const Color(0xF01E232B);
-    Color borderColor = Colors.white.withOpacity(0.18);
+    // Lightweight Frosted Glass Capsule (Translucent + Soft Gaussian Blur)
+    Color capsuleBg =
+        isDark ? const Color(0xCC10151C) : const Color(0xDD1B222A);
+    Color borderColor = Colors.white.withValues(alpha: 0.12);
     List<BoxShadow> shadows = [
       BoxShadow(
-        color: Colors.black.withOpacity(0.38),
-        blurRadius: 18,
-        offset: const Offset(0, 6),
+        color: Colors.black.withValues(alpha: 0.22),
+        blurRadius: 10,
+        offset: const Offset(0, 3),
       ),
     ];
 
     Widget content;
-    double targetWidth = 148.0;
+    double targetWidth = 96.0;
+    double targetHeight = 32.0;
 
     switch (state.status) {
       case AgentStatus.idle:
-        targetWidth = 148.0;
+        targetWidth = 104.0;
+        targetHeight = 36.0;
         content = Row(
           mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
             ScaleTransition(
               scale: _pulseAnimation,
               child: const Icon(
                 Icons.auto_awesome,
-                size: 16,
+                size: 14,
                 color: Color(0xFF1D9BF0),
               ),
             ),
-            const SizedBox(width: 8),
-            const Text(
-              'Operon AI',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 13,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 0.3,
+            const SizedBox(width: 7),
+            const Flexible(
+              child: Text(
+                'Operon',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.3,
+                ),
               ),
             ),
           ],
@@ -123,12 +131,13 @@ class _DynamicAgentCapsuleState extends State<DynamicAgentCapsule>
 
       case AgentStatus.observing:
       case AgentStatus.thinking:
-        targetWidth = 265.0;
-        borderColor = const Color(0xFF1D9BF0).withOpacity(0.5);
+        targetWidth = 210.0;
+        targetHeight = 34.0;
+        borderColor = const Color(0xFF1D9BF0).withValues(alpha: 0.45);
         shadows.add(
           BoxShadow(
-            color: const Color(0xFF1D9BF0).withOpacity(0.2),
-            blurRadius: 14,
+            color: const Color(0xFF1D9BF0).withValues(alpha: 0.15),
+            blurRadius: 10,
             spreadRadius: 1,
           ),
         );
@@ -136,37 +145,37 @@ class _DynamicAgentCapsuleState extends State<DynamicAgentCapsule>
           mainAxisSize: MainAxisSize.min,
           children: [
             const SizedBox(
-              width: 14,
-              height: 14,
+              width: 12,
+              height: 12,
               child: CircularProgressIndicator(
-                strokeWidth: 2,
+                strokeWidth: 1.8,
                 valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF1D9BF0)),
               ),
             ),
-            const SizedBox(width: 10),
+            const SizedBox(width: 8),
             Expanded(
               child: Text(
-                '正在分析网页 (${state.currentStep}/${state.maxSteps})',
+                '分析网页 (${state.currentStep}/${state.maxSteps})',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
                   color: Colors.white,
-                  fontSize: 12,
+                  fontSize: 11,
                   fontWeight: FontWeight.w600,
                 ),
               ),
             ),
-            const SizedBox(width: 6),
+            const SizedBox(width: 4),
             InkWell(
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(10),
               onTap: widget.onStop,
               child: Container(
-                padding: const EdgeInsets.all(4),
+                padding: const EdgeInsets.all(3),
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.1),
+                  color: Colors.white.withValues(alpha: 0.12),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.close, size: 14, color: Colors.white70),
+                child: const Icon(Icons.close, size: 12, color: Colors.white70),
               ),
             ),
           ],
@@ -174,12 +183,13 @@ class _DynamicAgentCapsuleState extends State<DynamicAgentCapsule>
         break;
 
       case AgentStatus.executing:
-        targetWidth = 300.0;
-        borderColor = const Color(0xFF00BA7C).withOpacity(0.5);
+        targetWidth = 240.0;
+        targetHeight = 34.0;
+        borderColor = const Color(0xFF00BA7C).withValues(alpha: 0.45);
         shadows.add(
           BoxShadow(
-            color: const Color(0xFF00BA7C).withOpacity(0.2),
-            blurRadius: 14,
+            color: const Color(0xFF00BA7C).withValues(alpha: 0.15),
+            blurRadius: 10,
             spreadRadius: 1,
           ),
         );
@@ -189,9 +199,9 @@ class _DynamicAgentCapsuleState extends State<DynamicAgentCapsule>
             ScaleTransition(
               scale: _pulseAnimation,
               child: const Icon(Icons.touch_app_rounded,
-                  size: 16, color: Color(0xFF00BA7C)),
+                  size: 14, color: Color(0xFF00BA7C)),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 6),
             Expanded(
               child: Text(
                 _getActionSummary(),
@@ -199,31 +209,30 @@ class _DynamicAgentCapsuleState extends State<DynamicAgentCapsule>
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
                   color: Colors.white,
-                  fontSize: 12,
+                  fontSize: 11,
                   fontWeight: FontWeight.w600,
                 ),
               ),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 6),
             InkWell(
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(10),
               onTap: widget.onPause,
               child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.12),
-                  borderRadius: BorderRadius.circular(12),
+                  color: Colors.white.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(10),
                 ),
-                child: Row(
+                child: const Row(
                   mainAxisSize: MainAxisSize.min,
-                  children: const [
-                    Icon(Icons.pause_rounded, size: 13, color: Colors.white),
+                  children: [
+                    Icon(Icons.pause_rounded, size: 11, color: Colors.white),
                     SizedBox(width: 2),
                     Text(
                       '暂停',
                       style: TextStyle(
-                          fontSize: 11,
+                          fontSize: 10,
                           color: Colors.white,
                           fontWeight: FontWeight.bold),
                     ),
@@ -236,54 +245,55 @@ class _DynamicAgentCapsuleState extends State<DynamicAgentCapsule>
         break;
 
       case AgentStatus.paused:
-        targetWidth = 275.0;
-        borderColor = Colors.amber.withOpacity(0.7);
+        targetWidth = 220.0;
+        targetHeight = 34.0;
+        borderColor = Colors.amber.withValues(alpha: 0.6);
         shadows.add(
           BoxShadow(
-            color: Colors.amber.withOpacity(0.25),
-            blurRadius: 16,
+            color: Colors.amber.withValues(alpha: 0.2),
+            blurRadius: 10,
             spreadRadius: 1,
           ),
         );
         content = Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.pause_circle_outline_rounded, size: 16, color: Colors.amber),
-            const SizedBox(width: 8),
+            const Icon(Icons.pause_circle_outline_rounded,
+                size: 14, color: Colors.amber),
+            const SizedBox(width: 6),
             const Expanded(
               child: Text(
-                '已暂停 (触屏接管中)',
+                '已暂停 (接管中)',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   color: Colors.white,
-                  fontSize: 12,
+                  fontSize: 11,
                   fontWeight: FontWeight.w600,
                 ),
               ),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 6),
             InkWell(
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(10),
               onTap: widget.onResume,
               child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                 decoration: BoxDecoration(
-                  color: Colors.amber.withOpacity(0.25),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.amber, width: 1),
+                  color: Colors.amber.withValues(alpha: 0.25),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.amber, width: 0.8),
                 ),
-                child: Row(
+                child: const Row(
                   mainAxisSize: MainAxisSize.min,
-                  children: const [
+                  children: [
                     Icon(Icons.play_arrow_rounded,
-                        size: 14, color: Colors.amber),
+                        size: 12, color: Colors.amber),
                     SizedBox(width: 2),
                     Text(
                       '继续',
                       style: TextStyle(
-                          fontSize: 11,
+                          fontSize: 10,
                           color: Colors.amber,
                           fontWeight: FontWeight.bold),
                     ),
@@ -296,13 +306,13 @@ class _DynamicAgentCapsuleState extends State<DynamicAgentCapsule>
         break;
 
       case AgentStatus.waitingCaptcha:
-      case AgentStatus.waitingConfirmation:
-        targetWidth = 265.0;
-        borderColor = Colors.deepOrangeAccent.withOpacity(0.8);
+        targetWidth = 224.0;
+        targetHeight = 34.0;
+        borderColor = Colors.deepOrangeAccent.withValues(alpha: 0.7);
         shadows.add(
           BoxShadow(
-            color: Colors.deepOrangeAccent.withOpacity(0.3),
-            blurRadius: 16,
+            color: Colors.deepOrangeAccent.withValues(alpha: 0.25),
+            blurRadius: 10,
             spreadRadius: 1,
           ),
         );
@@ -310,36 +320,89 @@ class _DynamicAgentCapsuleState extends State<DynamicAgentCapsule>
           mainAxisSize: MainAxisSize.min,
           children: [
             const Icon(Icons.verified_user_outlined,
-                size: 16, color: Colors.deepOrangeAccent),
-            const SizedBox(width: 8),
+                size: 14, color: Colors.deepOrangeAccent),
+            const SizedBox(width: 6),
             const Expanded(
               child: Text(
-                '需完成安全验证',
+                '需完成人机验证',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   color: Colors.white,
-                  fontSize: 12,
+                  fontSize: 11,
                   fontWeight: FontWeight.bold,
                 ),
               ),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 6),
             InkWell(
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(10),
               onTap: widget.onConfirmCaptcha ?? widget.onTap,
               child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                 decoration: BoxDecoration(
-                  color: Colors.deepOrangeAccent.withOpacity(0.25),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.deepOrangeAccent),
+                  color: Colors.deepOrangeAccent.withValues(alpha: 0.25),
+                  borderRadius: BorderRadius.circular(10),
+                  border:
+                      Border.all(color: Colors.deepOrangeAccent, width: 0.8),
                 ),
                 child: const Text(
-                  '完成',
+                  '已通过',
                   style: TextStyle(
-                      fontSize: 11,
+                      fontSize: 10,
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold),
+                ),
+              ),
+            ),
+          ],
+        );
+        break;
+
+      case AgentStatus.waitingConfirmation:
+        targetWidth = 224.0;
+        targetHeight = 34.0;
+        borderColor = Colors.redAccent.withValues(alpha: 0.7);
+        shadows.add(
+          BoxShadow(
+            color: Colors.redAccent.withValues(alpha: 0.25),
+            blurRadius: 10,
+            spreadRadius: 1,
+          ),
+        );
+        content = Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.shield_outlined,
+                size: 14, color: Colors.redAccent),
+            const SizedBox(width: 6),
+            const Expanded(
+              child: Text(
+                '敏感操作待授权',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
+            InkWell(
+              borderRadius: BorderRadius.circular(10),
+              onTap: widget.onConfirmAction ?? widget.onTap,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.redAccent.withValues(alpha: 0.25),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.redAccent, width: 0.8),
+                ),
+                child: const Text(
+                  '授权',
+                  style: TextStyle(
+                      fontSize: 10,
                       color: Colors.white,
                       fontWeight: FontWeight.bold),
                 ),
@@ -350,22 +413,23 @@ class _DynamicAgentCapsuleState extends State<DynamicAgentCapsule>
         break;
 
       case AgentStatus.completed:
-        targetWidth = 230.0;
-        borderColor = const Color(0xFF00BA7C).withOpacity(0.8);
-        content = Row(
+        targetWidth = 190.0;
+        targetHeight = 34.0;
+        borderColor = const Color(0xFF00BA7C).withValues(alpha: 0.7);
+        content = const Row(
           mainAxisSize: MainAxisSize.min,
-          children: const [
+          children: [
             Icon(Icons.check_circle_rounded,
-                size: 16, color: Color(0xFF00BA7C)),
-            SizedBox(width: 8),
+                size: 14, color: Color(0xFF00BA7C)),
+            SizedBox(width: 6),
             Expanded(
               child: Text(
-                '任务已达成 (点击查看)',
+                '任务已达成 (查看)',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   color: Colors.white,
-                  fontSize: 12,
+                  fontSize: 11,
                   fontWeight: FontWeight.bold,
                 ),
               ),
@@ -375,14 +439,15 @@ class _DynamicAgentCapsuleState extends State<DynamicAgentCapsule>
         break;
 
       case AgentStatus.error:
-        targetWidth = 240.0;
-        borderColor = Colors.redAccent.withOpacity(0.7);
+        targetWidth = 190.0;
+        targetHeight = 34.0;
+        borderColor = Colors.redAccent.withValues(alpha: 0.7);
         content = Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             const Icon(Icons.error_outline_rounded,
-                size: 16, color: Colors.redAccent),
-            const SizedBox(width: 8),
+                size: 14, color: Colors.redAccent),
+            const SizedBox(width: 6),
             Expanded(
               child: Text(
                 state.errorMessage ?? '任务发生异常',
@@ -390,7 +455,7 @@ class _DynamicAgentCapsuleState extends State<DynamicAgentCapsule>
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
                   color: Colors.white,
-                  fontSize: 12,
+                  fontSize: 11,
                   fontWeight: FontWeight.w600,
                 ),
               ),
@@ -400,21 +465,34 @@ class _DynamicAgentCapsuleState extends State<DynamicAgentCapsule>
         break;
     }
 
-    return GestureDetector(
-      onTap: widget.onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 320),
-        curve: Curves.easeOutCubic,
-        width: targetWidth,
-        height: 44,
-        padding: const EdgeInsets.symmetric(horizontal: 14),
-        decoration: BoxDecoration(
-          color: capsuleBg,
-          borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: borderColor, width: 1.2),
-          boxShadow: shadows,
+    return Semantics(
+      button: true,
+      label: 'Operon AI 智能体',
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 320),
+          curve: Curves.easeOutCubic,
+          width: targetWidth,
+          height: targetHeight,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(targetHeight / 2),
+            border: Border.all(color: borderColor, width: 0.8),
+            boxShadow: shadows,
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(targetHeight / 2),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+              child: Container(
+                color: capsuleBg,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                alignment: Alignment.center,
+                child: content,
+              ),
+            ),
+          ),
         ),
-        child: content,
       ),
     );
   }

@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 class MacroStep {
   final String action;
   final String? selector;

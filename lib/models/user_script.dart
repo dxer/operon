@@ -1,10 +1,9 @@
-import 'dart:convert';
-
 class UserScript {
   final String id;
   final String name;
   final String description;
-  final String matchPattern; // e.g. "*://*.zhihu.com/*", "*twitter.com*", or "*"
+  final String
+      matchPattern; // e.g. "*://*.zhihu.com/*", "*twitter.com*", or "*"
   final String code;
   final bool isEnabled;
   final DateTime createdAt;
@@ -47,7 +46,10 @@ class UserScript {
   bool matchesUrl(String url) {
     if (!isEnabled) return false;
     final pattern = matchPattern.trim().toLowerCase();
-    if (pattern.isEmpty || pattern == '*' || pattern == '*://*/*' || pattern == 'all') {
+    if (pattern.isEmpty ||
+        pattern == '*' ||
+        pattern == '*://*/*' ||
+        pattern == 'all') {
       return true;
     }
 
@@ -56,7 +58,7 @@ class UserScript {
     // Wildcard support: convert wildcard string to regex
     try {
       final regexStr = RegExp.escape(pattern).replaceAll(r'\*', '.*');
-      final reg = RegExp('^' + regexStr + r'$', caseSensitive: false);
+      final reg = RegExp('^$regexStr\$', caseSensitive: false);
       if (reg.hasMatch(lowerUrl)) return true;
     } catch (_) {}
 
@@ -88,6 +90,8 @@ class UserScript {
         code: json['code'] ?? '',
         isEnabled: json['isEnabled'] as bool? ?? true,
         createdAt: DateTime.tryParse(json['createdAt'] ?? '') ?? DateTime.now(),
-        updatedAt: json['updatedAt'] != null ? DateTime.tryParse(json['updatedAt']) : null,
+        updatedAt: json['updatedAt'] != null
+            ? DateTime.tryParse(json['updatedAt'])
+            : null,
       );
 }

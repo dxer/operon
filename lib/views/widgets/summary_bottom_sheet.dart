@@ -11,18 +11,19 @@ class SummaryBottomSheet extends StatefulWidget {
   final LlmConfig config;
 
   const SummaryBottomSheet({
-    Key? key,
+    super.key,
     required this.title,
     required this.url,
     required this.content,
     required this.config,
-  }) : super(key: key);
+  });
 
   @override
   State<SummaryBottomSheet> createState() => _SummaryBottomSheetState();
 }
 
 class _SummaryBottomSheetState extends State<SummaryBottomSheet> {
+  final LlmService _llmService = LlmService();
   bool _isLoading = true;
   String _summaryText = '';
   String? _error;
@@ -33,6 +34,12 @@ class _SummaryBottomSheetState extends State<SummaryBottomSheet> {
     _generateSummary();
   }
 
+  @override
+  void dispose() {
+    _llmService.dispose();
+    super.dispose();
+  }
+
   Future<void> _generateSummary() async {
     setState(() {
       _isLoading = true;
@@ -40,8 +47,7 @@ class _SummaryBottomSheetState extends State<SummaryBottomSheet> {
     });
 
     try {
-      final llmService = LlmService();
-      final summary = await llmService.summarizeWebPage(
+      final summary = await _llmService.summarizeWebPage(
         config: widget.config,
         title: widget.title,
         url: widget.url,
@@ -84,15 +90,20 @@ class _SummaryBottomSheetState extends State<SummaryBottomSheet> {
       constraints: BoxConstraints(
         maxHeight: MediaQuery.of(context).size.height * 0.78,
       ),
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+      padding: EdgeInsets.fromLTRB(
+        16,
+        12,
+        16,
+        24 + MediaQuery.of(context).viewPadding.bottom,
+      ),
       decoration: BoxDecoration(
         color: cardBg,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
         boxShadow: const [
           BoxShadow(
             color: Colors.black26,
-            blurRadius: 16,
-            offset: Offset(0, -4),
+            blurRadius: 18,
+            offset: Offset(0, -6),
           ),
         ],
       ),
@@ -119,10 +130,11 @@ class _SummaryBottomSheetState extends State<SummaryBottomSheet> {
               Container(
                 padding: const EdgeInsets.all(6),
                 decoration: BoxDecoration(
-                  color: AppTheme.primary.withOpacity(0.15),
+                  color: AppTheme.primary.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: const Icon(Icons.bolt, color: AppTheme.primary, size: 20),
+                child:
+                    const Icon(Icons.bolt, color: AppTheme.primary, size: 20),
               ),
               const SizedBox(width: 10),
               Expanded(
@@ -133,7 +145,8 @@ class _SummaryBottomSheetState extends State<SummaryBottomSheet> {
                       widget.title.isNotEmpty ? widget.title : '网页速读摘要',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                      style: const TextStyle(
+                          fontSize: 14, fontWeight: FontWeight.bold),
                     ),
                     Text(
                       widget.url,
@@ -173,7 +186,8 @@ class _SummaryBottomSheetState extends State<SummaryBottomSheet> {
                         const SizedBox(height: 16),
                         const Text(
                           'AI 正在提取正文并提炼关键摘要...',
-                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+                          style: TextStyle(
+                              fontSize: 13, fontWeight: FontWeight.w500),
                         ),
                         const SizedBox(height: 6),
                         Text(
@@ -191,12 +205,14 @@ class _SummaryBottomSheetState extends State<SummaryBottomSheet> {
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Icon(Icons.error_outline, color: Colors.redAccent, size: 36),
+                            const Icon(Icons.error_outline,
+                                color: Colors.redAccent, size: 36),
                             const SizedBox(height: 12),
                             Text(
                               '提炼失败: $_error',
                               textAlign: TextAlign.center,
-                              style: const TextStyle(fontSize: 12, color: Colors.redAccent),
+                              style: const TextStyle(
+                                  fontSize: 12, color: Colors.redAccent),
                             ),
                             const SizedBox(height: 12),
                             ElevatedButton.icon(
@@ -214,7 +230,9 @@ class _SummaryBottomSheetState extends State<SummaryBottomSheet> {
                           style: TextStyle(
                             fontSize: 13.5,
                             height: 1.6,
-                            color: isDark ? Colors.white.withOpacity(0.9) : const Color(0xFF0F141C),
+                            color: isDark
+                                ? Colors.white.withValues(alpha: 0.9)
+                                : const Color(0xFF0F141C),
                           ),
                         ),
                       ),

@@ -48,25 +48,17 @@ class LlmService {
           .post(uri, headers: headers, body: body)
           .timeout(const Duration(seconds: 45));
     } catch (e) {
-      // If response_format json_object caused an error on older models, retry once without it
-      try {
-        final fallbackBody = jsonEncode({
-          'model': config.model.trim(),
-          'messages': messages,
-          'temperature': config.temperature,
-        });
-        response = await _client
-            .post(uri, headers: headers, body: fallbackBody)
-            .timeout(const Duration(seconds: 45));
-      } catch (e2) {
-        throw Exception('连接大模型服务失败: $e2');
-      }
+      // Do not blindly retry on network errors: a slow request may still be
+      // in flight, and retrying would double-charge the user.
+      throw Exception('连接大模型服务失败: $e');
     }
 
     if (response.statusCode != 200) {
-      // If error indicates response_format unsupported, retry once without it
+      // Some older models reject response_format. Retry once without it only
+      // for that specific 400 response.
       if (response.statusCode == 400 &&
-          (response.body.contains('response_format') || response.body.contains('json_object'))) {
+          (response.body.contains('response_format') ||
+              response.body.contains('json_object'))) {
         try {
           final fallbackBody = jsonEncode({
             'model': config.model.trim(),
@@ -162,7 +154,7 @@ class LlmService {
     required String url,
     required String content,
   }) async {
-    final systemPrompt = '''
+    const systemPrompt = '''
 你是一个专业的高效信息提炼大师。你的目标是帮助移动端用户在 30 秒内快速抓住网页精髓。
 请根据用户提供的网页标题和正文，输出一份清晰、高价值、排版优美的 Markdown 格式速读简报。
 
@@ -203,13 +195,16 @@ $content
     String systemInstruction = '';
     switch (actionType) {
       case 'translate':
-        systemInstruction = '你是一个高级翻译官。请将用户选中的文本翻译为自然、优美、地道的中文（若是中文则翻译为英文）。仅输出最终翻译结果，不要任何多余寒暄。';
+        systemInstruction =
+            '你是一个高级翻译官。请将用户选中的文本翻译为自然、优美、地道的中文（若是中文则翻译为英文）。仅输出最终翻译结果，不要任何多余寒暄。';
         break;
       case 'explain':
-        systemInstruction = '你是一个百科全书顾问。请用最通俗易懂的大白话，解释用户选中的词汇、概念或技术术语，字数在 120 字以内。';
+        systemInstruction =
+            '你是一个百科全书顾问。请用最通俗易懂的大白话，解释用户选中的词汇、概念或技术术语，字数在 120 字以内。';
         break;
       case 'reply':
-        systemInstruction = '你是一个高情商的社交网络达人。请针对用户选中的这句推文/发言，写一条幽默、有见地或引人共鸣的简短社交媒体回复（50 字以内）。';
+        systemInstruction =
+            '你是一个高情商的社交网络达人。请针对用户选中的这句推文/发言，写一条幽默、有见地或引人共鸣的简短社交媒体回复（50 字以内）。';
         break;
       default:
         systemInstruction = '请简要分析并回应以下内容：';
@@ -233,7 +228,7 @@ $content
     required String pageTitle,
     String? domSnippet,
   }) async {
-    final systemPrompt = '''
+    const systemPrompt = '''
 你是一个资深前端开发专家与浏览器油猴脚本（UserScript）编写大师。
 用户希望为移动端网页编写一段定制化的自动化/去广告/样式调整 JavaScript 脚本。
 
@@ -281,7 +276,10 @@ ${domSnippet != null && domSnippet.isNotEmpty ? '【网页结构参考】:\n$dom
       return {
         'name': decoded['name']?.toString() ?? '自定义 AI 脚本',
         'description': decoded['description']?.toString() ?? prompt,
-        'matchPattern': decoded['matchPattern']?.toString() ?? (currentUrl.isNotEmpty ? '*${Uri.tryParse(currentUrl)?.host ?? ""}*' : '*'),
+        'matchPattern': decoded['matchPattern']?.toString() ??
+            (currentUrl.isNotEmpty
+                ? '*${Uri.tryParse(currentUrl)?.host ?? ""}*'
+                : '*'),
         'code': decoded['code']?.toString() ?? '// 脚本生成异常',
       };
     } catch (e) {
@@ -289,8 +287,12 @@ ${domSnippet != null && domSnippet.isNotEmpty ? '【网页结构参考】:\n$dom
       return {
         'name': '自定义 AI 脚本',
         'description': prompt,
-        'matchPattern': currentUrl.isNotEmpty ? '*${Uri.tryParse(currentUrl)?.host ?? ""}*' : '*',
-        'code': raw.startsWith('(') ? raw : '(() => {\n  try {\n    $raw\n  } catch (e) { console.error(e); }\n})();',
+        'matchPattern': currentUrl.isNotEmpty
+            ? '*${Uri.tryParse(currentUrl)?.host ?? ""}*'
+            : '*',
+        'code': raw.startsWith('(')
+            ? raw
+            : '(() => {\n  try {\n    $raw\n  } catch (e) { console.error(e); }\n})();',
       };
     }
   }

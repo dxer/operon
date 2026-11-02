@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'config/app_constants.dart';
 import 'config/app_theme.dart';
@@ -9,6 +10,9 @@ import 'views/browser_page.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Via-style edge-to-edge canvas: browser content owns the whole screen.
+  await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
 
   // Initialize Android WebView platform defaults
   if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
@@ -25,7 +29,7 @@ void main() async {
 class OperonApp extends StatelessWidget {
   final ThemeService themeService;
 
-  const OperonApp({Key? key, required this.themeService}) : super(key: key);
+  const OperonApp({super.key, required this.themeService});
 
   @override
   Widget build(BuildContext context) {

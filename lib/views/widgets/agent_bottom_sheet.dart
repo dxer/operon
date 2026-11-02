@@ -20,7 +20,7 @@ class AgentBottomSheet extends StatefulWidget {
   final Function(MacroWorkflow macro) onRunMacro;
 
   const AgentBottomSheet({
-    Key? key,
+    super.key,
     required this.state,
     required this.onStart,
     required this.onPause,
@@ -29,7 +29,7 @@ class AgentBottomSheet extends StatefulWidget {
     required this.onConfirmAction,
     required this.onConfirmCaptcha,
     required this.onRunMacro,
-  }) : super(key: key);
+  });
 
   @override
   State<AgentBottomSheet> createState() => _AgentBottomSheetState();
@@ -38,7 +38,7 @@ class AgentBottomSheet extends StatefulWidget {
 class _AgentBottomSheetState extends State<AgentBottomSheet> {
   late TextEditingController _goalController;
   bool _showLogs = false;
-  bool _showExtractedData = true;
+  final bool _showExtractedData = true;
 
   @override
   void initState() {
@@ -62,7 +62,8 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
 
   void _copyExtractedData() {
     if (widget.state.extractedData == null) return;
-    final jsonStr = const JsonEncoder.withIndent('  ').convert(widget.state.extractedData);
+    final jsonStr =
+        const JsonEncoder.withIndent('  ').convert(widget.state.extractedData);
     Clipboard.setData(ClipboardData(text: jsonStr));
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
@@ -85,7 +86,7 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: AppTheme.darkCard,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Row(
           children: [
             Icon(Icons.bookmark_add_outlined, color: Colors.amber, size: 20),
@@ -97,9 +98,15 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
+            Text(
               '保存后，下次可通过宏直接以 0 Token 毫秒级重放该流程！',
-              style: TextStyle(fontSize: 12, color: Colors.white70),
+              style: TextStyle(
+                fontSize: 12,
+                color: Theme.of(context)
+                    .colorScheme
+                    .onSurface
+                    .withValues(alpha: 0.6),
+              ),
             ),
             const SizedBox(height: 12),
             TextField(
@@ -152,55 +159,55 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
 
     switch (status) {
       case AgentStatus.idle:
-        bg = Colors.grey.withOpacity(0.2);
+        bg = Colors.grey.withValues(alpha: 0.2);
         fg = Colors.grey;
         label = '待命';
         icon = Icons.stop_circle_outlined;
         break;
       case AgentStatus.observing:
-        bg = Colors.blue.withOpacity(0.2);
+        bg = Colors.blue.withValues(alpha: 0.2);
         fg = Colors.blueAccent;
         label = '读取页面中';
         icon = Icons.visibility_outlined;
         break;
       case AgentStatus.thinking:
-        bg = Colors.purple.withOpacity(0.2);
+        bg = Colors.purple.withValues(alpha: 0.2);
         fg = Colors.purpleAccent;
         label = 'AI 思考规划中';
         icon = Icons.psychology_outlined;
         break;
       case AgentStatus.executing:
-        bg = Colors.orange.withOpacity(0.2);
+        bg = Colors.orange.withValues(alpha: 0.2);
         fg = Colors.orangeAccent;
         label = '虚拟光标操控中';
         icon = Icons.touch_app_outlined;
         break;
       case AgentStatus.waitingConfirmation:
-        bg = Colors.red.withOpacity(0.2);
+        bg = Colors.red.withValues(alpha: 0.2);
         fg = Colors.redAccent;
         label = '等待人工授权';
         icon = Icons.security_outlined;
         break;
       case AgentStatus.waitingCaptcha:
-        bg = Colors.amber.withOpacity(0.2);
+        bg = Colors.amber.withValues(alpha: 0.2);
         fg = Colors.amber;
         label = '等待完成人机验证';
         icon = Icons.verified_user_outlined;
         break;
       case AgentStatus.paused:
-        bg = Colors.amber.withOpacity(0.2);
+        bg = Colors.amber.withValues(alpha: 0.2);
         fg = Colors.amber;
         label = '已暂停';
         icon = Icons.pause_circle_outline;
         break;
       case AgentStatus.completed:
-        bg = Colors.green.withOpacity(0.2);
+        bg = Colors.green.withValues(alpha: 0.2);
         fg = Colors.greenAccent;
         label = '任务顺利达成';
         icon = Icons.check_circle_outline;
         break;
       case AgentStatus.error:
-        bg = Colors.red.withOpacity(0.2);
+        bg = Colors.red.withValues(alpha: 0.2);
         fg = Colors.redAccent;
         label = '执行异常';
         icon = Icons.error_outline;
@@ -220,13 +227,14 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
           const SizedBox(width: 4),
           Text(
             label,
-            style: TextStyle(color: fg, fontSize: 12, fontWeight: FontWeight.bold),
+            style:
+                TextStyle(color: fg, fontSize: 12, fontWeight: FontWeight.bold),
           ),
           if (widget.state.currentStep > 0) ...[
             const SizedBox(width: 6),
             Text(
               '${widget.state.currentStep}/${widget.state.maxSteps}',
-              style: TextStyle(color: fg.withOpacity(0.8), fontSize: 11),
+              style: TextStyle(color: fg.withValues(alpha: 0.8), fontSize: 11),
             ),
           ]
         ],
@@ -239,16 +247,25 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
     final state = widget.state;
     final isRunning = state.isRunning;
     final hasExtractedData = state.extractedData != null;
-    final canSaveMacro = state.status == AgentStatus.completed && state.recordedMacroSteps.isNotEmpty;
+    final canSaveMacro = state.status == AgentStatus.completed &&
+        state.recordedMacroSteps.isNotEmpty;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final cardBg = isDark ? AppTheme.darkCard : AppTheme.lightCard;
+    final onSurface = Theme.of(context).colorScheme.onSurface;
+    final muted = onSurface.withValues(alpha: isDark ? 0.72 : 0.6);
+    final subtle = onSurface.withValues(alpha: 0.38);
+    final hairline = isDark ? AppTheme.darkBorder : AppTheme.lightBorder;
+    final surface = isDark ? const Color(0xFF16181C) : const Color(0xFFF1F4F6);
+    final deepSurface = isDark ? AppTheme.darkBg : const Color(0xFFF7F9FA);
 
     return Container(
       padding: EdgeInsets.fromLTRB(
         16,
         12,
         16,
-        MediaQuery.of(context).viewInsets.bottom + 20,
+        MediaQuery.of(context).viewInsets.bottom +
+            MediaQuery.of(context).viewPadding.bottom +
+            20,
       ),
       decoration: BoxDecoration(
         color: cardBg,
@@ -271,7 +288,7 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
               width: 36,
               height: 4,
               decoration: BoxDecoration(
-                color: Colors.white24,
+                color: isDark ? Colors.white24 : Colors.black12,
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
@@ -290,14 +307,16 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
                     onPressed: () {
                       showDialog(
                         context: context,
-                        builder: (_) => MacroDialog(onRunMacro: widget.onRunMacro),
+                        builder: (_) =>
+                            MacroDialog(onRunMacro: widget.onRunMacro),
                       );
                     },
                     tooltip: '快捷宏任务库 (0 Token)',
                   ),
                   if (hasExtractedData)
                     IconButton(
-                      icon: const Icon(Icons.copy, size: 16, color: AppTheme.accent),
+                      icon: const Icon(Icons.copy,
+                          size: 16, color: AppTheme.accent),
                       onPressed: _copyExtractedData,
                       tooltip: '复制已抓取数据',
                     ),
@@ -310,7 +329,8 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
                     ),
                     label: Text(
                       _showLogs ? '收起日志' : '日志 (${state.logs.length})',
-                      style: const TextStyle(fontSize: 12, color: AppTheme.primary),
+                      style: const TextStyle(
+                          fontSize: 12, color: AppTheme.primary),
                     ),
                   ),
                 ],
@@ -324,21 +344,22 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: const Color(0xFF16181C),
+                color: surface,
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: AppTheme.darkBorder),
+                border: Border.all(color: hairline),
               ),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Icon(Icons.tips_and_updates_outlined, size: 16, color: Colors.amber),
+                  const Icon(Icons.tips_and_updates_outlined,
+                      size: 16, color: Colors.amber),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       state.currentThought,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 12,
-                        color: Colors.white70,
+                        color: muted,
                         fontStyle: FontStyle.italic,
                       ),
                     ),
@@ -354,18 +375,19 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               decoration: BoxDecoration(
-                color: Colors.amber.withOpacity(0.12),
+                color: Colors.amber.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.amber.withOpacity(0.4)),
+                border: Border.all(color: Colors.amber.withValues(alpha: 0.4)),
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.electric_bolt, size: 16, color: Colors.amber),
+                  const Icon(Icons.electric_bolt,
+                      size: 16, color: Colors.amber),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       '已成功执行 ${state.recordedMacroSteps.length} 个步骤',
-                      style: const TextStyle(fontSize: 12, color: Colors.white),
+                      style: TextStyle(fontSize: 12, color: onSurface),
                     ),
                   ),
                   ElevatedButton.icon(
@@ -375,8 +397,10 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.amber,
                       foregroundColor: Colors.black,
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
-                      textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 0),
+                      textStyle: const TextStyle(
+                          fontSize: 11, fontWeight: FontWeight.bold),
                     ),
                   ),
                 ],
@@ -390,16 +414,18 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: const Color(0xFF0F141C),
+                color: deepSurface,
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: AppTheme.accent.withOpacity(0.5)),
+                border:
+                    Border.all(color: AppTheme.accent.withValues(alpha: 0.5)),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
                     children: [
-                      const Icon(Icons.dataset_outlined, size: 14, color: AppTheme.accent),
+                      const Icon(Icons.dataset_outlined,
+                          size: 14, color: AppTheme.accent),
                       const SizedBox(width: 6),
                       const Text(
                         '已抓取结构化数据',
@@ -413,10 +439,12 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
                       InkWell(
                         onTap: _copyExtractedData,
                         child: const Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          padding:
+                              EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                           child: Text(
                             '一键复制',
-                            style: TextStyle(fontSize: 11, color: AppTheme.accent),
+                            style:
+                                TextStyle(fontSize: 11, color: AppTheme.accent),
                           ),
                         ),
                       ),
@@ -427,11 +455,12 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
                     constraints: const BoxConstraints(maxHeight: 120),
                     child: SingleChildScrollView(
                       child: Text(
-                        const JsonEncoder.withIndent('  ').convert(state.extractedData),
-                        style: const TextStyle(
+                        const JsonEncoder.withIndent('  ')
+                            .convert(state.extractedData),
+                        style: TextStyle(
                           fontFamily: 'monospace',
                           fontSize: 11,
-                          color: Colors.white70,
+                          color: muted,
                         ),
                       ),
                     ),
@@ -447,15 +476,16 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: Colors.amber.withOpacity(0.15),
+                color: Colors.amber.withValues(alpha: 0.15),
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: Colors.amber.withOpacity(0.5)),
+                border: Border.all(color: Colors.amber.withValues(alpha: 0.5)),
               ),
               child: Column(
                 children: [
                   Row(
                     children: [
-                      const Icon(Icons.shield_outlined, color: Colors.amber, size: 18),
+                      const Icon(Icons.shield_outlined,
+                          color: Colors.amber, size: 18),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
@@ -470,9 +500,9 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
                     ],
                   ),
                   const SizedBox(height: 6),
-                  const Text(
+                  Text(
                     '请在上方网页中手动完成滑动或点击验证，完成后点击“我已通过验证”继续。',
-                    style: TextStyle(fontSize: 12, color: Colors.white70),
+                    style: TextStyle(fontSize: 12, color: muted),
                   ),
                   const SizedBox(height: 10),
                   Row(
@@ -481,8 +511,8 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
                       OutlinedButton(
                         onPressed: () => widget.onConfirmCaptcha(false),
                         style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.white70,
-                          side: const BorderSide(color: Colors.white30),
+                          foregroundColor: muted,
+                          side: BorderSide(color: hairline),
                         ),
                         child: const Text('中止任务'),
                       ),
@@ -508,16 +538,18 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: Colors.redAccent.withOpacity(0.15),
+                color: Colors.redAccent.withValues(alpha: 0.15),
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: Colors.redAccent.withOpacity(0.5)),
+                border:
+                    Border.all(color: Colors.redAccent.withValues(alpha: 0.5)),
               ),
               child: Column(
                 children: [
-                  Row(
+                  const Row(
                     mainAxisAlignment: MainAxisAlignment.center,
-                    children: const [
-                      Icon(Icons.shield_outlined, size: 16, color: Colors.redAccent),
+                    children: [
+                      Icon(Icons.shield_outlined,
+                          size: 16, color: Colors.redAccent),
                       SizedBox(width: 6),
                       Text(
                         '敏感操作拦截提醒',
@@ -532,7 +564,7 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
                   const SizedBox(height: 4),
                   Text(
                     'AI 准备执行: ${state.currentAction?.description ?? ""}',
-                    style: const TextStyle(fontSize: 12, color: Colors.white),
+                    style: TextStyle(fontSize: 12, color: onSurface),
                   ),
                   const SizedBox(height: 10),
                   Row(
@@ -541,8 +573,8 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
                       OutlinedButton(
                         onPressed: () => widget.onConfirmAction(false),
                         style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.white70,
-                          side: const BorderSide(color: Colors.white30),
+                          foregroundColor: muted,
+                          side: BorderSide(color: hairline),
                         ),
                         child: const Text('取消任务'),
                       ),
@@ -568,7 +600,7 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
             Container(
               constraints: const BoxConstraints(maxHeight: 180),
               decoration: BoxDecoration(
-                color: const Color(0xFF16181C),
+                color: surface,
                 borderRadius: BorderRadius.circular(8),
               ),
               child: StepLogView(logs: state.logs),
@@ -586,11 +618,12 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
             style: const TextStyle(fontSize: 14),
             decoration: InputDecoration(
               hintText: '输入通用指令（抓取数据、发推、搜索、评论或任何网页操作）...',
-              hintStyle: const TextStyle(fontSize: 12, color: Colors.white38),
+              hintStyle: TextStyle(fontSize: 12, color: subtle),
               suffixIcon: isRunning
                   ? null
                   : IconButton(
-                      icon: const Icon(Icons.arrow_upward, color: AppTheme.primary),
+                      icon: const Icon(Icons.arrow_upward,
+                          color: AppTheme.primary),
                       onPressed: () {
                         final text = _goalController.text.trim();
                         if (text.isNotEmpty) {
@@ -611,13 +644,14 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
                   return Padding(
                     padding: const EdgeInsets.only(right: 6.0),
                     child: ActionChip(
-                      avatar: const Icon(Icons.auto_awesome, size: 14, color: AppTheme.primary),
+                      avatar: const Icon(Icons.auto_awesome,
+                          size: 14, color: AppTheme.primary),
                       label: Text(
                         recipe['title']!,
-                        style: const TextStyle(fontSize: 11, color: Colors.white70),
+                        style: TextStyle(fontSize: 11, color: muted),
                       ),
-                      backgroundColor: const Color(0xFF16181C),
-                      side: const BorderSide(color: AppTheme.darkBorder),
+                      backgroundColor: surface,
+                      side: BorderSide(color: hairline),
                       onPressed: () {
                         _goalController.text = recipe['prompt']!;
                       },
@@ -639,13 +673,16 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
                         ? widget.onResume
                         : widget.onPause,
                     icon: Icon(
-                      state.status == AgentStatus.paused ? Icons.play_arrow : Icons.pause,
+                      state.status == AgentStatus.paused
+                          ? Icons.play_arrow
+                          : Icons.pause,
                       size: 18,
                     ),
-                    label: Text(state.status == AgentStatus.paused ? '恢复' : '暂停'),
+                    label:
+                        Text(state.status == AgentStatus.paused ? '恢复' : '暂停'),
                     style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.white,
-                      side: const BorderSide(color: AppTheme.darkBorder),
+                      foregroundColor: onSurface,
+                      side: BorderSide(color: hairline),
                     ),
                   ),
                 ),
@@ -656,7 +693,7 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
                     icon: const Icon(Icons.stop, size: 18),
                     label: const Text('停止运行'),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.redAccent.withOpacity(0.8),
+                      backgroundColor: Colors.redAccent.withValues(alpha: 0.8),
                       foregroundColor: Colors.white,
                     ),
                   ),

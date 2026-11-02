@@ -10,21 +10,28 @@ class SelectionActionDialog extends StatefulWidget {
   final Function(String text)? onFillInput;
 
   const SelectionActionDialog({
-    Key? key,
+    super.key,
     required this.selectedText,
     required this.config,
     this.onFillInput,
-  }) : super(key: key);
+  });
 
   @override
   State<SelectionActionDialog> createState() => _SelectionActionDialogState();
 }
 
 class _SelectionActionDialogState extends State<SelectionActionDialog> {
+  final LlmService _llmService = LlmService();
   bool _isLoading = false;
   String? _resultText;
   String? _currentAction;
   String? _error;
+
+  @override
+  void dispose() {
+    _llmService.dispose();
+    super.dispose();
+  }
 
   Future<void> _executeAction(String actionType, String label) async {
     setState(() {
@@ -35,8 +42,7 @@ class _SelectionActionDialogState extends State<SelectionActionDialog> {
     });
 
     try {
-      final llmService = LlmService();
-      final result = await llmService.querySelection(
+      final result = await _llmService.querySelection(
         config: widget.config,
         selectedText: widget.selectedText,
         actionType: actionType,
@@ -83,16 +89,18 @@ class _SelectionActionDialogState extends State<SelectionActionDialog> {
         16,
         12,
         16,
-        MediaQuery.of(context).viewInsets.bottom + 20,
+        MediaQuery.of(context).viewInsets.bottom +
+            MediaQuery.of(context).viewPadding.bottom +
+            20,
       ),
       decoration: BoxDecoration(
         color: cardBg,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
         boxShadow: const [
           BoxShadow(
             color: Colors.black26,
-            blurRadius: 16,
-            offset: Offset(0, -4),
+            blurRadius: 18,
+            offset: Offset(0, -6),
           ),
         ],
       ),
@@ -116,9 +124,11 @@ class _SelectionActionDialogState extends State<SelectionActionDialog> {
           // Title & Selected text preview
           Row(
             children: [
-              const Icon(Icons.touch_app_outlined, size: 18, color: AppTheme.primary),
+              const Icon(Icons.touch_app_outlined,
+                  size: 18, color: AppTheme.primary),
               const SizedBox(width: 8),
-              const Text('划词 AI 伴随', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+              const Text('划词 AI 伴随',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
               const Spacer(),
               IconButton(
                 icon: const Icon(Icons.close, size: 18),
@@ -157,19 +167,25 @@ class _SelectionActionDialogState extends State<SelectionActionDialog> {
             runSpacing: 6,
             children: [
               ActionChip(
-                avatar: const Icon(Icons.translate, size: 16, color: AppTheme.primary),
+                avatar: const Icon(Icons.translate,
+                    size: 16, color: AppTheme.primary),
                 label: const Text('翻译', style: TextStyle(fontSize: 12)),
-                onPressed: _isLoading ? null : () => _executeAction('translate', '翻译'),
+                onPressed:
+                    _isLoading ? null : () => _executeAction('translate', '翻译'),
               ),
               ActionChip(
-                avatar: const Icon(Icons.lightbulb_outline, size: 16, color: Colors.amber),
+                avatar: const Icon(Icons.lightbulb_outline,
+                    size: 16, color: Colors.amber),
                 label: const Text('解释/释义', style: TextStyle(fontSize: 12)),
-                onPressed: _isLoading ? null : () => _executeAction('explain', '通俗解释'),
+                onPressed:
+                    _isLoading ? null : () => _executeAction('explain', '通俗解释'),
               ),
               ActionChip(
-                avatar: const Icon(Icons.chat_bubble_outline, size: 16, color: AppTheme.accent),
+                avatar: const Icon(Icons.chat_bubble_outline,
+                    size: 16, color: AppTheme.accent),
                 label: const Text('生成评论回复', style: TextStyle(fontSize: 12)),
-                onPressed: _isLoading ? null : () => _executeAction('reply', '生成回复'),
+                onPressed:
+                    _isLoading ? null : () => _executeAction('reply', '生成回复'),
               ),
             ],
           ),
@@ -190,7 +206,8 @@ class _SelectionActionDialogState extends State<SelectionActionDialog> {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     ),
                     const SizedBox(width: 12),
-                    Text('AI 正在$_currentAction中...', style: const TextStyle(fontSize: 13)),
+                    Text('AI 正在$_currentAction中...',
+                        style: const TextStyle(fontSize: 13)),
                   ],
                 ),
               ),
@@ -209,9 +226,12 @@ class _SelectionActionDialogState extends State<SelectionActionDialog> {
                 margin: const EdgeInsets.only(top: 6),
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: isDark ? const Color(0xFF19202A) : const Color(0xFFF7F9FA),
+                  color: isDark
+                      ? const Color(0xFF19202A)
+                      : const Color(0xFFF7F9FA),
                   borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: AppTheme.primary.withOpacity(0.3)),
+                  border: Border.all(
+                      color: AppTheme.primary.withValues(alpha: 0.3)),
                 ),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -231,12 +251,16 @@ class _SelectionActionDialogState extends State<SelectionActionDialog> {
                         InkWell(
                           onTap: _copyResult,
                           child: const Padding(
-                            padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                            padding: EdgeInsets.symmetric(
+                                horizontal: 4, vertical: 2),
                             child: Row(
                               children: [
-                                Icon(Icons.copy, size: 14, color: AppTheme.accent),
+                                Icon(Icons.copy,
+                                    size: 14, color: AppTheme.accent),
                                 SizedBox(width: 4),
-                                Text('复制', style: TextStyle(fontSize: 11, color: AppTheme.accent)),
+                                Text('复制',
+                                    style: TextStyle(
+                                        fontSize: 11, color: AppTheme.accent)),
                               ],
                             ),
                           ),

@@ -12,11 +12,11 @@ class UserScriptsPage extends StatefulWidget {
   final String? domSnippet;
 
   const UserScriptsPage({
-    Key? key,
+    super.key,
     this.currentUrl,
     this.currentTitle,
     this.domSnippet,
-  }) : super(key: key);
+  });
 
   @override
   State<UserScriptsPage> createState() => _UserScriptsPageState();
@@ -43,6 +43,7 @@ class _UserScriptsPageState extends State<UserScriptsPage> {
 
   Future<void> _toggleScript(UserScript script, bool enabled) async {
     await _scriptService?.toggleScript(script.id, enabled);
+    if (!mounted) return;
     setState(() {
       final index = _scripts.indexWhere((s) => s.id == script.id);
       if (index != -1) {
@@ -52,7 +53,8 @@ class _UserScriptsPageState extends State<UserScriptsPage> {
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(enabled ? '已启用脚本: ${script.name}' : '已禁用脚本: ${script.name}'),
+        content:
+            Text(enabled ? '已启用脚本: ${script.name}' : '已禁用脚本: ${script.name}'),
         duration: const Duration(milliseconds: 900),
       ),
     );
@@ -80,6 +82,7 @@ class _UserScriptsPageState extends State<UserScriptsPage> {
 
     if (confirmed == true) {
       await _scriptService?.deleteScript(script.id);
+      if (!mounted) return;
       setState(() {
         _scripts.removeWhere((s) => s.id == script.id);
       });
@@ -113,7 +116,8 @@ class _UserScriptsPageState extends State<UserScriptsPage> {
               ),
               decoration: BoxDecoration(
                 color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+                borderRadius:
+                    const BorderRadius.vertical(top: Radius.circular(20)),
               ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -121,11 +125,13 @@ class _UserScriptsPageState extends State<UserScriptsPage> {
                 children: [
                   Row(
                     children: [
-                      const Icon(Icons.auto_awesome, color: Colors.amber, size: 22),
+                      const Icon(Icons.auto_awesome,
+                          color: Colors.amber, size: 22),
                       const SizedBox(width: 8),
                       const Text(
                         'AI 生成用户脚本',
-                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                        style: TextStyle(
+                            fontSize: 16, fontWeight: FontWeight.bold),
                       ),
                       const Spacer(),
                       IconButton(
@@ -135,17 +141,22 @@ class _UserScriptsPageState extends State<UserScriptsPage> {
                     ],
                   ),
                   const SizedBox(height: 8),
-                  if (widget.currentUrl != null && widget.currentUrl!.isNotEmpty)
+                  if (widget.currentUrl != null &&
+                      widget.currentUrl!.isNotEmpty)
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 6),
                       margin: const EdgeInsets.only(bottom: 12),
                       decoration: BoxDecoration(
-                        color: isDark ? const Color(0xFF16181C) : const Color(0xFFEFF3F4),
+                        color: isDark
+                            ? const Color(0xFF16181C)
+                            : const Color(0xFFEFF3F4),
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Row(
                         children: [
-                          const Icon(Icons.link, size: 14, color: AppTheme.primary),
+                          const Icon(Icons.link,
+                              size: 14, color: AppTheme.primary),
                           const SizedBox(width: 6),
                           Expanded(
                             child: Text(
@@ -175,7 +186,8 @@ class _UserScriptsPageState extends State<UserScriptsPage> {
                     const SizedBox(height: 8),
                     Text(
                       errorText!,
-                      style: const TextStyle(color: Colors.redAccent, fontSize: 12),
+                      style: const TextStyle(
+                          color: Colors.redAccent, fontSize: 12),
                     ),
                   ],
                   const SizedBox(height: 16),
@@ -184,13 +196,15 @@ class _UserScriptsPageState extends State<UserScriptsPage> {
                       backgroundColor: AppTheme.primary,
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(vertical: 13),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10)),
                     ),
                     icon: isGenerating
                         ? const SizedBox(
                             width: 16,
                             height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2, color: Colors.white),
                           )
                         : const Icon(Icons.bolt, size: 18),
                     label: Text(isGenerating ? 'AI 正在分析并编写脚本...' : '开始生成脚本'),
@@ -206,22 +220,28 @@ class _UserScriptsPageState extends State<UserScriptsPage> {
                             });
 
                             try {
-                              final storage = await StorageService.getInstance();
+                              final storage =
+                                  await StorageService.getInstance();
                               final config = storage.getLlmConfig();
                               if (!config.isValid) {
                                 throw Exception('请先在浏览器设置中配置有效的大模型 API Key');
                               }
 
                               final llm = LlmService();
-                              final res = await llm.generateUserScript(
-                                config: config,
-                                prompt: prompt,
-                                currentUrl: widget.currentUrl ?? '',
-                                pageTitle: widget.currentTitle ?? '',
-                                domSnippet: widget.domSnippet,
-                              );
+                              Map<String, String> res;
+                              try {
+                                res = await llm.generateUserScript(
+                                  config: config,
+                                  prompt: prompt,
+                                  currentUrl: widget.currentUrl ?? '',
+                                  pageTitle: widget.currentTitle ?? '',
+                                  domSnippet: widget.domSnippet,
+                                );
+                              } finally {
+                                llm.dispose();
+                              }
 
-                              if (mounted) {
+                              if (mounted && ctx.mounted) {
                                 Navigator.pop(ctx);
                                 _showScriptEditorDialog(
                                   initialScript: UserScript(
@@ -253,13 +273,17 @@ class _UserScriptsPageState extends State<UserScriptsPage> {
     );
   }
 
-  void _showScriptEditorDialog({UserScript? initialScript, bool isNew = false}) {
+  void _showScriptEditorDialog(
+      {UserScript? initialScript, bool isNew = false}) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final nameCtrl = TextEditingController(text: initialScript?.name ?? '');
-    final descCtrl = TextEditingController(text: initialScript?.description ?? '');
-    final matchCtrl = TextEditingController(text: initialScript?.matchPattern ?? '*');
+    final descCtrl =
+        TextEditingController(text: initialScript?.description ?? '');
+    final matchCtrl =
+        TextEditingController(text: initialScript?.matchPattern ?? '*');
     final codeCtrl = TextEditingController(
-      text: initialScript?.code ?? '(() => {\n  try {\n    // 在此编写你的 JS 代码\n  } catch (e) {\n    console.error(e);\n  }\n})();',
+      text: initialScript?.code ??
+          '(() => {\n  try {\n    // 在此编写你的 JS 代码\n  } catch (e) {\n    console.error(e);\n  }\n})();',
     );
 
     showDialog(
@@ -268,7 +292,8 @@ class _UserScriptsPageState extends State<UserScriptsPage> {
       builder: (ctx) => AlertDialog(
         title: Row(
           children: [
-            Icon(isNew ? Icons.add_circle_outline : Icons.edit_note, color: AppTheme.primary),
+            Icon(isNew ? Icons.add_circle_outline : Icons.edit_note,
+                color: AppTheme.primary),
             const SizedBox(width: 8),
             Text(isNew ? '新建用户脚本' : '编辑脚本'),
           ],
@@ -307,7 +332,9 @@ class _UserScriptsPageState extends State<UserScriptsPage> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text('JavaScript 代码:', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold)),
+                    const Text('JavaScript 代码:',
+                        style: TextStyle(
+                            fontSize: 12.5, fontWeight: FontWeight.bold)),
                     TextButton.icon(
                       icon: const Icon(Icons.copy, size: 14),
                       label: const Text('复制', style: TextStyle(fontSize: 12)),
@@ -323,9 +350,14 @@ class _UserScriptsPageState extends State<UserScriptsPage> {
                 Container(
                   height: 190,
                   decoration: BoxDecoration(
-                    color: isDark ? const Color(0xFF14181F) : const Color(0xFFF4F6F8),
+                    color: isDark
+                        ? const Color(0xFF14181F)
+                        : const Color(0xFFF4F6F8),
                     borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder),
+                    border: Border.all(
+                        color: isDark
+                            ? AppTheme.darkBorder
+                            : AppTheme.lightBorder),
                   ),
                   padding: const EdgeInsets.all(8),
                   child: TextField(
@@ -363,10 +395,12 @@ class _UserScriptsPageState extends State<UserScriptsPage> {
               if (name.isEmpty) return;
 
               final script = UserScript(
-                id: initialScript?.id ?? 'script_${DateTime.now().millisecondsSinceEpoch}',
+                id: initialScript?.id ??
+                    'script_${DateTime.now().millisecondsSinceEpoch}',
                 name: name,
                 description: descCtrl.text.trim(),
-                matchPattern: matchCtrl.text.trim().isEmpty ? '*' : matchCtrl.text.trim(),
+                matchPattern:
+                    matchCtrl.text.trim().isEmpty ? '*' : matchCtrl.text.trim(),
                 code: codeCtrl.text.trim(),
                 isEnabled: initialScript?.isEnabled ?? true,
                 createdAt: initialScript?.createdAt ?? DateTime.now(),
@@ -375,9 +409,11 @@ class _UserScriptsPageState extends State<UserScriptsPage> {
 
               await _scriptService?.saveScript(script);
               await _loadScripts();
+              if (!mounted || !ctx.mounted) return;
               Navigator.pop(ctx);
               ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text(isNew ? '已添加并启用脚本: $name' : '已保存修改: $name')),
+                SnackBar(
+                    content: Text(isNew ? '已添加并启用脚本: $name' : '已保存修改: $name')),
               );
             },
             child: const Text('保存脚本'),
@@ -411,10 +447,13 @@ class _UserScriptsPageState extends State<UserScriptsPage> {
                     title: const Text('重置预设'),
                     content: const Text('是否恢复默认预设脚本？自定义脚本将被覆盖。'),
                     actions: [
-                      TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+                      TextButton(
+                          onPressed: () => Navigator.pop(ctx, false),
+                          child: const Text('取消')),
                       TextButton(
                         onPressed: () => Navigator.pop(ctx, true),
-                        style: TextButton.styleFrom(foregroundColor: Colors.redAccent),
+                        style: TextButton.styleFrom(
+                            foregroundColor: Colors.redAccent),
                         child: const Text('重置'),
                       ),
                     ],
@@ -444,15 +483,17 @@ class _UserScriptsPageState extends State<UserScriptsPage> {
                   margin: const EdgeInsets.all(12),
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: AppTheme.primary.withOpacity(0.08),
+                    color: AppTheme.primary.withValues(alpha: 0.08),
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: AppTheme.primary.withOpacity(0.2)),
+                    border: Border.all(
+                        color: AppTheme.primary.withValues(alpha: 0.2)),
                   ),
-                  child: Row(
+                  child: const Row(
                     children: [
-                      const Icon(Icons.lightbulb_outline, size: 20, color: AppTheme.primary),
-                      const SizedBox(width: 10),
-                      const Expanded(
+                      Icon(Icons.lightbulb_outline,
+                          size: 20, color: AppTheme.primary),
+                      SizedBox(width: 10),
+                      Expanded(
                         child: Text(
                           '网页加载完成后自动执行匹配的脚本。随时切换开关即可立即启动或关闭单个脚本。',
                           style: TextStyle(fontSize: 12.5),
@@ -469,18 +510,27 @@ class _UserScriptsPageState extends State<UserScriptsPage> {
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(Icons.code_off, size: 48, color: isDark ? Colors.white30 : Colors.black26),
+                              Icon(Icons.code_off,
+                                  size: 48,
+                                  color:
+                                      isDark ? Colors.white30 : Colors.black26),
                               const SizedBox(height: 12),
-                              const Text('暂无脚本', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w500)),
+                              const Text('暂无脚本',
+                                  style: TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w500)),
                               const SizedBox(height: 6),
-                              const Text('点击下方按钮让 AI 为当前网页编写专属脚本', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                              const Text('点击下方按钮让 AI 为当前网页编写专属脚本',
+                                  style: TextStyle(
+                                      fontSize: 12, color: Colors.grey)),
                             ],
                           ),
                         )
                       : ListView.separated(
                           padding: const EdgeInsets.fromLTRB(12, 0, 12, 80),
                           itemCount: _scripts.length,
-                          separatorBuilder: (_, __) => const SizedBox(height: 8),
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(height: 8),
                           itemBuilder: (context, index) {
                             final script = _scripts[index];
                             return _buildScriptCard(script, isDark);
@@ -506,7 +556,7 @@ class _UserScriptsPageState extends State<UserScriptsPage> {
         borderRadius: BorderRadius.circular(12),
         side: BorderSide(
           color: script.isEnabled
-              ? AppTheme.primary.withOpacity(0.35)
+              ? AppTheme.primary.withValues(alpha: 0.35)
               : (isDark ? AppTheme.darkBorder : AppTheme.lightBorder),
           width: script.isEnabled ? 1.5 : 1,
         ),
@@ -543,7 +593,7 @@ class _UserScriptsPageState extends State<UserScriptsPage> {
                 // Toggle Switch for Enable / Disable
                 Switch.adaptive(
                   value: script.isEnabled,
-                  activeColor: AppTheme.primary,
+                  activeThumbColor: AppTheme.primary,
                   onChanged: (val) => _toggleScript(script, val),
                 ),
               ],
@@ -554,7 +604,8 @@ class _UserScriptsPageState extends State<UserScriptsPage> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
               decoration: BoxDecoration(
-                color: isDark ? const Color(0xFF19202A) : const Color(0xFFEFF3F4),
+                color:
+                    isDark ? const Color(0xFF19202A) : const Color(0xFFEFF3F4),
                 borderRadius: BorderRadius.circular(6),
               ),
               child: Text(
@@ -591,10 +642,12 @@ class _UserScriptsPageState extends State<UserScriptsPage> {
                 TextButton.icon(
                   icon: const Icon(Icons.code, size: 15),
                   label: const Text('查看/编辑', style: TextStyle(fontSize: 12)),
-                  onPressed: () => _showScriptEditorDialog(initialScript: script, isNew: false),
+                  onPressed: () => _showScriptEditorDialog(
+                      initialScript: script, isNew: false),
                 ),
                 IconButton(
-                  icon: const Icon(Icons.delete_outline, size: 18, color: Colors.redAccent),
+                  icon: const Icon(Icons.delete_outline,
+                      size: 18, color: Colors.redAccent),
                   tooltip: '删除脚本',
                   onPressed: () => _deleteScript(script),
                 ),

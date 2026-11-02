@@ -5,17 +5,21 @@ import '../../models/agent_state.dart';
 class StepLogView extends StatelessWidget {
   final List<AgentLogItem> logs;
 
-  const StepLogView({Key? key, required this.logs}) : super(key: key);
+  const StepLogView({super.key, required this.logs});
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final muted = theme.colorScheme.onSurface.withValues(alpha: 0.6);
+    final subtle = theme.colorScheme.onSurface.withValues(alpha: 0.38);
+
     if (logs.isEmpty) {
-      return const Center(
+      return Center(
         child: Padding(
-          padding: EdgeInsets.all(24.0),
+          padding: const EdgeInsets.all(24.0),
           child: Text(
             '尚未开始执行，输入任务指令后点击开始',
-            style: TextStyle(color: Colors.white54, fontSize: 13),
+            style: TextStyle(color: subtle, fontSize: 13),
           ),
         ),
       );
@@ -39,8 +43,8 @@ class StepLogView extends StatelessWidget {
                 height: 22,
                 decoration: BoxDecoration(
                   color: log.isError
-                      ? Colors.redAccent.withOpacity(0.2)
-                      : AppTheme.primary.withOpacity(0.2),
+                      ? Colors.redAccent.withValues(alpha: 0.2)
+                      : AppTheme.primary.withValues(alpha: 0.2),
                   shape: BoxShape.circle,
                 ),
                 alignment: Alignment.center,
@@ -63,16 +67,18 @@ class StepLogView extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
-                        color: log.isError ? Colors.redAccent : Colors.white,
+                        color: log.isError
+                            ? Colors.redAccent
+                            : theme.colorScheme.onSurface,
                       ),
                     ),
                     if (log.detail != null) ...[
                       const SizedBox(height: 2),
                       Text(
                         log.detail!,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 11,
-                          color: Colors.white70,
+                          color: muted,
                         ),
                       ),
                     ],

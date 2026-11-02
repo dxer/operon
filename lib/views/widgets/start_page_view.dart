@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../config/app_theme.dart';
 import '../../services/storage_service.dart';
 
@@ -7,10 +8,10 @@ class StartPageView extends StatefulWidget {
   final Function(String url) onOpenUrl;
 
   const StartPageView({
-    Key? key,
+    super.key,
     required this.storageService,
     required this.onOpenUrl,
-  }) : super(key: key);
+  });
 
   @override
   State<StartPageView> createState() => _StartPageViewState();
@@ -20,18 +21,33 @@ class _StartPageViewState extends State<StartPageView> {
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _focusNode = FocusNode();
   List<Map<String, String>> _shortcuts = [];
+  bool _hasFocus = false;
 
   @override
   void initState() {
     super.initState();
+    _focusNode.addListener(_onFocusChanged);
+    _searchController.addListener(_onSearchChanged);
     _loadShortcuts();
   }
 
   @override
   void dispose() {
+    _searchController.removeListener(_onSearchChanged);
+    _focusNode.removeListener(_onFocusChanged);
     _searchController.dispose();
     _focusNode.dispose();
     super.dispose();
+  }
+
+  void _onSearchChanged() {
+    if (mounted) setState(() {});
+  }
+
+  void _onFocusChanged() {
+    if (mounted && _hasFocus != _focusNode.hasFocus) {
+      setState(() => _hasFocus = _focusNode.hasFocus);
+    }
   }
 
   void _loadShortcuts() {
@@ -43,6 +59,8 @@ class _StartPageViewState extends State<StartPageView> {
   void _handleSubmit(String input) {
     final query = input.trim();
     if (query.isEmpty) return;
+    HapticFeedback.selectionClick();
+    _focusNode.unfocus();
     widget.onOpenUrl(query);
   }
 
@@ -91,7 +109,7 @@ class _StartPageViewState extends State<StartPageView> {
                 list.add({'title': title, 'url': url});
                 await widget.storageService.saveShortcuts(list);
                 _loadShortcuts();
-                if (mounted) Navigator.pop(ctx);
+                if (ctx.mounted) Navigator.pop(ctx);
               }
             },
             child: const Text('添加'),
@@ -120,7 +138,8 @@ class _StartPageViewState extends State<StartPageView> {
             ),
             const Divider(height: 1),
             ListTile(
-              leading: const Icon(Icons.delete_outline, color: Colors.redAccent),
+              leading:
+                  const Icon(Icons.delete_outline, color: Colors.redAccent),
               title: const Text('删除此快捷方式',
                   style: TextStyle(color: Colors.redAccent)),
               onTap: () async {
@@ -218,216 +237,299 @@ class _StartPageViewState extends State<StartPageView> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bg = isDark ? AppTheme.darkBg : AppTheme.lightBg;
-    final inputBg = isDark ? const Color(0xFF1B222A) : Colors.white;
-    final borderColor = isDark ? AppTheme.darkBorder : AppTheme.lightBorder;
-    final tileBg = isDark ? const Color(0xFF1E2630) : Colors.white;
+    final bgTop = isDark ? const Color(0xFF141C26) : const Color(0xFFFDFEFF);
+    final bgBottom = isDark ? AppTheme.darkBg : AppTheme.lightBg;
+    final inputBg = isDark ? const Color(0xFF1B2431) : Colors.white;
+    final borderColor = _hasFocus
+        ? AppTheme.primary
+        : (isDark ? const Color(0xFF2D3744) : const Color(0xFFE1E7EC));
+    final tileBg = isDark ? const Color(0xFF1B2431) : Colors.white;
+    final tileBorder =
+        isDark ? const Color(0xFF2A3442) : const Color(0xFFE8EDF1);
+    final subtle = isDark ? Colors.white38 : Colors.black38;
+
+    Widget shortcutGrid() {
+      return GridView.builder(
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        itemCount: _shortcuts.length + 1,
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 4,
+          mainAxisSpacing: 20,
+          crossAxisSpacing: 10,
+          childAspectRatio: 0.8,
+        ),
+        itemBuilder: (context, index) {
+          if (index == _shortcuts.length) {
+            return _ShortcutTile(
+              label: '添加',
+              tileBg: tileBg,
+              borderColor: tileBorder,
+              isDark: isDark,
+              onTap: _showAddShortcutDialog,
+              child: Icon(Icons.add_rounded, size: 22, color: subtle),
+            );
+          }
+
+          final item = _shortcuts[index];
+          final title = item['title'] ?? '';
+          final url = item['url'] ?? '';
+
+          return _ShortcutTile(
+            label: title,
+            tileBg: tileBg,
+            borderColor: tileBorder,
+            isDark: isDark,
+            onTap: () {
+              HapticFeedback.selectionClick();
+              widget.onOpenUrl(url);
+            },
+            onLongPress: () => _showShortcutOptions(index),
+            child: _buildShortcutIcon(title, isDark),
+          );
+        },
+      );
+    }
 
     return Container(
-      color: bg,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [bgTop, bgBottom],
+        ),
+      ),
       child: SafeArea(
         child: Center(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const SizedBox(height: 20),
-
-                // 1. Minimalist Monochrome Brand Logo
-                Text(
-                  'OPERON',
-                  style: TextStyle(
-                    fontSize: 32,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 6.0,
-                    color: isDark ? Colors.white : Colors.black,
+            physics: const BouncingScrollPhysics(),
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
+            child: TweenAnimationBuilder<double>(
+              tween: Tween(begin: 0, end: 1),
+              duration: const Duration(milliseconds: 460),
+              curve: Curves.easeOutCubic,
+              builder: (context, value, child) {
+                return Opacity(
+                  opacity: value,
+                  child: Transform.translate(
+                    offset: Offset(0, 14 * (1 - value)),
+                    child: child,
                   ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  'AUTONOMOUS AI BROWSER',
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 3.0,
-                    color: isDark ? Colors.white38 : Colors.black38,
-                  ),
-                ),
-                const SizedBox(height: 36),
-
-                // 2. Centered Search Box
-                Container(
-                  height: 48,
-                  decoration: BoxDecoration(
-                    color: inputBg,
-                    borderRadius: BorderRadius.circular(24),
-                    border: Border.all(color: borderColor, width: 1.2),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(isDark ? 0.3 : 0.05),
-                        blurRadius: 16,
-                        offset: const Offset(0, 4),
+                );
+              },
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  // Brand mark
+                  Container(
+                    width: 54,
+                    height: 54,
+                    decoration: BoxDecoration(
+                      color: isDark
+                          ? Colors.white.withValues(alpha: 0.06)
+                          : Colors.black.withValues(alpha: 0.035),
+                      borderRadius: BorderRadius.circular(17),
+                      border: Border.all(
+                        color: isDark
+                            ? Colors.white.withValues(alpha: 0.08)
+                            : Colors.black.withValues(alpha: 0.05),
+                        width: 0.8,
                       ),
-                    ],
+                    ),
+                    child: Icon(
+                      Icons.auto_awesome_rounded,
+                      size: 25,
+                      color: isDark ? Colors.white : const Color(0xFF0F141C),
+                    ),
                   ),
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.search_rounded,
-                        size: 20,
-                        color: isDark ? Colors.white54 : Colors.black45,
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: TextField(
-                          controller: _searchController,
-                          focusNode: _focusNode,
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: isDark ? Colors.white : Colors.black87,
-                          ),
-                          decoration: InputDecoration(
-                            hintText: '搜索或输入网址...',
-                            hintStyle: TextStyle(
-                              fontSize: 14,
-                              color: isDark ? Colors.white38 : Colors.black38,
-                            ),
-                            border: InputBorder.none,
-                            isDense: true,
-                            contentPadding: EdgeInsets.zero,
-                          ),
-                          textInputAction: TextInputAction.go,
-                          onSubmitted: _handleSubmit,
-                        ),
-                      ),
-                      if (_searchController.text.isNotEmpty)
-                        GestureDetector(
-                          onTap: () {
-                            _searchController.clear();
-                            setState(() {});
-                          },
-                          child: Icon(
-                            Icons.close_rounded,
-                            size: 18,
-                            color: isDark ? Colors.white38 : Colors.black38,
-                          ),
-                        )
-                      else
-                        IconButton(
-                          icon: Icon(
-                            Icons.arrow_forward_rounded,
-                            size: 18,
-                            color: isDark ? Colors.white54 : Colors.black45,
-                          ),
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(),
-                          onPressed: () => _handleSubmit(_searchController.text),
-                        ),
-                    ],
+                  const SizedBox(height: 18),
+                  Text(
+                    'OPERON',
+                    style: TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 8.0,
+                      color: isDark ? Colors.white : const Color(0xFF0F141C),
+                    ),
                   ),
-                ),
-                const SizedBox(height: 36),
-
-                // 3. Via-Style Shortcuts Grid (4 Columns)
-                GridView.builder(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemCount: _shortcuts.length + 1,
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 4,
-                    mainAxisSpacing: 18,
-                    crossAxisSpacing: 12,
-                    childAspectRatio: 0.82,
+                  const SizedBox(height: 8),
+                  Text(
+                    'DON\'T JUST BROWSE. OPERATE.',
+                    style: TextStyle(
+                      fontSize: 9,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 2.4,
+                      color: subtle,
+                    ),
                   ),
-                  itemBuilder: (context, index) {
-                    // Last item is "+ Add Shortcut"
-                    if (index == _shortcuts.length) {
-                      return InkWell(
-                        borderRadius: BorderRadius.circular(16),
-                        onTap: _showAddShortcutDialog,
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Container(
-                              width: 50,
-                              height: 50,
-                              decoration: BoxDecoration(
-                                color: tileBg,
-                                borderRadius: BorderRadius.circular(14),
-                                border: Border.all(
-                                    color: borderColor,
-                                    style: BorderStyle.solid),
-                              ),
-                              child: Icon(
-                                Icons.add_rounded,
-                                size: 22,
-                                color: isDark ? Colors.white54 : Colors.black45,
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              '添加',
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: isDark ? Colors.white54 : Colors.black45,
-                              ),
-                            ),
-                          ],
-                        ),
-                      );
-                    }
+                  const SizedBox(height: 34),
 
-                    final item = _shortcuts[index];
-                    final title = item['title'] ?? '';
-                    final url = item['url'] ?? '';
-
-                    return InkWell(
-                      borderRadius: BorderRadius.circular(16),
-                      onTap: () => widget.onOpenUrl(url),
-                      onLongPress: () => _showShortcutOptions(index),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Container(
-                            width: 50,
-                            height: 50,
-                            decoration: BoxDecoration(
-                              color: tileBg,
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(color: borderColor),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withOpacity(isDark ? 0.2 : 0.04),
-                                  blurRadius: 8,
-                                  offset: const Offset(0, 2),
-                                ),
-                              ],
-                            ),
-                            child: _buildShortcutIcon(title, isDark),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w500,
-                              color: isDark ? Colors.white70 : Colors.black87,
-                            ),
+                  // Search box
+                  GestureDetector(
+                    onTap: () => _focusNode.requestFocus(),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 180),
+                      curve: Curves.easeOut,
+                      height: 54,
+                      decoration: BoxDecoration(
+                        color: inputBg,
+                        borderRadius: BorderRadius.circular(27),
+                        border: Border.all(color: borderColor, width: 1.2),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black
+                                .withValues(alpha: isDark ? 0.32 : 0.06),
+                            blurRadius: 22,
+                            offset: const Offset(0, 6),
                           ),
                         ],
                       ),
-                    );
-                  },
-                ),
-                const SizedBox(height: 40),
-              ],
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.search_rounded,
+                            size: 22,
+                            color: isDark ? Colors.white54 : Colors.black45,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: TextField(
+                              controller: _searchController,
+                              focusNode: _focusNode,
+                              textAlignVertical: TextAlignVertical.center,
+                              cursorColor: AppTheme.primary,
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.normal,
+                                color: isDark ? Colors.white : Colors.black87,
+                              ),
+                              decoration: InputDecoration(
+                                hintText: '搜索或输入网址',
+                                hintStyle: TextStyle(
+                                  fontSize: 16,
+                                  color:
+                                      isDark ? Colors.white38 : Colors.black38,
+                                ),
+                                border: InputBorder.none,
+                                contentPadding:
+                                    const EdgeInsets.symmetric(vertical: 12),
+                              ),
+                              textInputAction: TextInputAction.go,
+                              onSubmitted: _handleSubmit,
+                            ),
+                          ),
+                          if (_searchController.text.isNotEmpty)
+                            GestureDetector(
+                              onTap: () {
+                                _searchController.clear();
+                                setState(() {});
+                              },
+                              child: Padding(
+                                padding: const EdgeInsets.all(4),
+                                child: Icon(
+                                  Icons.close_rounded,
+                                  size: 18,
+                                  color:
+                                      isDark ? Colors.white38 : Colors.black38,
+                                ),
+                              ),
+                            )
+                          else
+                            IconButton(
+                              icon: Icon(
+                                Icons.arrow_forward_rounded,
+                                size: 20,
+                                color: isDark ? Colors.white54 : Colors.black45,
+                              ),
+                              padding: const EdgeInsets.all(4),
+                              constraints: const BoxConstraints(),
+                              onPressed: () =>
+                                  _handleSubmit(_searchController.text),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 32),
+
+                  // Via-style shortcut grid
+                  shortcutGrid(),
+                  if (_shortcuts.isNotEmpty) ...[
+                    const SizedBox(height: 20),
+                    Text(
+                      '长按快捷方式可删除',
+                      style: TextStyle(fontSize: 10.5, color: subtle),
+                    ),
+                  ],
+                ],
+              ),
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _ShortcutTile extends StatelessWidget {
+  final String label;
+  final Color tileBg;
+  final Color borderColor;
+  final bool isDark;
+  final Widget child;
+  final VoidCallback onTap;
+  final VoidCallback? onLongPress;
+
+  const _ShortcutTile({
+    required this.label,
+    required this.tileBg,
+    required this.borderColor,
+    required this.isDark,
+    required this.child,
+    required this.onTap,
+    this.onLongPress,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(18),
+      onTap: onTap,
+      onLongPress: onLongPress,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(
+            width: 50,
+            height: 50,
+            decoration: BoxDecoration(
+              color: tileBg,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: borderColor, width: 0.8),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: isDark ? 0.18 : 0.035),
+                  blurRadius: 10,
+                  offset: const Offset(0, 3),
+                ),
+              ],
+            ),
+            child: child,
+          ),
+          const SizedBox(height: 7),
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 11.5,
+              fontWeight: FontWeight.w500,
+              color: isDark ? Colors.white70 : const Color(0xFF0F141C),
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -12,6 +12,14 @@ if (localPropertiesFile.exists()) {
     }
 }
 
+def keystoreProperties = new Properties()
+def keystorePropertiesFile = rootProject.file('keystore.properties')
+if (keystorePropertiesFile.exists()) {
+    keystorePropertiesFile.withReader('UTF-8') { reader ->
+        keystoreProperties.load(reader)
+    }
+}
+
 def flutterVersionCode = localProperties.getProperty('flutter.versionCode')
 if (flutterVersionCode == null) {
     flutterVersionCode = '1'
@@ -48,10 +56,13 @@ android {
 
     signingConfigs {
         release {
-            storeFile file('operon.jks')
-            storePassword 'operon123'
-            keyAlias 'operon'
-            keyPassword 'operon123'
+            // CI keeps using the committed keystore so updates stay installable.
+            // Local/private builds can override these via keystore.properties or
+            // environment variables without editing this file.
+            storeFile file(keystoreProperties.getProperty('storeFile', 'operon.jks'))
+            storePassword System.getenv('OPERON_STORE_PASSWORD') ?: keystoreProperties.getProperty('storePassword', 'operon123')
+            keyAlias keystoreProperties.getProperty('keyAlias', 'operon')
+            keyPassword System.getenv('OPERON_KEY_PASSWORD') ?: keystoreProperties.getProperty('keyPassword', 'operon123')
         }
     }
 

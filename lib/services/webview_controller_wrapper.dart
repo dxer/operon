@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
@@ -65,7 +64,8 @@ class WebViewControllerWrapper {
   }
 
   /// Extracts the observable interactive DOM representation & key content
-  Future<DOMSnapshot> extractPrunedDOM({bool showBadges = true, bool includeContent = true}) async {
+  Future<DOMSnapshot> extractPrunedDOM(
+      {bool showBadges = true, bool includeContent = true}) async {
     await ensureScriptInjected();
 
     final result = await controller.evaluateJavascript(
@@ -76,8 +76,9 @@ class WebViewControllerWrapper {
       throw Exception('无法从当前页面读取 DOM 状态');
     }
 
-    final Map<String, dynamic> parsed =
-        result is String ? jsonDecode(result) : Map<String, dynamic>.from(result);
+    final Map<String, dynamic> parsed = result is String
+        ? jsonDecode(result)
+        : Map<String, dynamic>.from(result);
 
     return DOMSnapshot.fromJson(parsed);
   }
@@ -122,10 +123,13 @@ class WebViewControllerWrapper {
   Future<bool> waitForDomStable({int timeoutMs = 2500}) async {
     try {
       await ensureScriptInjected();
-      final res = await controller.evaluateJavascript(
-        source: 'await window.OPERON.waitForDomStable($timeoutMs);',
+      // `callAsyncJavaScript` runs the body inside an async function, so the
+      // Promise returned by waitForDomStable is properly awaited on Android.
+      final res = await controller.callAsyncJavaScript(
+        functionBody: 'return await window.OPERON.waitForDomStable(timeoutMs);',
+        arguments: {'timeoutMs': timeoutMs},
       );
-      return res == true;
+      return res?.value == true;
     } catch (_) {
       return false;
     }
@@ -156,7 +160,8 @@ class WebViewControllerWrapper {
     try {
       await ensureScriptInjected();
       final res = await controller.evaluateJavascript(
-        source: 'if (window.OPERON && window.OPERON.cleanPageMode) { window.OPERON.cleanPageMode(); }',
+        source:
+            'if (window.OPERON && window.OPERON.cleanPageMode) { window.OPERON.cleanPageMode(); }',
       );
       if (res != null) {
         return res is String ? jsonDecode(res) : Map<String, dynamic>.from(res);
@@ -170,7 +175,8 @@ class WebViewControllerWrapper {
     try {
       await ensureScriptInjected();
       final res = await controller.evaluateJavascript(
-        source: 'if (window.OPERON && window.OPERON.extractReadableContent) { window.OPERON.extractReadableContent(); }',
+        source:
+            'if (window.OPERON && window.OPERON.extractReadableContent) { window.OPERON.extractReadableContent(); }',
       );
       if (res != null) {
         return res is String ? jsonDecode(res) : Map<String, dynamic>.from(res);
@@ -199,7 +205,8 @@ class WebViewControllerWrapper {
     try {
       await ensureScriptInjected();
       final res = await controller.evaluateJavascript(
-        source: 'if (window.OPERON && window.OPERON.getSelectedTextInfo) { window.OPERON.getSelectedTextInfo(); }',
+        source:
+            'if (window.OPERON && window.OPERON.getSelectedTextInfo) { window.OPERON.getSelectedTextInfo(); }',
       );
       if (res != null) {
         return res is String ? jsonDecode(res) : Map<String, dynamic>.from(res);

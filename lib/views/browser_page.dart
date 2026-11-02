@@ -14,6 +14,7 @@ import '../services/agent_runner.dart';
 import '../services/macro_service.dart';
 import '../services/notification_service.dart';
 import '../services/storage_service.dart';
+import '../services/theme_service.dart';
 import '../services/user_script_service.dart';
 import '../services/webview_controller_wrapper.dart';
 import 'settings/settings_page.dart';
@@ -29,7 +30,7 @@ import 'widgets/start_page_view.dart';
 import 'widgets/bottom_toolbar.dart';
 
 class BrowserPage extends StatefulWidget {
-  const BrowserPage({Key? key}) : super(key: key);
+  const BrowserPage({super.key});
 
   @override
   State<BrowserPage> createState() => _BrowserPageState();
@@ -38,6 +39,7 @@ class BrowserPage extends StatefulWidget {
 class _BrowserPageState extends State<BrowserPage> {
   late AgentRunner _agentRunner;
   StorageService? _storage;
+  ThemeService? _themeService;
   StreamSubscription<AgentState>? _agentSub;
 
   final TextEditingController _urlController = TextEditingController();
@@ -47,20 +49,11 @@ class _BrowserPageState extends State<BrowserPage> {
   int _currentTabIndex = 0;
 
   WebTab get _currentTab {
-    if (_tabs.isEmpty) {
-      final homepage = _storage?.getHomepage() ?? AppConstants.defaultHomepage;
-      _tabs.add(WebTab(
-        id: 'tab_init',
-        url: homepage,
-        title: '新标签页',
-      ));
-      _currentTabIndex = 0;
-    }
-    if (_currentTabIndex >= _tabs.length) {
-      _currentTabIndex = _tabs.length - 1;
-    }
-    return _tabs[_currentTabIndex];
+    final index = _currentTabIndex.clamp(0, _tabs.length - 1);
+    return _tabs[index];
   }
+
+  ThemeMode get _themeMode => _themeService?.themeMode ?? ThemeMode.system;
 
   InAppWebViewController? get _webViewController => _currentTab.controller;
   WebViewControllerWrapper? get _wrapper => _currentTab.wrapper;
@@ -76,6 +69,12 @@ class _BrowserPageState extends State<BrowserPage> {
   @override
   void initState() {
     super.initState();
+    // Seed the first tab synchronously so build() never mutates state.
+    _tabs.add(WebTab(
+      id: 'tab_${DateTime.now().millisecondsSinceEpoch}',
+      url: AppConstants.defaultHomepage,
+      title: '新标签页',
+    ));
     _agentRunner = AgentRunner();
     _agentSub = _agentRunner.stateStream.listen((state) {
       if (mounted) {
@@ -90,18 +89,25 @@ class _BrowserPageState extends State<BrowserPage> {
 
   Future<void> _initStorage() async {
     _storage = await StorageService.getInstance();
+    _themeService = await ThemeService.getInstance();
     final homepage = _storage?.getHomepage() ?? AppConstants.defaultHomepage;
     final isDesktop = _storage?.getDesktopMode() ?? false;
 
-    if (_tabs.isEmpty) {
-      _tabs.add(WebTab(
-        id: 'tab_${DateTime.now().millisecondsSinceEpoch}',
-        url: homepage,
-        title: '主页',
-        isDesktopMode: isDesktop,
-      ));
-      _currentTabIndex = 0;
-      _urlController.text = homepage;
+    // The seed tab has not navigated yet: apply the user's saved homepage once.
+    if (_tabs.length == 1 && _tabs.first.url == AppConstants.defaultHomepage) {
+      final tab = _tabs.first;
+      final homepageChanged = tab.url != homepage;
+      tab.url = homepage;
+      tab.isDesktopMode = isDesktop;
+      _urlController.text = homepage.startsWith('operon://') ? '' : homepage;
+
+      if (homepageChanged &&
+          tab.controller != null &&
+          homepage.startsWith('http')) {
+        await tab.controller!.loadUrl(
+          urlRequest: URLRequest(url: WebUri(homepage)),
+        );
+      }
     }
 
     if (mounted) setState(() {});
@@ -131,7 +137,8 @@ class _BrowserPageState extends State<BrowserPage> {
       _tabs.add(newTab);
       if (switchToTab) {
         _currentTabIndex = _tabs.length - 1;
-        _urlController.text = targetUrl.startsWith('operon://') ? '' : targetUrl;
+        _urlController.text =
+            targetUrl.startsWith('operon://') ? '' : targetUrl;
       }
     });
   }
@@ -140,7 +147,8 @@ class _BrowserPageState extends State<BrowserPage> {
     if (index < 0 || index >= _tabs.length) return;
     setState(() {
       _currentTabIndex = index;
-      _urlController.text = _currentTab.url;
+      _urlController.text =
+          _currentTab.url.startsWith('operon://') ? '' : _currentTab.url;
     });
   }
 
@@ -149,7 +157,8 @@ class _BrowserPageState extends State<BrowserPage> {
     setState(() {
       _tabs.removeAt(index);
       if (_tabs.isEmpty) {
-        final homepage = _storage?.getHomepage() ?? AppConstants.defaultHomepage;
+        final homepage =
+            _storage?.getHomepage() ?? AppConstants.defaultHomepage;
         _tabs.add(WebTab(
           id: 'tab_${DateTime.now().millisecondsSinceEpoch}',
           url: homepage,
@@ -159,7 +168,8 @@ class _BrowserPageState extends State<BrowserPage> {
       } else if (_currentTabIndex >= _tabs.length) {
         _currentTabIndex = _tabs.length - 1;
       }
-      _urlController.text = _currentTab.url;
+      _urlController.text =
+          _currentTab.url.startsWith('operon://') ? '' : _currentTab.url;
     });
   }
 
@@ -179,10 +189,17 @@ class _BrowserPageState extends State<BrowserPage> {
   }
 
   void _goHome() {
+    _currentTab.controller?.stopLoading();
+    _currentTab.controller?.loadUrl(
+      urlRequest: URLRequest(url: WebUri('about:blank')),
+    );
     setState(() {
       _currentTab.url = 'operon://newtab';
       _currentTab.title = '新标签页';
       _currentTab.errorMessage = null;
+      _currentTab.canGoBack = false;
+      _currentTab.canGoForward = false;
+      _currentTab.isLoading = false;
       _urlController.text = '';
     });
   }
@@ -206,6 +223,11 @@ class _BrowserPageState extends State<BrowserPage> {
     );
   }
 
+  String _normalizeUrl(String url) {
+    if (url.isEmpty || url == 'about:blank') return 'operon://newtab';
+    return url;
+  }
+
   void _loadUrl(String input) {
     String trimmed = input.trim();
     if (trimmed.isEmpty) return;
@@ -215,9 +237,13 @@ class _BrowserPageState extends State<BrowserPage> {
       return;
     }
 
-    final bool hasScheme = trimmed.startsWith('http://') || trimmed.startsWith('https://');
+    final bool hasScheme =
+        trimmed.startsWith('http://') || trimmed.startsWith('https://');
     final bool looksLikeDomain = !trimmed.contains(' ') &&
-        (trimmed.contains('.') || trimmed.startsWith('localhost'));
+        (RegExp(r'^([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}(:\d+)?([/?#].*)?$')
+                .hasMatch(trimmed) ||
+            trimmed.startsWith('localhost') ||
+            RegExp(r'^\d{1,3}(\.\d{1,3}){3}(:\d+)?$').hasMatch(trimmed));
     final bool isUrl = hasScheme || looksLikeDomain;
 
     if (isUrl) {
@@ -226,7 +252,8 @@ class _BrowserPageState extends State<BrowserPage> {
       }
     } else {
       // Assemble search URL based on user's default search engine
-      final engineName = _storage?.getSearchEngine() ?? AppConstants.defaultSearchEngine;
+      final engineName =
+          _storage?.getSearchEngine() ?? AppConstants.defaultSearchEngine;
       final engineBase = AppConstants.searchEngines[engineName] ??
           AppConstants.searchEngines[AppConstants.defaultSearchEngine]!;
       trimmed = '$engineBase${Uri.encodeComponent(trimmed)}';
@@ -236,8 +263,44 @@ class _BrowserPageState extends State<BrowserPage> {
     _currentTab.title = '加载中...';
     _currentTab.errorMessage = null;
     _urlController.text = trimmed;
-    _currentTab.controller?.loadUrl(urlRequest: URLRequest(url: WebUri(trimmed)));
+    _currentTab.controller
+        ?.loadUrl(urlRequest: URLRequest(url: WebUri(trimmed)));
     setState(() {});
+  }
+
+  Future<void> _applyThemeToWebPage(InAppWebViewController controller) async {
+    final webDarkMode = _storage?.getWebDarkMode() ?? false;
+    final isSystemDark =
+        WidgetsBinding.instance.platformDispatcher.platformBrightness ==
+            Brightness.dark;
+    final isDark = webDarkMode ||
+        (_themeMode == ThemeMode.dark) ||
+        (_themeMode == ThemeMode.system && isSystemDark);
+
+    // Nudge pages that declare `color-scheme` support. We deliberately avoid
+    // overriding window.matchMedia(), which breaks sites that genuinely react
+    // to prefers-color-scheme.
+    final jsThemeSync = '''
+    (function() {
+      try {
+        const mode = '${isDark ? 'dark' : 'light'}';
+        let meta = document.querySelector('meta[name="color-scheme"]');
+        if (!meta) {
+          meta = document.createElement('meta');
+          meta.name = 'color-scheme';
+          (document.head || document.documentElement).appendChild(meta);
+        }
+        meta.content = mode;
+        if (document.documentElement) {
+          document.documentElement.style.colorScheme = mode;
+        }
+      } catch(e) {}
+    })();
+    ''';
+
+    try {
+      await controller.evaluateJavascript(source: jsThemeSync);
+    } catch (_) {}
   }
 
   Future<void> _applyCurrentWebViewSettings() async {
@@ -251,16 +314,24 @@ class _BrowserPageState extends State<BrowserPage> {
     final jsEnabled = _storage?.getJavaScriptEnabled() ?? true;
     final textZoom = _storage?.getTextZoom() ?? 100;
 
+    final isSystemDark =
+        WidgetsBinding.instance.platformDispatcher.platformBrightness ==
+            Brightness.dark;
+    final isEffectivelyDark = webDarkMode ||
+        (_themeMode == ThemeMode.dark) ||
+        (_themeMode == ThemeMode.system && isSystemDark);
+
     await _webViewController!.setSettings(
       settings: InAppWebViewSettings(
         userAgent: userAgent,
-        forceDark: webDarkMode ? ForceDark.ON : ForceDark.OFF,
-        algorithmicDarkeningAllowed: webDarkMode,
+        forceDark: isEffectivelyDark ? ForceDark.ON : ForceDark.OFF,
+        algorithmicDarkeningAllowed: isEffectivelyDark,
         blockNetworkImage: blockImages,
         javaScriptEnabled: jsEnabled,
         textZoom: textZoom,
       ),
     );
+    _applyThemeToWebPage(_webViewController!);
   }
 
   void _toggleDesktopMode() async {
@@ -272,7 +343,8 @@ class _BrowserPageState extends State<BrowserPage> {
       setState(() {});
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(_currentTab.isDesktopMode ? '已切换至电脑桌面版模式' : '已切换至移动手机版模式'),
+          content:
+              Text(_currentTab.isDesktopMode ? '已切换至电脑桌面版模式' : '已切换至移动手机版模式'),
           duration: const Duration(seconds: 1),
         ),
       );
@@ -303,7 +375,11 @@ class _BrowserPageState extends State<BrowserPage> {
   }
 
   void _injectMatchedUserScripts(String currentUrl) async {
-    if (currentUrl.isEmpty || currentUrl.startsWith('about:') || _wrapper == null) return;
+    if (currentUrl.isEmpty ||
+        currentUrl.startsWith('about:') ||
+        _wrapper == null) {
+      return;
+    }
     try {
       final scriptService = await UserScriptService.getInstance();
       final scripts = scriptService.getScripts();
@@ -315,7 +391,8 @@ class _BrowserPageState extends State<BrowserPage> {
         }
       }
       if (count > 0) {
-        debugPrint('[UserScript] Injected $count active user scripts into $currentUrl');
+        debugPrint(
+            '[UserScript] Injected $count active user scripts into $currentUrl');
       }
     } catch (e) {
       debugPrint('[UserScript] Injection error: $e');
@@ -605,6 +682,7 @@ class _BrowserPageState extends State<BrowserPage> {
     if (_wrapper == null) return;
 
     final macroService = await MacroService.getInstance();
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('正在重放宏任务: ${macro.title}...'),
@@ -620,6 +698,7 @@ class _BrowserPageState extends State<BrowserPage> {
       },
     );
 
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('宏任务 [${macro.title}] 执行完成！'),
@@ -629,15 +708,16 @@ class _BrowserPageState extends State<BrowserPage> {
   }
 
   void _openSettings() async {
-    final updated = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(builder: (_) => const SettingsPage()),
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => SettingsPage(onRunMacro: _runMacro),
+      ),
     );
-    if (updated == true && mounted) {
-      _storage = await StorageService.getInstance();
-      await _applyCurrentWebViewSettings();
-      _currentTab.controller?.reload();
-      setState(() {});
-    }
+    if (!mounted) return;
+    // Settings sub-pages persist immediately, so always re-apply them on return.
+    _storage = await StorageService.getInstance();
+    await _applyCurrentWebViewSettings();
+    setState(() {});
   }
 
   void _openAgentBottomSheet() {
@@ -660,8 +740,10 @@ class _BrowserPageState extends State<BrowserPage> {
               onPause: () => _agentRunner.pause(),
               onResume: () => _agentRunner.resume(),
               onStop: () => _agentRunner.stop(),
-              onConfirmAction: (confirmed) => _agentRunner.confirmAction(confirmed),
-              onConfirmCaptcha: (passed) => _agentRunner.confirmCaptchaSolved(passed),
+              onConfirmAction: (confirmed) =>
+                  _agentRunner.confirmAction(confirmed),
+              onConfirmCaptcha: (passed) =>
+                  _agentRunner.confirmCaptchaSolved(passed),
               onRunMacro: (macro) {
                 _runMacro(macro);
                 Navigator.of(ctx).pop();
@@ -687,7 +769,8 @@ class _BrowserPageState extends State<BrowserPage> {
             Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
-                color: isDark ? const Color(0xFF1E242B) : const Color(0xFFEFF3F4),
+                color:
+                    isDark ? const Color(0xFF1E242B) : const Color(0xFFEFF3F4),
                 shape: BoxShape.circle,
               ),
               child: const Icon(
@@ -715,8 +798,10 @@ class _BrowserPageState extends State<BrowserPage> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppTheme.primary,
                 foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10)),
               ),
               icon: const Icon(Icons.refresh, size: 18),
               label: const Text('重新加载'),
@@ -747,6 +832,25 @@ class _BrowserPageState extends State<BrowserPage> {
     final jsEnabled = _storage?.getJavaScriptEnabled() ?? true;
     final textZoom = _storage?.getTextZoom() ?? 100;
 
+    final isSystemDark =
+        WidgetsBinding.instance.platformDispatcher.platformBrightness ==
+            Brightness.dark;
+    final isEffectivelyDark = webDarkMode ||
+        (_themeMode == ThemeMode.dark) ||
+        (_themeMode == ThemeMode.system && isSystemDark);
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+
+    tab.pullToRefresh ??= PullToRefreshController(
+      settings: PullToRefreshSettings(
+        enabled: true,
+        color: AppTheme.primary,
+        backgroundColor: isDarkMode ? AppTheme.darkBg : AppTheme.lightBg,
+      ),
+      onRefresh: () async {
+        await tab.controller?.reload();
+      },
+    );
+
     return Stack(
       children: [
         InAppWebView(
@@ -754,6 +858,7 @@ class _BrowserPageState extends State<BrowserPage> {
           initialUrlRequest: URLRequest(
             url: WebUri(tab.url.startsWith('http') ? tab.url : 'about:blank'),
           ),
+          pullToRefreshController: tab.pullToRefresh,
           initialSettings: InAppWebViewSettings(
             userAgent: userAgent,
             javaScriptEnabled: jsEnabled,
@@ -767,8 +872,9 @@ class _BrowserPageState extends State<BrowserPage> {
             builtInZoomControls: false,
             displayZoomControls: false,
             allowsInlineMediaPlayback: true,
-            forceDark: webDarkMode ? ForceDark.ON : ForceDark.OFF,
-            algorithmicDarkeningAllowed: webDarkMode,
+            useHybridComposition: true,
+            forceDark: isEffectivelyDark ? ForceDark.ON : ForceDark.OFF,
+            algorithmicDarkeningAllowed: isEffectivelyDark,
             blockNetworkImage: blockImages,
             textZoom: textZoom,
             supportMultipleWindows: true,
@@ -791,10 +897,13 @@ class _BrowserPageState extends State<BrowserPage> {
             return false;
           },
           onDownloadStartRequest: (controller, downloadStartRequest) async {
-            final filename = downloadStartRequest.suggestedFilename ?? 'download';
+            final filename =
+                downloadStartRequest.suggestedFilename ?? 'download';
             final url = downloadStartRequest.url.toString();
             final len = downloadStartRequest.contentLength;
-            final sizeMb = len > 0 ? ' (${(len / (1024 * 1024)).toStringAsFixed(1)} MB)' : '';
+            final sizeMb = len > 0
+                ? ' (${(len / (1024 * 1024)).toStringAsFixed(1)} MB)'
+                : '';
 
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
@@ -817,10 +926,12 @@ class _BrowserPageState extends State<BrowserPage> {
               tab.progress = 0.1;
               tab.errorMessage = null;
             });
+            _applyThemeToWebPage(controller);
           },
           onLoadStop: (controller, url) async {
+            tab.pullToRefresh?.endRefreshing();
             final title = await controller.getTitle() ?? tab.title;
-            final urlStr = url?.toString() ?? tab.url;
+            final urlStr = _normalizeUrl(url?.toString() ?? tab.url);
             final canBack = await controller.canGoBack();
             final canFwd = await controller.canGoForward();
 
@@ -832,7 +943,8 @@ class _BrowserPageState extends State<BrowserPage> {
               tab.canGoBack = canBack;
               tab.canGoForward = canFwd;
               if (tabIndex == _currentTabIndex) {
-                _urlController.text = urlStr;
+                _urlController.text =
+                    urlStr.startsWith('operon://') ? '' : urlStr;
               }
             });
 
@@ -845,6 +957,8 @@ class _BrowserPageState extends State<BrowserPage> {
                 visitedAt: DateTime.now(),
               ));
             }
+
+            _applyThemeToWebPage(controller);
 
             // Auto-inject agent script when page finishes loading
             if (tab.wrapper != null) {
@@ -868,12 +982,31 @@ class _BrowserPageState extends State<BrowserPage> {
               });
             }
           },
+          onUpdateVisitedHistory: (controller, url, isReload) async {
+            // Keep back/forward arrows and the address bar in sync with SPA
+            // history changes that never trigger onLoadStop.
+            if (url == null) return;
+            final canBack = await controller.canGoBack();
+            final canFwd = await controller.canGoForward();
+            final urlStr = _normalizeUrl(url.toString());
+            if (!mounted) return;
+            setState(() {
+              tab.url = urlStr;
+              tab.canGoBack = canBack;
+              tab.canGoForward = canFwd;
+              if (tabIndex == _currentTabIndex) {
+                _urlController.text =
+                    tab.url.startsWith('operon://') ? '' : tab.url;
+              }
+            });
+          },
           onLongPressHitTestResult: (controller, hitTestResult) {
             final type = hitTestResult.type;
             final extra = hitTestResult.extra;
 
             if ((type == InAppWebViewHitTestResultType.SRC_ANCHOR_TYPE ||
-                 type == InAppWebViewHitTestResultType.SRC_IMAGE_ANCHOR_TYPE) &&
+                    type ==
+                        InAppWebViewHitTestResultType.SRC_IMAGE_ANCHOR_TYPE) &&
                 extra != null &&
                 extra.isNotEmpty) {
               _showLinkContextMenu(extra);
@@ -893,6 +1026,7 @@ class _BrowserPageState extends State<BrowserPage> {
           },
           onReceivedError: (controller, request, error) {
             if (request.isForMainFrame == true) {
+              tab.pullToRefresh?.endRefreshing();
               setState(() {
                 tab.errorMessage = error.description;
                 tab.isLoading = false;
@@ -918,12 +1052,14 @@ class _BrowserPageState extends State<BrowserPage> {
         ),
         // Minimalist Native Start Page Overlay when tab is on operon://newtab
         if (isStartPage && _storage != null)
-          StartPageView(
-            storageService: _storage!,
-            onOpenUrl: _loadUrl,
+          MediaQuery.withClampedTextScaling(
+            maxScaleFactor: 1.3,
+            child: StartPageView(
+              storageService: _storage!,
+              onOpenUrl: _loadUrl,
+            ),
           ),
-        if (!isStartPage && tab.errorMessage != null)
-          _buildErrorOverlay(tab),
+        if (!isStartPage && tab.errorMessage != null) _buildErrorOverlay(tab),
       ],
     );
   }
@@ -931,8 +1067,8 @@ class _BrowserPageState extends State<BrowserPage> {
   void _onUserTouchedWebView(PointerDownEvent event) {
     if (_agentState.isRunning &&
         (_agentState.status == AgentStatus.executing ||
-         _agentState.status == AgentStatus.observing ||
-         _agentState.status == AgentStatus.thinking)) {
+            _agentState.status == AgentStatus.observing ||
+            _agentState.status == AgentStatus.thinking)) {
       _agentRunner.pause();
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -955,7 +1091,8 @@ class _BrowserPageState extends State<BrowserPage> {
       onPopInvokedWithResult: (didPop, result) async {
         if (didPop) return;
         if (!isStartPage) {
-          if (_webViewController != null && await _webViewController!.canGoBack()) {
+          if (_webViewController != null &&
+              await _webViewController!.canGoBack()) {
             await _webViewController!.goBack();
             return;
           } else {
@@ -973,30 +1110,15 @@ class _BrowserPageState extends State<BrowserPage> {
           children: [
             // Top Navigation & Wide Address Bar (shown on web pages)
             if (!isStartPage)
-              BrowserControls(
-                urlController: _urlController,
-                canGoBack: _canGoBack,
-                canGoForward: _canGoForward,
-                isLoading: _isLoading,
-                progress: _progress,
-                isDesktopMode: _isDesktopMode,
-                isCleanMode: _isCleanMode,
-                tabCount: _tabs.length,
-                onBack: () => _webViewController?.goBack(),
-                onForward: () => _webViewController?.goForward(),
-                onReload: () => _webViewController?.reload(),
-                onSubmitUrl: _loadUrl,
-                onOpenSettings: _openSettings,
-                onToggleDesktopMode: _toggleDesktopMode,
-                onSummarize: _quickSummarize,
-                onCleanPage: _toggleCleanMode,
-                onOpenUserScripts: _openUserScripts,
-                onOpenTabOverview: _openTabOverview,
-                onNewTab: () => _createNewTab(),
-                onOpenHistory: () => _openHistoryBookmarksSheet(initialTab: 0),
-                onOpenBookmarks: () => _openHistoryBookmarksSheet(initialTab: 1),
-                onToggleBookmark: _toggleBookmarkCurrentPage,
-                isBookmarked: _storage?.isBookmarked(_currentTab.url) ?? false,
+              MediaQuery.withClampedTextScaling(
+                maxScaleFactor: 1.25,
+                child: BrowserControls(
+                  urlController: _urlController,
+                  isLoading: _isLoading,
+                  progress: _progress,
+                  onSubmitUrl: _loadUrl,
+                  onSummarize: _quickSummarize,
+                ),
               ),
 
             // Full-screen IndexedStack Multi-Tab WebView Canvas with Touch-To-Interrupt & Dynamic Capsule
@@ -1020,14 +1142,19 @@ class _BrowserPageState extends State<BrowserPage> {
                     left: 0,
                     right: 0,
                     child: Center(
-                      child: DynamicAgentCapsule(
-                        state: _agentState,
-                        onTap: _openAgentBottomSheet,
-                        onPause: () => _agentRunner.pause(),
-                        onResume: () => _agentRunner.resume(),
-                        onStop: () => _agentRunner.stop(),
-                        onQuickSummarize: _quickSummarize,
-                        onConfirmCaptcha: () => _agentRunner.confirmCaptchaSolved(true),
+                      child: MediaQuery.withClampedTextScaling(
+                        maxScaleFactor: 1.2,
+                        child: DynamicAgentCapsule(
+                          state: _agentState,
+                          onTap: _openAgentBottomSheet,
+                          onPause: () => _agentRunner.pause(),
+                          onResume: () => _agentRunner.resume(),
+                          onStop: () => _agentRunner.stop(),
+                          onConfirmCaptcha: () =>
+                              _agentRunner.confirmCaptchaSolved(true),
+                          onConfirmAction: () =>
+                              _agentRunner.confirmAction(true),
+                        ),
                       ),
                     ),
                   ),
@@ -1036,29 +1163,34 @@ class _BrowserPageState extends State<BrowserPage> {
             ),
 
             // Via-Style One-Handed Bottom Toolbar
-            BottomToolbar(
-              canGoBack: _canGoBack && !isStartPage,
-              canGoForward: _canGoForward && !isStartPage,
-              isLoading: _isLoading,
-              tabCount: _tabs.length,
-              isBookmarked: _storage?.isBookmarked(_currentTab.url) ?? false,
-              isDesktopMode: _isDesktopMode,
-              isCleanMode: _isCleanMode,
-              onBack: () => _webViewController?.goBack(),
-              onForward: () => _webViewController?.goForward(),
-              onHome: _goHome,
-              onOpenTabs: _openTabOverview,
-              onReload: () => _webViewController?.reload(),
-              onNewTab: () => _createNewTab(),
-              onSummarize: _quickSummarize,
-              onCleanPage: _toggleCleanMode,
-              onOpenUserScripts: _openUserScripts,
-              onToggleBookmark: _toggleBookmarkCurrentPage,
-              onOpenHistory: () => _openHistoryBookmarksSheet(initialTab: 0),
-              onOpenBookmarks: () => _openHistoryBookmarksSheet(initialTab: 1),
-              onToggleDesktopMode: _toggleDesktopMode,
-              onOpenSettings: _openSettings,
-              currentUrl: _currentTab.url,
+            MediaQuery.withClampedTextScaling(
+              maxScaleFactor: 1.25,
+              child: BottomToolbar(
+                canGoBack: _canGoBack && !isStartPage,
+                canGoForward: _canGoForward && !isStartPage,
+                isLoading: _isLoading,
+                tabCount: _tabs.length,
+                isBookmarked: _storage?.isBookmarked(_currentTab.url) ?? false,
+                isDesktopMode: _isDesktopMode,
+                isCleanMode: _isCleanMode,
+                onBack: () => _webViewController?.goBack(),
+                onForward: () => _webViewController?.goForward(),
+                onHome: _goHome,
+                onOpenTabs: _openTabOverview,
+                onReload: () => _webViewController?.reload(),
+                onStopLoad: () => _webViewController?.stopLoading(),
+                onNewTab: () => _createNewTab(),
+                onSummarize: _quickSummarize,
+                onCleanPage: _toggleCleanMode,
+                onOpenUserScripts: _openUserScripts,
+                onToggleBookmark: _toggleBookmarkCurrentPage,
+                onOpenHistory: () => _openHistoryBookmarksSheet(initialTab: 0),
+                onOpenBookmarks: () =>
+                    _openHistoryBookmarksSheet(initialTab: 1),
+                onToggleDesktopMode: _toggleDesktopMode,
+                onOpenSettings: _openSettings,
+                currentUrl: _currentTab.url,
+              ),
             ),
           ],
         ),

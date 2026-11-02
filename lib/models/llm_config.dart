@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 /// Configuration for the OpenAI-compatible LLM provider
 class LlmConfig {
   final String baseUrl;
@@ -86,5 +84,8 @@ class LlmConfig {
     );
   }
 
-  bool get isValid => apiKey.trim().isNotEmpty && baseUrl.trim().isNotEmpty && model.trim().isNotEmpty;
+  bool get isValid =>
+      apiKey.trim().isNotEmpty &&
+      baseUrl.trim().isNotEmpty &&
+      model.trim().isNotEmpty;
 }

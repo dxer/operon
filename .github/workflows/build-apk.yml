@@ -46,6 +46,13 @@ jobs:
       - name: Install Dependencies
         run: flutter pub get
 
+      # 5. Static analysis + unit tests (fail fast before the APK build)
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Run Tests
+        run: flutter test
+
       # 6. Build Release APK (Target modern arm64-v8a: 60% faster compilation, ~25MB lightweight APK)
       - name: Build APK
         run: flutter build apk --release --target-platform android-arm64 --android-skip-build-dependency-validation
@@ -54,7 +61,7 @@ jobs:
       - name: Prepare Direct APK Asset
         run: |
           mkdir -p release-output
-          TAG_NAME="${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'v0.2.0' }}"
+          TAG_NAME="${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'v0.3.0' }}"
           cp build/app/outputs/flutter-apk/app-release.apk "release-output/operon-${TAG_NAME}.apk"
           echo "Direct APK prepared at release-output/operon-${TAG_NAME}.apk"
 
@@ -62,8 +69,8 @@ jobs:
       - name: Publish Direct APK to GitHub Releases
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'v0.2.0' }}
-          name: ${{ startsWith(github.ref, 'refs/tags/v') && format('Operon Release {0}', github.ref_name) || 'Operon Release v0.2.0 (Direct APK)' }}
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'v0.3.0' }}
+          name: ${{ startsWith(github.ref, 'refs/tags/v') && format('Operon Release {0}', github.ref_name) || 'Operon Release v0.3.0 (Direct APK)' }}
           files: release-output/*.apk
           draft: false
           prerelease: ${{ !startsWith(github.ref, 'refs/tags/v') }}

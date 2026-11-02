@@ -10,7 +10,8 @@ import 'webview_controller_wrapper.dart';
 
 class AgentRunner {
   final LlmService _llmService;
-  final NotificationService _notificationService = NotificationService.getInstance();
+  final NotificationService _notificationService =
+      NotificationService.getInstance();
 
   AgentState _state = const AgentState();
   final StreamController<AgentState> _stateController =
@@ -95,7 +96,8 @@ class AgentRunner {
         // 1. Observe (Extract Pruned DOM & Check CAPTCHA)
         DOMSnapshot snapshot;
         try {
-          snapshot = await webView.extractPrunedDOM(showBadges: false, includeContent: true);
+          snapshot = await webView.extractPrunedDOM(
+              showBadges: false, includeContent: true);
         } catch (e) {
           _addLog('获取页面元素失败', detail: e.toString(), isError: true);
           await Future.delayed(const Duration(seconds: 1));
@@ -109,7 +111,8 @@ class AgentRunner {
             captchaType: snapshot.captchaType,
           ));
           _addLog('检测到人机验证码', detail: snapshot.captchaType);
-          await _notificationService.notifyCaptchaDetected(snapshot.captchaType!);
+          await _notificationService
+              .notifyCaptchaDetected(snapshot.captchaType!);
 
           _captchaCompleter = Completer<bool>();
           final passed = await _captchaCompleter!.future;
@@ -191,7 +194,8 @@ class AgentRunner {
             recordedMacroSteps: List.unmodifiable(macroSteps),
           ));
           _addLog('任务顺利完成', detail: action.summary);
-          await _notificationService.notifyTaskCompleted(action.summary ?? '任务完成');
+          await _notificationService
+              .notifyTaskCompleted(action.summary ?? '任务完成');
           await webView.clearHighlights();
           return;
         }
@@ -200,7 +204,8 @@ class AgentRunner {
         if (safeMode && action.isSensitive(action.thought)) {
           _emit(_state.copyWith(status: AgentStatus.waitingConfirmation));
           _addLog('检测到敏感操作，等待人工授权...');
-          await _notificationService.notifyConfirmationNeeded(action.description);
+          await _notificationService
+              .notifyConfirmationNeeded(action.description);
 
           _confirmationCompleter = Completer<bool>();
           final confirmed = await _confirmationCompleter!.future;
@@ -229,7 +234,8 @@ class AgentRunner {
             direction: action.direction,
             description: action.description,
           ));
-          _emit(_state.copyWith(recordedMacroSteps: List.unmodifiable(macroSteps)));
+          _emit(_state.copyWith(
+              recordedMacroSteps: List.unmodifiable(macroSteps)));
         } else if (execResult['success'] == false) {
           _addLog(
             '执行反馈',
@@ -264,7 +270,8 @@ class AgentRunner {
   }
 
   void confirmAction(bool proceed) {
-    if (_confirmationCompleter != null && !_confirmationCompleter!.isCompleted) {
+    if (_confirmationCompleter != null &&
+        !_confirmationCompleter!.isCompleted) {
       _confirmationCompleter!.complete(proceed);
     }
   }
@@ -289,7 +296,8 @@ class AgentRunner {
 
   void stop() {
     _isCancelled = true;
-    if (_confirmationCompleter != null && !_confirmationCompleter!.isCompleted) {
+    if (_confirmationCompleter != null &&
+        !_confirmationCompleter!.isCompleted) {
       _confirmationCompleter!.complete(false);
     }
     if (_captchaCompleter != null && !_captchaCompleter!.isCompleted) {
@@ -303,5 +311,6 @@ class AgentRunner {
   void dispose() {
     stop();
     _stateController.close();
+    _llmService.dispose();
   }
 }

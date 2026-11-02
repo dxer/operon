@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../config/app_constants.dart';
-import '../config/app_theme.dart';
 import 'storage_service.dart';
 
 class ThemeService extends ChangeNotifier {
@@ -24,7 +22,8 @@ class ThemeService extends ChangeNotifier {
     if (_themeMode == ThemeMode.dark) return true;
     if (_themeMode == ThemeMode.light) return false;
     // System
-    final brightness = WidgetsBinding.instance.platformDispatcher.platformBrightness;
+    final brightness =
+        WidgetsBinding.instance.platformDispatcher.platformBrightness;
     return brightness == Brightness.dark;
   }
 
@@ -59,12 +58,18 @@ class ThemeService extends ChangeNotifier {
 
   void _updateSystemOverlay() {
     final dark = isDarkMode;
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     SystemChrome.setSystemUIOverlayStyle(
       SystemUiOverlayStyle(
         statusBarColor: Colors.transparent,
         statusBarIconBrightness: dark ? Brightness.light : Brightness.dark,
-        systemNavigationBarColor: dark ? AppTheme.darkBg : AppTheme.lightBg,
-        systemNavigationBarIconBrightness: dark ? Brightness.light : Brightness.dark,
+        statusBarBrightness: dark ? Brightness.dark : Brightness.light,
+        systemNavigationBarColor: Colors.transparent,
+        systemNavigationBarDividerColor: Colors.transparent,
+        systemNavigationBarIconBrightness:
+            dark ? Brightness.light : Brightness.dark,
+        systemNavigationBarContrastEnforced: false,
+        systemStatusBarContrastEnforced: false,
       ),
     );
   }

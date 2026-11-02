@@ -57,7 +57,8 @@ class MacroService {
   Future<bool> executeMacro({
     required MacroWorkflow macro,
     required WebViewControllerWrapper webView,
-    required Function(int currentStep, int totalSteps, String description) onProgress,
+    required Function(int currentStep, int totalSteps, String description)
+        onProgress,
   }) async {
     for (int i = 0; i < macro.steps.length; i++) {
       final step = macro.steps[i];
@@ -65,8 +66,12 @@ class MacroService {
 
       ActionType actionType = ActionType.click;
       if (step.action == 'type') actionType = ActionType.type;
-      if (step.action == 'press_key' || step.action == 'pressKey') actionType = ActionType.pressKey;
-      if (step.action == 'select_option' || step.action == 'selectOption') actionType = ActionType.selectOption;
+      if (step.action == 'press_key' || step.action == 'pressKey') {
+        actionType = ActionType.pressKey;
+      }
+      if (step.action == 'select_option' || step.action == 'selectOption') {
+        actionType = ActionType.selectOption;
+      }
       if (step.action == 'scroll') actionType = ActionType.scroll;
 
       final action = AgentAction(

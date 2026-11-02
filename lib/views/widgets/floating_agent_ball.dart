@@ -10,11 +10,11 @@ class FloatingAgentBall extends StatefulWidget {
   final VoidCallback? onQuickSummarize;
 
   const FloatingAgentBall({
-    Key? key,
+    super.key,
     required this.state,
     required this.onTap,
     this.onQuickSummarize,
-  }) : super(key: key);
+  });
 
   @override
   State<FloatingAgentBall> createState() => _FloatingAgentBallState();
@@ -30,7 +30,6 @@ class _FloatingAgentBallState extends State<FloatingAgentBall>
   Offset _position = Offset.zero;
   bool _isInitialized = false;
   bool _isDragging = false;
-  bool _isDockedLeft = false;
 
   // Edge Snap Animation
   late AnimationController _snapAnimController;
@@ -123,10 +122,8 @@ class _FloatingAgentBallState extends State<FloatingAgentBall>
         ? marginX
         : (screenSize.width - ballSize - marginX);
 
-    _isDockedLeft = targetX == marginX;
-
     // Vertical boundaries: preserve room for top address bar (~100) and bottom gestures (~80)
-    final double minY = 90.0;
+    const double minY = 90.0;
     final double maxY = screenSize.height - ballSize - 80.0;
     final double targetY = _position.dy.clamp(minY, maxY);
 
@@ -213,7 +210,9 @@ class _FloatingAgentBallState extends State<FloatingAgentBall>
           opacity: _isDragging ? 1.0 : (_isDimmed ? 0.65 : 1.0),
           duration: const Duration(milliseconds: 250),
           child: ScaleTransition(
-            scale: (isRunning || isWaiting) ? _pulseAnimation : const AlwaysStoppedAnimation(1.0),
+            scale: (isRunning || isWaiting)
+                ? _pulseAnimation
+                : const AlwaysStoppedAnimation(1.0),
             child: Stack(
               clipBehavior: Clip.none,
               children: [
@@ -225,7 +224,8 @@ class _FloatingAgentBallState extends State<FloatingAgentBall>
                     shape: BoxShape.circle,
                     boxShadow: [
                       BoxShadow(
-                        color: glowColor.withOpacity(isRunning ? 0.55 : 0.35),
+                        color: glowColor.withValues(
+                            alpha: isRunning ? 0.55 : 0.35),
                         blurRadius: isRunning ? 16 : 10,
                         spreadRadius: isRunning ? 3 : 1,
                         offset: const Offset(0, 3),
@@ -236,12 +236,12 @@ class _FloatingAgentBallState extends State<FloatingAgentBall>
                       end: Alignment.bottomRight,
                       colors: [
                         glowColor,
-                        glowColor.withOpacity(0.85),
+                        glowColor.withValues(alpha: 0.85),
                         const Color(0xFF0F141C),
                       ],
                     ),
                     border: Border.all(
-                      color: Colors.white.withOpacity(0.25),
+                      color: Colors.white.withValues(alpha: 0.25),
                       width: 1.5,
                     ),
                   ),
@@ -252,7 +252,8 @@ class _FloatingAgentBallState extends State<FloatingAgentBall>
                             height: 26,
                             child: CircularProgressIndicator(
                               strokeWidth: 2.5,
-                              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                              valueColor:
+                                  AlwaysStoppedAnimation<Color>(Colors.white),
                             ),
                           )
                         : Icon(
@@ -271,7 +272,8 @@ class _FloatingAgentBallState extends State<FloatingAgentBall>
                     top: -4,
                     right: -4,
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 2),
                       decoration: BoxDecoration(
                         color: AppTheme.accent,
                         borderRadius: BorderRadius.circular(10),

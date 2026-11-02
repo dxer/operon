@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 enum ActionType {
   click,
   type,
@@ -20,13 +18,14 @@ class AgentAction {
   final ActionType action;
   final int? elementId;
   final String? text;
-  final String? key;           // For press_key (Enter, Escape, Tab, Backspace)
-  final String? selectValue;   // For select_option
-  final String? direction;     // For scroll: 'down' or 'up'
+  final String? key; // For press_key (Enter, Escape, Tab, Backspace)
+  final String? selectValue; // For select_option
+  final String? direction; // For scroll: 'down' or 'up'
   final String? url;
-  final int? duration;         // milliseconds
+  final int? duration; // milliseconds
   final String? summary;
-  final dynamic extractedData; // Structured data extracted from page (JSON list or map)
+  final dynamic
+      extractedData; // Structured data extracted from page (JSON list or map)
   final Map<String, dynamic> rawParams;
 
   const AgentAction({
@@ -105,7 +104,8 @@ class AgentAction {
     }
 
     // Check extracted data in params or root
-    final extractedData = params['extracted_data'] ?? params['data'] ?? json['extracted_data'];
+    final extractedData =
+        params['extracted_data'] ?? params['data'] ?? json['extracted_data'];
 
     return AgentAction(
       thought: thought,
@@ -176,17 +176,45 @@ class AgentAction {
   }
 
   bool isSensitive(String currentElementText) {
-    if (action != ActionType.click && action != ActionType.pressKey) return false;
-    final lower = (currentElementText + ' ' + (text ?? '') + ' ' + (thought)).toLowerCase();
-    return lower.contains('tweet') ||
-        lower.contains('post') ||
-        lower.contains('发推') ||
-        lower.contains('发布') ||
-        lower.contains('发送') ||
-        lower.contains('pay') ||
-        lower.contains('支付') ||
-        lower.contains('购买') ||
-        lower.contains('delete') ||
-        lower.contains('删除');
+    if (action != ActionType.click && action != ActionType.pressKey) {
+      return false;
+    }
+    final lower =
+        '$currentElementText ${text ?? ''} ${url ?? ''} $thought'.toLowerCase();
+    const sensitiveWords = [
+      'tweet',
+      'post',
+      'publish',
+      'send',
+      'submit',
+      '发推',
+      '发布',
+      '发送',
+      '提交',
+      '评论',
+      '回复',
+      '转发',
+      '关注',
+      'pay',
+      'payment',
+      'purchase',
+      'buy',
+      'checkout',
+      '支付',
+      '付款',
+      '购买',
+      '下单',
+      '结算',
+      '转账',
+      'delete',
+      'remove',
+      'unfollow',
+      'logout',
+      '删除',
+      '注销',
+      '退出登录',
+      '解绑',
+    ];
+    return sensitiveWords.any(lower.contains);
   }
 }

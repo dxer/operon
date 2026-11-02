@@ -7,6 +7,7 @@ class WebTab {
   String title;
   InAppWebViewController? controller;
   WebViewControllerWrapper? wrapper;
+  PullToRefreshController? pullToRefresh;
   bool isLoading;
   double progress;
   bool canGoBack;
@@ -21,6 +22,7 @@ class WebTab {
     this.title = '新标签页',
     this.controller,
     this.wrapper,
+    this.pullToRefresh,
     this.isLoading = false,
     this.progress = 0.0,
     this.canGoBack = false,
@@ -36,6 +38,7 @@ class WebTab {
     String? title,
     InAppWebViewController? controller,
     WebViewControllerWrapper? wrapper,
+    PullToRefreshController? pullToRefresh,
     bool? isLoading,
     double? progress,
     bool? canGoBack,
@@ -50,6 +53,7 @@ class WebTab {
       title: title ?? this.title,
       controller: controller ?? this.controller,
       wrapper: wrapper ?? this.wrapper,
+      pullToRefresh: pullToRefresh ?? this.pullToRefresh,
       isLoading: isLoading ?? this.isLoading,
       progress: progress ?? this.progress,
       canGoBack: canGoBack ?? this.canGoBack,
