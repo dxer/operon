@@ -7,7 +7,19 @@
 
 ---
 
-## 🌟 v2.0 通用性重大升级
+## 🌟 Operon v3.0 旗舰进阶能力
+
+1. **“替身”虚拟光标与真实手势动画（Ghost Cursor & Touch Ripple）**：
+   * AI 点击网页元素时，屏幕上浮现半透明微光光标，平滑滑动定位到目标坐标，并触发扩散触控波纹。
+   * 让用户以第一视角直观目睹 AI 真实操作轨迹，极客科技感拉满！
+2. **深度防反爬指纹（Stealth Mode）与 CAPTCHA 人机盾智能接管**：
+   * 自动抹除 `navigator.webdriver` 自动化标识，伪装 Chrome Runtime 与多语言环境。
+   * 实时侦测 Cloudflare Turnstile、极验（Geetest）、Arkose Labs、reCAPTCHA 等验证码弹窗；一旦拦截自动暂停并震动/推送提醒用户手动滑块通过，通过后 AI 自动无缝继续任务。
+3. **宏录制与零 Token 极速重放（Macro Record & Zero-Token Replay）**：
+   * 任何通过大模型成功执行的任务，都可以一键 **“存为快捷宏”**。
+   * 下次遇到高频固定需求（如每日签到、固定发推、定期抓取），直接通过宏在 **1-2 秒内瞬间完成**，**大模型调用费用为 0**！
+4. **后台挂起与系统级推送（Background Runner & Push Notification）**：
+   * 任务在手机后台静默运行时，一旦任务达成、抓取到数据、或需要人工安全授权时，第一时间发送 Android 原生系统通知唤醒。
 
 1. **深度 Shadow DOM 与 IFrame 穿透**：
    * 采用递归穿透算法，能够识别包含 Web Components、Shadow Root、嵌套 IFrame 的复杂现代前端架构（如 Shopify、YouTube、后台管理系统等）。
