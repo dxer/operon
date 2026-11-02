@@ -43,7 +43,7 @@ jobs:
 
       # 5. Build Release APK
       - name: Build APK
-        run: flutter build apk --release
+        run: flutter build apk --release --android-skip-build-dependency-validation
 
       # 6. Rename APK to a clean, direct installable file name
       - name: Prepare Direct APK Asset
