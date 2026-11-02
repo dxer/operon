@@ -275,6 +275,8 @@ class AgentRunner {
     }
   }
 
+  void confirmCaptcha(bool proceed) => confirmCaptchaSolved(proceed);
+
   void pause() {
     _isPaused = true;
     _emit(_state.copyWith(status: AgentStatus.paused));
@@ -295,6 +297,8 @@ class AgentRunner {
     }
     _emit(_state.copyWith(status: AgentStatus.idle));
   }
+
+  void cancel() => stop();
 
   void dispose() {
     stop();

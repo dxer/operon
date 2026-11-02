@@ -115,7 +115,7 @@ class _BrowserPageState extends State<BrowserPage> {
     super.dispose();
   }
 
-  void _createNewTab({String? url}) {
+  void _createNewTab({String? url, bool switchToTab = true}) {
     final homepage = _storage?.getHomepage() ?? AppConstants.defaultHomepage;
     final targetUrl = url ?? homepage;
     final isDesktop = _storage?.getDesktopMode() ?? false;
@@ -129,8 +129,10 @@ class _BrowserPageState extends State<BrowserPage> {
 
     setState(() {
       _tabs.add(newTab);
-      _currentTabIndex = _tabs.length - 1;
-      _urlController.text = targetUrl;
+      if (switchToTab) {
+        _currentTabIndex = _tabs.length - 1;
+        _urlController.text = targetUrl.startsWith('operon://') ? '' : targetUrl;
+      }
     });
   }
 
@@ -1023,9 +1025,9 @@ class _BrowserPageState extends State<BrowserPage> {
                         onTap: _openAgentBottomSheet,
                         onPause: () => _agentRunner.pause(),
                         onResume: () => _agentRunner.resume(),
-                        onStop: () => _agentRunner.cancel(),
+                        onStop: () => _agentRunner.stop(),
                         onQuickSummarize: _quickSummarize,
-                        onConfirmCaptcha: () => _agentRunner.confirmCaptcha(true),
+                        onConfirmCaptcha: () => _agentRunner.confirmCaptchaSolved(true),
                       ),
                     ),
                   ),
