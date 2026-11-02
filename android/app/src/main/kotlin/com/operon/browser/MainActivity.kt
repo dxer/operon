@@ -1,4 +1,4 @@
-package com.example.bbx
+package com.operon.browser
 
 import io.flutter.embedding.android.FlutterActivity
 

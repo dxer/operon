@@ -1,5 +1,5 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.example.bbx">
+    package="com.operon.browser">
 
     <!-- Essential permissions for WebView, CookieManager, and LLM HTTP networking -->
     <uses-permission android:name="android.permission.INTERNET" />
