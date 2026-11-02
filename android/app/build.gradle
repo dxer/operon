@@ -46,9 +46,18 @@ android {
         multiDexEnabled true
     }
 
+    signingConfigs {
+        release {
+            storeFile file('operon.jks')
+            storePassword 'operon123'
+            keyAlias 'operon'
+            keyPassword 'operon123'
+        }
+    }
+
     buildTypes {
         release {
-            signingConfig signingConfigs.debug
+            signingConfig signingConfigs.release
             minifyEnabled false
             shrinkResources false
         }
