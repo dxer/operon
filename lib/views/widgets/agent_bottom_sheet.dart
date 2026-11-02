@@ -240,15 +240,22 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
     final isRunning = state.isRunning;
     final hasExtractedData = state.extractedData != null;
     final canSaveMacro = state.status == AgentStatus.completed && state.recordedMacroSteps.isNotEmpty;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cardBg = isDark ? AppTheme.darkCard : AppTheme.lightCard;
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-      decoration: const BoxDecoration(
-        color: AppTheme.darkCard,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-        boxShadow: [
+      padding: EdgeInsets.fromLTRB(
+        16,
+        12,
+        16,
+        MediaQuery.of(context).viewInsets.bottom + 20,
+      ),
+      decoration: BoxDecoration(
+        color: cardBg,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        boxShadow: const [
           BoxShadow(
-            color: Colors.black54,
+            color: Colors.black26,
             blurRadius: 16,
             offset: Offset(0, -4),
           ),

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import '../config/app_constants.dart';
 import '../config/app_theme.dart';
@@ -14,6 +15,7 @@ import '../services/webview_controller_wrapper.dart';
 import 'settings/settings_page.dart';
 import 'widgets/agent_bottom_sheet.dart';
 import 'widgets/browser_controls.dart';
+import 'widgets/floating_agent_ball.dart';
 
 class BrowserPage extends StatefulWidget {
   const BrowserPage({Key? key}) : super(key: key);
@@ -34,7 +36,7 @@ class _BrowserPageState extends State<BrowserPage> {
   bool _canGoForward = false;
   bool _isLoading = false;
   double _progress = 0.0;
-  bool _isAgentPanelOpen = true;
+  bool _isDesktopMode = false;
 
   AgentState _agentState = const AgentState();
 
@@ -57,6 +59,8 @@ class _BrowserPageState extends State<BrowserPage> {
     _storage = await StorageService.getInstance();
     final homepage = _storage?.getHomepage() ?? AppConstants.defaultHomepage;
     _urlController.text = homepage;
+    _isDesktopMode = _storage?.getDesktopMode() ?? false;
+    if (mounted) setState(() {});
   }
 
   @override
@@ -99,15 +103,69 @@ class _BrowserPageState extends State<BrowserPage> {
     String trimmed = input.trim();
     if (trimmed.isEmpty) return;
 
-    Uri? uri = Uri.tryParse(trimmed);
-    if (uri == null || !trimmed.contains('.')) {
-      // Treat as search query
-      trimmed = 'https://www.google.com/search?q=${Uri.encodeComponent(trimmed)}';
-    } else if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
-      trimmed = 'https://$trimmed';
+    final isUrl = trimmed.contains('.') &&
+        !trimmed.contains(' ') &&
+        (trimmed.startsWith('http://') ||
+            trimmed.startsWith('https://') ||
+            !trimmed.startsWith(' '));
+
+    if (isUrl) {
+      if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
+        trimmed = 'https://$trimmed';
+      }
+    } else {
+      // Assemble search URL based on user's default search engine
+      final engineName = _storage?.getSearchEngine() ?? AppConstants.defaultSearchEngine;
+      final engineBase = AppConstants.searchEngines[engineName] ??
+          AppConstants.searchEngines[AppConstants.defaultSearchEngine]!;
+      trimmed = '$engineBase${Uri.encodeComponent(trimmed)}';
     }
 
     _webViewController?.loadUrl(urlRequest: URLRequest(url: WebUri(trimmed)));
+  }
+
+  Future<void> _applyCurrentWebViewSettings() async {
+    if (_webViewController == null) return;
+
+    final userAgent = _storage?.getUserAgent() ?? AppConstants.uaAndroidChrome;
+    final webDarkMode = _storage?.getWebDarkMode() ?? false;
+    final blockImages = _storage?.getBlockImages() ?? false;
+    final jsEnabled = _storage?.getJavaScriptEnabled() ?? true;
+    final textZoom = _storage?.getTextZoom() ?? 100;
+
+    await _webViewController!.setSettings(
+      settings: InAppWebViewSettings(
+        userAgent: userAgent,
+        forceDark: webDarkMode ? ForceDark.ON : ForceDark.OFF,
+        algorithmicDarkeningAllowed: webDarkMode,
+        blockNetworkImage: blockImages,
+        javaScriptEnabled: jsEnabled,
+        textZoom: textZoom,
+      ),
+    );
+  }
+
+  void _toggleDesktopMode() async {
+    _isDesktopMode = !_isDesktopMode;
+    await _storage?.saveDesktopMode(_isDesktopMode);
+
+    final newUA = _isDesktopMode
+        ? AppConstants.uaDesktopChrome
+        : AppConstants.uaAndroidChrome;
+    await _storage?.saveUserAgent(newUA);
+
+    await _applyCurrentWebViewSettings();
+    _webViewController?.reload();
+
+    if (mounted) {
+      setState(() {});
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(_isDesktopMode ? '已切换至电脑桌面版模式' : '已切换至移动手机版模式'),
+          duration: const Duration(seconds: 1),
+        ),
+      );
+    }
   }
 
   void _startAgentTask(String goal) async {
@@ -176,118 +234,125 @@ class _BrowserPageState extends State<BrowserPage> {
     );
 
     if (updated == true && mounted) {
-      // Reload settings such as User-Agent
-      final currentUA = _storage?.getUserAgent() ?? AppConstants.uaAndroidChrome;
-      await _webViewController?.setSettings(
-        settings: InAppWebViewSettings(userAgent: currentUA),
-      );
+      _isDesktopMode = _storage?.getDesktopMode() ?? false;
+      await _applyCurrentWebViewSettings();
       setState(() {});
     }
+  }
+
+  void _openAgentBottomSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return StreamBuilder<AgentState>(
+          stream: _agentRunner.stateStream,
+          initialData: _agentState,
+          builder: (context, snapshot) {
+            final currentState = snapshot.data ?? _agentState;
+            return AgentBottomSheet(
+              state: currentState,
+              onStart: (goal) {
+                _startAgentTask(goal);
+                Navigator.of(ctx).pop(); // dismiss sheet so user can watch webview
+              },
+              onPause: () => _agentRunner.pause(),
+              onResume: () => _agentRunner.resume(),
+              onStop: () => _agentRunner.stop(),
+              onConfirmAction: (confirmed) => _agentRunner.confirmAction(confirmed),
+              onConfirmCaptcha: (passed) => _agentRunner.confirmCaptchaSolved(passed),
+              onRunMacro: (macro) {
+                _runMacro(macro);
+                Navigator.of(ctx).pop();
+              },
+            );
+          },
+        );
+      },
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final userAgent = _storage?.getUserAgent() ?? AppConstants.uaAndroidChrome;
     final initialUrl = _storage?.getHomepage() ?? AppConstants.defaultHomepage;
+    final webDarkMode = _storage?.getWebDarkMode() ?? false;
+    final blockImages = _storage?.getBlockImages() ?? false;
+    final jsEnabled = _storage?.getJavaScriptEnabled() ?? true;
+    final textZoom = _storage?.getTextZoom() ?? 100;
 
-    return Scaffold(
-      body: Column(
-        children: [
-          // Browser Navigation Bar
-          BrowserControls(
-            urlController: _urlController,
-            canGoBack: _canGoBack,
-            canGoForward: _canGoForward,
-            isLoading: _isLoading,
-            progress: _progress,
-            onBack: () => _webViewController?.goBack(),
-            onForward: () => _webViewController?.goForward(),
-            onReload: () => _webViewController?.reload(),
-            onSubmitUrl: _loadUrl,
-            onOpenSettings: _openSettings,
-          ),
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        if (_webViewController != null && await _webViewController!.canGoBack()) {
+          await _webViewController!.goBack();
+        } else {
+          SystemNavigator.pop();
+        }
+      },
+      child: Scaffold(
+        body: Column(
+          children: [
+            // Top Navigation & Address Bar
+            BrowserControls(
+              urlController: _urlController,
+              canGoBack: _canGoBack,
+              canGoForward: _canGoForward,
+              isLoading: _isLoading,
+              progress: _progress,
+              isDesktopMode: _isDesktopMode,
+              onBack: () => _webViewController?.goBack(),
+              onForward: () => _webViewController?.goForward(),
+              onReload: () => _webViewController?.reload(),
+              onSubmitUrl: _loadUrl,
+              onOpenSettings: _openSettings,
+              onToggleDesktopMode: _toggleDesktopMode,
+            ),
 
-          // Main WebView Canvas
-          Expanded(
-            child: Stack(
-              children: [
-                InAppWebView(
-                  initialUrlRequest: URLRequest(url: WebUri(initialUrl)),
-                  initialSettings: InAppWebViewSettings(
-                    userAgent: userAgent,
-                    javaScriptEnabled: true,
-                    domStorageEnabled: true,
-                    databaseEnabled: true,
-                    cacheEnabled: true,
-                    transparentBackground: false,
-                    useWideViewPort: true,
-                    loadWithOverviewMode: true,
-                    supportZoom: true,
-                    builtInZoomControls: false,
-                    displayZoomControls: false,
-                    allowsInlineMediaPlayback: true,
-                  ),
-                  onWebViewCreated: _onWebViewCreated,
-                  onLoadStop: _onLoadStop,
-                  onProgressChanged: _onProgressChanged,
-                  onConsoleMessage: (controller, consoleMessage) {
-                    debugPrint('[WebView Console] ${consoleMessage.message}');
-                  },
-                ),
-
-                // Floating Action Button to toggle Agent Sheet when minimized
-                if (!_isAgentPanelOpen)
-                  Positioned(
-                    bottom: 16,
-                    right: 16,
-                    child: FloatingActionButton.extended(
-                      backgroundColor: AppTheme.primary,
-                      foregroundColor: Colors.white,
-                      icon: const Icon(Icons.psychology),
-                      label: Text(
-                        _agentState.isRunning ? 'AI 运行中...' : '唤起 AI Agent',
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                      onPressed: () => setState(() => _isAgentPanelOpen = true),
+            // Full-screen WebView Canvas + Draggable Edge-Snapping Floating Agent Ball
+            Expanded(
+              child: Stack(
+                children: [
+                  InAppWebView(
+                    initialUrlRequest: URLRequest(url: WebUri(initialUrl)),
+                    initialSettings: InAppWebViewSettings(
+                      userAgent: userAgent,
+                      javaScriptEnabled: jsEnabled,
+                      domStorageEnabled: true,
+                      databaseEnabled: true,
+                      cacheEnabled: true,
+                      transparentBackground: false,
+                      useWideViewPort: true,
+                      loadWithOverviewMode: true,
+                      supportZoom: true,
+                      builtInZoomControls: false,
+                      displayZoomControls: false,
+                      allowsInlineMediaPlayback: true,
+                      forceDark: webDarkMode ? ForceDark.ON : ForceDark.OFF,
+                      algorithmicDarkeningAllowed: webDarkMode,
+                      blockNetworkImage: blockImages,
+                      textZoom: textZoom,
                     ),
+                    onWebViewCreated: _onWebViewCreated,
+                    onLoadStop: _onLoadStop,
+                    onProgressChanged: _onProgressChanged,
+                    onConsoleMessage: (controller, consoleMessage) {
+                      debugPrint('[WebView Console] ${consoleMessage.message}');
+                    },
                   ),
-              ],
-            ),
-          ),
 
-          // Docked Agent Control Panel
-          if (_isAgentPanelOpen)
-            Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Panel minimize bar
-                Container(
-                  color: AppTheme.darkCard,
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.keyboard_arrow_down, size: 20, color: Colors.white54),
-                        onPressed: () => setState(() => _isAgentPanelOpen = false),
-                        tooltip: '收起 AI 助手',
-                      ),
-                    ],
+                  // Draggable & Magnetic Edge-Snapping Floating Agent Button
+                  FloatingAgentBall(
+                    state: _agentState,
+                    onTap: _openAgentBottomSheet,
                   ),
-                ),
-                AgentBottomSheet(
-                  state: _agentState,
-                  onStart: _startAgentTask,
-                  onPause: () => _agentRunner.pause(),
-                  onResume: () => _agentRunner.resume(),
-                  onStop: () => _agentRunner.stop(),
-                  onConfirmAction: (confirmed) => _agentRunner.confirmAction(confirmed),
-                  onConfirmCaptcha: (passed) => _agentRunner.confirmCaptchaSolved(passed),
-                  onRunMacro: _runMacro,
-                ),
-              ],
+                ],
+              ),
             ),
-        ],
+          ],
+        ),
       ),
     );
   }

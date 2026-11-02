@@ -18,6 +18,15 @@ class AppConstants {
     'Desktop Chrome (PC)': uaDesktopChrome,
   };
 
+  // Search Engine Presets
+  static const Map<String, String> searchEngines = {
+    'Baidu (百度)': 'https://www.baidu.com/s?wd=',
+    'Google (谷歌)': 'https://www.google.com/search?q=',
+    'Bing (必应)': 'https://www.bing.com/search?q=',
+    'DuckDuckGo': 'https://duckduckgo.com/?q=',
+  };
+  static const String defaultSearchEngine = 'Google (谷歌)';
+
   // Recipe templates (Universal Workflow Prompts)
   static const List<Map<String, String>> recipePresets = [
     {
@@ -51,6 +60,13 @@ class AppConstants {
   static const String keyMaxSteps = 'pref_max_steps';
   static const String keySafeMode = 'pref_safe_mode';
   static const String keyHomepage = 'pref_homepage';
+  static const String keyThemeMode = 'pref_theme_mode'; // 'system', 'light', 'dark'
+  static const String keySearchEngine = 'pref_search_engine';
+  static const String keyWebDarkMode = 'pref_web_dark_mode';
+  static const String keyBlockImages = 'pref_block_images';
+  static const String keyJavaScriptEnabled = 'pref_js_enabled';
+  static const String keyDesktopMode = 'pref_desktop_mode';
+  static const String keyTextZoom = 'pref_text_zoom';
 
   // Default Homepage
   static const String defaultHomepage = 'https://x.com';
