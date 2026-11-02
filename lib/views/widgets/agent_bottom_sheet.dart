@@ -141,6 +141,7 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
         );
       }
     }
+    titleController.dispose();
   }
 
   Widget _buildStatusBadge(AgentStatus status) {

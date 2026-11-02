@@ -33,6 +33,15 @@ class _SettingsPageState extends State<SettingsPage> {
     _loadSettings();
   }
 
+  @override
+  void dispose() {
+    _baseUrlController.dispose();
+    _apiKeyController.dispose();
+    _modelController.dispose();
+    _uaController.dispose();
+    super.dispose();
+  }
+
   Future<void> _loadSettings() async {
     _storage = await StorageService.getInstance();
     final config = _storage.getLlmConfig();

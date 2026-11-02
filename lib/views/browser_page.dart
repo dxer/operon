@@ -25,7 +25,7 @@ class _BrowserPageState extends State<BrowserPage> {
   InAppWebViewController? _webViewController;
   WebViewControllerWrapper? _wrapper;
   late AgentRunner _agentRunner;
-  late StorageService _storage;
+  StorageService? _storage;
   StreamSubscription<AgentState>? _agentSub;
 
   final TextEditingController _urlController = TextEditingController();
@@ -112,7 +112,7 @@ class _BrowserPageState extends State<BrowserPage> {
   void _startAgentTask(String goal) async {
     if (_wrapper == null) return;
 
-    final config = _storage.getLlmConfig();
+    final config = _storage?.getLlmConfig() ?? LlmConfig.defaultConfig();
     if (!config.isValid) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -128,8 +128,8 @@ class _BrowserPageState extends State<BrowserPage> {
       return;
     }
 
-    final maxSteps = _storage.getMaxSteps();
-    final safeMode = _storage.getSafeMode();
+    final maxSteps = _storage?.getMaxSteps() ?? 15;
+    final safeMode = _storage?.getSafeMode() ?? true;
 
     _agentRunner.run(
       userGoal: goal,
@@ -176,7 +176,7 @@ class _BrowserPageState extends State<BrowserPage> {
 
     if (updated == true && mounted) {
       // Reload settings such as User-Agent
-      final currentUA = _storage.getUserAgent();
+      final currentUA = _storage?.getUserAgent() ?? AppConstants.uaAndroidChrome;
       await _webViewController?.setSettings(
         settings: InAppWebViewSettings(userAgent: currentUA),
       );
@@ -186,10 +186,8 @@ class _BrowserPageState extends State<BrowserPage> {
 
   @override
   Widget build(BuildContext context) {
-    final userAgent =
-        _storage != null ? _storage.getUserAgent() : AppConstants.uaAndroidChrome;
-    final initialUrl =
-        _storage != null ? _storage.getHomepage() : AppConstants.defaultHomepage;
+    final userAgent = _storage?.getUserAgent() ?? AppConstants.uaAndroidChrome;
+    final initialUrl = _storage?.getHomepage() ?? AppConstants.defaultHomepage;
 
     return Scaffold(
       body: Column(

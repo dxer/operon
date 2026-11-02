@@ -64,6 +64,23 @@ class LlmService {
     }
 
     if (response.statusCode != 200) {
+      // If error indicates response_format unsupported, retry once without it
+      if (response.statusCode == 400 &&
+          (response.body.contains('response_format') || response.body.contains('json_object'))) {
+        try {
+          final fallbackBody = jsonEncode({
+            'model': config.model.trim(),
+            'messages': messages,
+            'temperature': config.temperature,
+          });
+          response = await _client
+              .post(uri, headers: headers, body: fallbackBody)
+              .timeout(const Duration(seconds: 45));
+        } catch (_) {}
+      }
+    }
+
+    if (response.statusCode != 200) {
       String errDetail = response.body;
       try {
         final errJson = jsonDecode(response.body);

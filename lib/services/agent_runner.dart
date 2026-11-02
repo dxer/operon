@@ -29,7 +29,9 @@ class AgentRunner {
 
   void _emit(AgentState newState) {
     _state = newState;
-    _stateController.add(_state);
+    if (!_stateController.isClosed) {
+      _stateController.add(_state);
+    }
   }
 
   void _addLog(String title, {String? detail, bool isError = false}) {

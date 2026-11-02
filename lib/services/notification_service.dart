@@ -58,8 +58,6 @@ class NotificationService {
       enableVibration: true,
     );
 
-    const details = NotificationSettings(android: androidDetails);
-
     try {
       await _plugin.show(
         id,
