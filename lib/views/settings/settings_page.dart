@@ -280,7 +280,7 @@ class _SettingsPageState extends State<SettingsPage> {
     showDialog(
       context: context,
       builder: (_) => MacroDialog(
-        onSelectMacro: (macro) {
+        onRunMacro: (macro) {
           Navigator.of(context).pop();
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('已选择宏: ${macro.title}')),
