@@ -18,9 +18,9 @@ class AppTheme {
   static const Color lightInput = Color(0xFFEFF3F4);
 
   static const Map<TargetPlatform, PageTransitionsBuilder> _pageTransitions = {
-    TargetPlatform.android: CupertinoPageTransitionsBuilder(),
-    TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
-    TargetPlatform.macOS: CupertinoPageTransitionsBuilder(),
+    TargetPlatform.android: FadeForwardsPageTransitionsBuilder(),
+    TargetPlatform.iOS: FadeForwardsPageTransitionsBuilder(),
+    TargetPlatform.macOS: FadeForwardsPageTransitionsBuilder(),
     TargetPlatform.windows: FadeUpwardsPageTransitionsBuilder(),
     TargetPlatform.linux: FadeUpwardsPageTransitionsBuilder(),
     TargetPlatform.fuchsia: FadeUpwardsPageTransitionsBuilder(),
