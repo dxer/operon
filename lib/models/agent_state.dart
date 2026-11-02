@@ -1,4 +1,5 @@
 import 'agent_action.dart';
+import 'macro_workflow.dart';
 
 enum AgentStatus {
   idle,
@@ -6,6 +7,7 @@ enum AgentStatus {
   thinking,
   executing,
   waitingConfirmation,
+  waitingCaptcha,
   paused,
   completed,
   error,
@@ -34,8 +36,10 @@ class AgentState {
   final String currentThought;
   final AgentAction? currentAction;
   final dynamic extractedData; // Structured data scraped from the web
+  final String? captchaType;   // Name of detected CAPTCHA challenge
   final String? errorMessage;
   final List<AgentLogItem> logs;
+  final List<MacroStep> recordedMacroSteps; // Steps accumulated during execution for Macro export
 
   const AgentState({
     this.status = AgentStatus.idle,
@@ -45,15 +49,18 @@ class AgentState {
     this.currentThought = '',
     this.currentAction,
     this.extractedData,
+    this.captchaType,
     this.errorMessage,
     this.logs = const [],
+    this.recordedMacroSteps = const [],
   });
 
   bool get isRunning =>
       status == AgentStatus.observing ||
       status == AgentStatus.thinking ||
       status == AgentStatus.executing ||
-      status == AgentStatus.waitingConfirmation;
+      status == AgentStatus.waitingConfirmation ||
+      status == AgentStatus.waitingCaptcha;
 
   AgentState copyWith({
     AgentStatus? status,
@@ -63,8 +70,10 @@ class AgentState {
     String? currentThought,
     AgentAction? currentAction,
     dynamic extractedData,
+    String? captchaType,
     String? errorMessage,
     List<AgentLogItem>? logs,
+    List<MacroStep>? recordedMacroSteps,
   }) {
     return AgentState(
       status: status ?? this.status,
@@ -74,8 +83,10 @@ class AgentState {
       currentThought: currentThought ?? this.currentThought,
       currentAction: currentAction ?? this.currentAction,
       extractedData: extractedData ?? this.extractedData,
+      captchaType: captchaType ?? this.captchaType,
       errorMessage: errorMessage ?? this.errorMessage,
       logs: logs ?? this.logs,
+      recordedMacroSteps: recordedMacroSteps ?? this.recordedMacroSteps,
     );
   }
 }

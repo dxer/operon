@@ -4,7 +4,10 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import '../config/app_constants.dart';
 import '../config/app_theme.dart';
 import '../models/agent_state.dart';
+import '../models/macro_workflow.dart';
 import '../services/agent_runner.dart';
+import '../services/macro_service.dart';
+import '../services/notification_service.dart';
 import '../services/storage_service.dart';
 import '../services/webview_controller_wrapper.dart';
 import 'settings/settings_page.dart';
@@ -45,6 +48,7 @@ class _BrowserPageState extends State<BrowserPage> {
         });
       }
     });
+    NotificationService.getInstance().init();
     _initStorage();
   }
 
@@ -134,6 +138,35 @@ class _BrowserPageState extends State<BrowserPage> {
       maxSteps: maxSteps,
       safeMode: safeMode,
     );
+  }
+
+  Future<void> _runMacro(MacroWorkflow macro) async {
+    if (_wrapper == null) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('⚡ 开始以 0 Token 极速重放宏: ${macro.title}'),
+        backgroundColor: Colors.amber[800],
+      ),
+    );
+
+    final macroService = await MacroService.getInstance();
+    await macroService.executeMacro(
+      macro: macro,
+      webView: _wrapper!,
+      onProgress: (current, total, desc) {
+        debugPrint('[Macro Progress] $current/$total: $desc');
+      },
+    );
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('🎉 宏任务执行完毕！耗时极短，消耗 0 Token'),
+          backgroundColor: AppTheme.accent,
+        ),
+      );
+    }
   }
 
   Future<void> _openSettings() async {
@@ -250,6 +283,8 @@ class _BrowserPageState extends State<BrowserPage> {
                   onResume: () => _agentRunner.resume(),
                   onStop: () => _agentRunner.stop(),
                   onConfirmAction: (confirmed) => _agentRunner.confirmAction(confirmed),
+                  onConfirmCaptcha: (passed) => _agentRunner.confirmCaptchaSolved(passed),
+                  onRunMacro: _runMacro,
                 ),
               ],
             ),

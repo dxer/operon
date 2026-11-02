@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import '../models/agent_action.dart';
@@ -8,20 +9,27 @@ class DOMSnapshot {
   final String title;
   final int elementCount;
   final String textTree;
+  final bool hasCaptcha;
+  final String? captchaType;
 
   DOMSnapshot({
     required this.url,
     required this.title,
     required this.elementCount,
     required this.textTree,
+    this.hasCaptcha = false,
+    this.captchaType,
   });
 
   factory DOMSnapshot.fromJson(Map<String, dynamic> json) {
+    final captcha = json['captcha'] as Map<String, dynamic>?;
     return DOMSnapshot(
       url: json['url'] ?? '',
       title: json['title'] ?? '',
       elementCount: json['elementCount'] ?? 0,
       textTree: json['text_tree'] ?? '',
+      hasCaptcha: captcha?['hasCaptcha'] == true,
+      captchaType: captcha?['type'] as String?,
     );
   }
 }
@@ -44,7 +52,7 @@ class WebViewControllerWrapper {
     await ensureScriptInjected();
 
     final result = await controller.evaluateJavascript(
-      source: 'window.BBX_AGENT.extractPrunedDOM($showBadges, $includeContent);',
+      source: 'window.OPERON.extractPrunedDOM($showBadges, $includeContent);',
     );
 
     if (result == null) {
@@ -71,7 +79,7 @@ class WebViewControllerWrapper {
 
     final jsonPayload = jsonEncode(action.toJsPayload());
     final result = await controller.evaluateJavascript(
-      source: 'window.BBX_AGENT.executeAction($jsonPayload);',
+      source: 'window.OPERON.executeAction($jsonPayload);',
     );
 
     if (result == null) {
@@ -84,12 +92,21 @@ class WebViewControllerWrapper {
     return Map<String, dynamic>.from(result);
   }
 
+  /// Captures current viewport screenshot as PNG bytes for Vision Fallback
+  Future<Uint8List?> takeScreenshot() async {
+    try {
+      return await controller.takeScreenshot();
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Waits dynamically until DOM mutations cease (stable rendering)
   Future<bool> waitForDomStable({int timeoutMs = 2500}) async {
     try {
       await ensureScriptInjected();
       final res = await controller.evaluateJavascript(
-        source: 'await window.BBX_AGENT.waitForDomStable($timeoutMs);',
+        source: 'await window.OPERON.waitForDomStable($timeoutMs);',
       );
       return res == true;
     } catch (_) {
@@ -101,7 +118,7 @@ class WebViewControllerWrapper {
   Future<void> clearHighlights() async {
     try {
       await controller.evaluateJavascript(
-        source: 'if (window.BBX_AGENT) { window.BBX_AGENT.clearHighlights(); }',
+        source: 'if (window.OPERON) { window.OPERON.clearHighlights(); }',
       );
     } catch (_) {}
   }

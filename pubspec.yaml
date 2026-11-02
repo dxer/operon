@@ -20,6 +20,8 @@ dependencies:
   flutter_spinkit: ^5.2.1
   # Modern animations
   flutter_animate: ^4.5.2
+  # Android system local notifications (background alerts, completion, captcha)
+  flutter_local_notifications: ^17.2.2
 
 dev_dependencies:
   flutter_test:

@@ -1,18 +1,215 @@
 /**
- * BBX Universal Agent DOM Engine (v2.0)
- * Advanced Injected Engine for Universal Web Browsing, Deep Shadow DOM inspection,
- * Keyboard Emulation, Content/Data Extraction, and Synthetic Actions.
+ * Operon Universal Agent DOM Engine (v3.0 Ultra)
+ * - Stealth Anti-Bot Fingerprint Masking
+ * - Ghost Cursor & Human-like Touch Ripple Animation
+ * - Deep Shadow DOM & IFrame Traversal
+ * - CAPTCHA / Challenge Detection (Cloudflare, Arkose, Geetest)
+ * - Deterministic Selector Generation for Zero-Token Macro Replay
+ * - Dynamic MutationObserver DOM Settle Detection
  */
 (function () {
-  if (window.BBX_AGENT && window.BBX_AGENT.version === '2.0') {
+  if (window.OPERON && window.OPERON.version === '3.0') {
     return;
   }
 
-  const BADGE_CONTAINER_ID = '__bbx_agent_badge_container__';
+  // ==========================================
+  // 1. Stealth Mode: Anti-Bot Masking Patches
+  // ==========================================
+  try {
+    // 1.1 Mask navigator.webdriver
+    Object.defineProperty(navigator, 'webdriver', {
+      get: () => undefined,
+      configurable: true,
+    });
+
+    // 1.2 Mock window.chrome runtime
+    if (!window.chrome) {
+      window.chrome = {
+        runtime: {},
+        app: {},
+        loadTimes: function () {},
+        csi: function () {},
+      };
+    }
+
+    // 1.3 Mock navigator.languages
+    if (!navigator.languages || navigator.languages.length === 0) {
+      Object.defineProperty(navigator, 'languages', {
+        get: () => ['zh-CN', 'zh', 'en-US', 'en'],
+        configurable: true,
+      });
+    }
+  } catch (_) {}
+
+  const BADGE_CONTAINER_ID = '__operon_badge_container__';
+  const GHOST_CURSOR_ID = '__operon_ghost_cursor__';
   let elementsMap = new Map();
   let nextElementId = 1;
+  let ghostCursor = null;
 
-  // 1. Recursive Shadow DOM & Light DOM Selector
+  // ==========================================
+  // 2. Ghost Cursor & Touch Ripple System
+  // ==========================================
+  function ensureGhostCursor() {
+    if (ghostCursor && document.body.contains(ghostCursor)) {
+      return ghostCursor;
+    }
+
+    // Inject cursor styles
+    if (!document.getElementById('__operon_cursor_styles__')) {
+      const style = document.createElement('style');
+      style.id = '__operon_cursor_styles__';
+      style.textContent = `
+        #__operon_ghost_cursor__ {
+          position: fixed;
+          width: 22px;
+          height: 22px;
+          border-radius: 50%;
+          background: rgba(29, 155, 240, 0.45);
+          border: 2px solid #ffffff;
+          box-shadow: 0 0 14px rgba(29, 155, 240, 0.8), 0 2px 6px rgba(0,0,0,0.4);
+          pointer-events: none;
+          z-index: 2147483647;
+          transition: transform 0.28s cubic-bezier(0.25, 1, 0.5, 1), opacity 0.2s ease;
+          opacity: 0;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        #__operon_ghost_cursor__::after {
+          content: '';
+          width: 6px;
+          height: 6px;
+          border-radius: 50%;
+          background: #ffffff;
+        }
+        .__operon_ripple__ {
+          position: fixed;
+          border-radius: 50%;
+          border: 2px solid rgba(29, 155, 240, 0.9);
+          background: rgba(29, 155, 240, 0.25);
+          pointer-events: none;
+          z-index: 2147483646;
+          animation: __operon_ripple_anim__ 0.45s ease-out forwards;
+        }
+        @keyframes __operon_ripple_anim__ {
+          0% {
+            width: 8px;
+            height: 8px;
+            opacity: 1;
+            transform: translate(-50%, -50%) scale(1);
+          }
+          100% {
+            width: 50px;
+            height: 50px;
+            opacity: 0;
+            transform: translate(-50%, -50%) scale(1.6);
+          }
+        }
+      `;
+      (document.head || document.documentElement).appendChild(style);
+    }
+
+    ghostCursor = document.createElement('div');
+    ghostCursor.id = GHOST_CURSOR_ID;
+    document.body.appendChild(ghostCursor);
+    return ghostCursor;
+  }
+
+  function moveGhostCursor(clientX, clientY) {
+    const cursor = ensureGhostCursor();
+    cursor.style.opacity = '1';
+    cursor.style.transform = `translate3d(${clientX - 11}px, ${clientY - 11}px, 0)`;
+  }
+
+  function playTouchRipple(clientX, clientY) {
+    const ripple = document.createElement('div');
+    ripple.className = '__operon_ripple__';
+    ripple.style.left = `${clientX}px`;
+    ripple.style.top = `${clientY}px`;
+    document.body.appendChild(ripple);
+    setTimeout(() => ripple.remove(), 500);
+  }
+
+  // ==========================================
+  // 3. CAPTCHA / Bot Challenge Detector
+  // ==========================================
+  function detectCaptchaChallenge() {
+    // 3.1 Cloudflare Turnstile / Challenge
+    const cf = document.querySelector(
+      '[name="cf-turnstile-response"], iframe[src*="cloudflare"], #challenge-stage, .cf-turnstile, #cf-wrapper'
+    );
+    if (cf && isVisible(cf)) {
+      return { hasCaptcha: true, type: 'Cloudflare 5秒人机盾 / Turnstile' };
+    }
+
+    // 3.2 Google reCAPTCHA
+    const recaptcha = document.querySelector(
+      '.g-recaptcha, iframe[src*="recaptcha"], #recaptcha-anchor'
+    );
+    if (recaptcha && isVisible(recaptcha)) {
+      return { hasCaptcha: true, type: 'Google reCAPTCHA 验证码' };
+    }
+
+    // 3.3 Geetest 极验
+    const geetest = document.querySelector('.geetest_holder, .geetest_radar_tip, .geetest_popup');
+    if (geetest && isVisible(geetest)) {
+      return { hasCaptcha: true, type: '极验 (Geetest) 滑动验证码' };
+    }
+
+    // 3.4 Arkose Labs (Twitter/X常用)
+    const arkose = document.querySelector('iframe[src*="arkoselabs"], #arkose, div[data-e2e="arkose-frame"]');
+    if (arkose && isVisible(arkose)) {
+      return { hasCaptcha: true, type: 'Arkose Labs (X人机验证)' };
+    }
+
+    return { hasCaptcha: false };
+  }
+
+  // ==========================================
+  // 4. Stable Deterministic Selector Generator (for Macro Replay)
+  // ==========================================
+  function generateMacroSelector(el) {
+    if (!el || !el.tagName) return null;
+
+    // 4.1 Test IDs (Best for modern SPAs like X/React)
+    const testId = el.getAttribute('data-testid');
+    if (testId) return `[data-testid="${testId}"]`;
+
+    // 4.2 Standard ID
+    if (el.id && !/^\d/.test(el.id) && !el.id.includes('__operon')) {
+      return `#${el.id}`;
+    }
+
+    // 4.3 Name or unique aria-label
+    const name = el.getAttribute('name');
+    if (name) return `${el.tagName.toLowerCase()}[name="${name}"]`;
+
+    const ariaLabel = el.getAttribute('aria-label');
+    if (ariaLabel && ariaLabel.length < 30) {
+      return `${el.tagName.toLowerCase()}[aria-label="${ariaLabel}"]`;
+    }
+
+    // 4.4 Distinct button text
+    if (el.tagName === 'BUTTON' || el.getAttribute('role') === 'button') {
+      const text = (el.innerText || '').trim();
+      if (text && text.length < 20) {
+        return `xpath://button[contains(text(), "${text}")]`;
+      }
+    }
+
+    // 4.5 Fallback CSS Path
+    let path = el.tagName.toLowerCase();
+    if (el.className && typeof el.className === 'string') {
+      const classes = el.className.split(/\s+/).filter((c) => c && !c.startsWith('__operon')).slice(0, 2);
+      if (classes.length) path += '.' + classes.join('.');
+    }
+    return path;
+  }
+
+  // ==========================================
+  // 5. Deep Shadow DOM & Geometry Traversal
+  // ==========================================
   function querySelectorAllDeep(root, selector) {
     let results = [];
     if (!root) return results;
@@ -26,7 +223,6 @@
       }
     } catch (_) {}
 
-    // Deep traverse open Shadow Roots
     try {
       const allDescendants = root.querySelectorAll ? root.querySelectorAll('*') : [];
       for (let i = 0; i < allDescendants.length; i++) {
@@ -40,9 +236,8 @@
     return results;
   }
 
-  // 2. Visibility & Geometry Check
   function isVisible(el) {
-    if (!el || el.nodeType !== (typeof Node !== 'undefined' ? Node.ELEMENT_NODE : 1)) return false;
+    if (!el || el.nodeType !== 1) return false;
     if (typeof window.getComputedStyle !== 'function') return true;
 
     const style = window.getComputedStyle(el);
@@ -58,26 +253,21 @@
     const rect = el.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return false;
 
-    // Viewport check (allow slight buffer)
     const viewportHeight = window.innerHeight || (document.documentElement ? document.documentElement.clientHeight : 800);
     const viewportWidth = window.innerWidth || (document.documentElement ? document.documentElement.clientWidth : 400);
 
-    const inViewport =
+    return (
       rect.bottom >= -50 &&
       rect.top <= viewportHeight + 50 &&
       rect.right >= 0 &&
-      rect.left <= viewportWidth;
-
-    return inViewport;
+      rect.left <= viewportWidth
+    );
   }
 
   function cleanText(text, maxLen = 70) {
     if (!text) return '';
     const cleaned = text.replace(/\s+/g, ' ').trim();
-    if (cleaned.length > maxLen) {
-      return cleaned.slice(0, maxLen) + '...';
-    }
-    return cleaned;
+    return cleaned.length > maxLen ? cleaned.slice(0, maxLen) + '...' : cleaned;
   }
 
   function getElementLabel(el) {
@@ -132,18 +322,21 @@
 
   function removeBadges() {
     const container = document.getElementById(BADGE_CONTAINER_ID);
-    if (container) {
-      container.remove();
-    }
-    const elements = document.querySelectorAll ? document.querySelectorAll('[data-bbx-id]') : [];
+    if (container) container.remove();
+
+    const elements = document.querySelectorAll ? document.querySelectorAll('[data-operon-id]') : [];
     for (let i = 0; i < elements.length; i++) {
+      elements[i].removeAttribute('data-operon-id');
       elements[i].removeAttribute('data-bbx-id');
+    }
+    if (ghostCursor) {
+      ghostCursor.style.opacity = '0';
     }
   }
 
   function createBadge(id, rect) {
     const badge = document.createElement('div');
-    badge.className = '__bbx_badge__';
+    badge.className = '__operon_badge__';
     badge.textContent = id;
     badge.style.position = 'absolute';
     badge.style.left = `${Math.max(0, rect.left + (window.scrollX || 0))}px`;
@@ -154,15 +347,14 @@
     badge.style.fontWeight = 'bold';
     badge.style.padding = '1px 4px';
     badge.style.borderRadius = '3px';
-    badge.style.zIndex = '2147483647';
+    badge.style.zIndex = '2147483645';
     badge.style.pointerEvents = 'none';
     badge.style.boxShadow = '0 1px 3px rgba(0,0,0,0.5)';
     badge.style.fontFamily = 'monospace';
     return badge;
   }
 
-  // 3. Content Block Extractor (for general Scraping / Reading)
-  function extractContentBlocks(maxBlocks = 15) {
+  function extractContentBlocks(maxBlocks = 12) {
     const contentSelectors = 'h1, h2, h3, h4, article, blockquote, [data-testid="tweetText"], .article-content, .post-content';
     const contentNodes = querySelectorAllDeep(document, contentSelectors);
     const lines = [];
@@ -170,7 +362,7 @@
     for (let i = 0; i < contentNodes.length && lines.length < maxBlocks; i++) {
       const node = contentNodes[i];
       if (!isVisible(node)) continue;
-      const text = cleanText(node.innerText || node.textContent, 100);
+      const text = cleanText(node.innerText || node.textContent, 90);
       if (text.length > 8) {
         lines.push(`• [${node.tagName}]: "${text}"`);
       }
@@ -178,16 +370,21 @@
     return lines;
   }
 
+  // ==========================================
+  // 6. Main Operon Engine Definition
+  // ==========================================
   const engine = {
-    version: '2.0',
+    version: '3.0',
 
-    /**
-     * Extracts observable interactive elements & key content blocks
-     */
+    detectCaptcha: detectCaptchaChallenge,
+
     extractPrunedDOM: function (showVisualBadges = true, includeContent = true) {
       removeBadges();
       elementsMap.clear();
       nextElementId = 1;
+
+      // Check for CAPTCHA first
+      const captchaInfo = detectCaptchaChallenge();
 
       let badgeContainer = null;
       if (showVisualBadges && document.body) {
@@ -199,11 +396,10 @@
         badgeContainer.style.width = '100%';
         badgeContainer.style.height = '100%';
         badgeContainer.style.pointerEvents = 'none';
-        badgeContainer.style.zIndex = '2147483646';
+        badgeContainer.style.zIndex = '2147483644';
         document.body.appendChild(badgeContainer);
       }
 
-      // Universal interactive selector covering Shadow DOM, SPAs, and standard HTML
       const selector = [
         'button',
         'a[href]',
@@ -228,17 +424,17 @@
       candidates.forEach((el) => {
         if (!isVisible(el)) return;
 
-        // Skip nested redundant child
         const parent = el.parentElement;
         if (
           parent &&
-          elementsMap.has(parent.getAttribute('data-bbx-id')) &&
+          elementsMap.has(parent.getAttribute('data-operon-id')) &&
           el.innerText === parent.innerText
         ) {
           return;
         }
 
         const id = nextElementId++;
+        el.setAttribute('data-operon-id', id.toString());
         el.setAttribute('data-bbx-id', id.toString());
         elementsMap.set(id.toString(), el);
 
@@ -255,7 +451,6 @@
         }
       });
 
-      // Extract key textual headings/content for scraping tasks
       const contentLines = includeContent ? extractContentBlocks(10) : [];
 
       let combinedTree = '';
@@ -267,14 +462,12 @@
       return JSON.stringify({
         url: (window.location && window.location.href) ? window.location.href : '',
         title: document.title || '',
+        captcha: captchaInfo,
         elementCount: elementsMap.size,
         text_tree: combinedTree,
       });
     },
 
-    /**
-     * Executes atomic actions
-     */
     executeAction: function (actionJson) {
       const parsed = typeof actionJson === 'string' ? JSON.parse(actionJson) : actionJson;
       const act = parsed.action;
@@ -283,7 +476,12 @@
       switch (act) {
         case 'click': {
           const id = (params.element_id || '').toString();
-          const el = elementsMap.get(id) || document.querySelector(`[data-bbx-id="${id}"]`);
+          // Support direct selector fallback for Macro Replay!
+          let el = elementsMap.get(id) || document.querySelector(`[data-operon-id="${id}"]`) || document.querySelector(`[data-bbx-id="${id}"]`);
+          if (!el && params.selector) {
+            try { el = document.querySelector(params.selector); } catch (_) {}
+          }
+
           if (!el) {
             return JSON.stringify({ success: false, error: `Element [${id}] not found in DOM` });
           }
@@ -295,6 +493,10 @@
           const rect = el.getBoundingClientRect ? el.getBoundingClientRect() : { left: 0, top: 0, width: 0, height: 0 };
           const clientX = rect.left + rect.width / 2;
           const clientY = rect.top + rect.height / 2;
+
+          // Ghost Cursor visual animation
+          moveGhostCursor(clientX, clientY);
+          playTouchRipple(clientX, clientY);
 
           const eventInit = {
             bubbles: true,
@@ -332,7 +534,13 @@
             }, 300);
           }
 
-          return JSON.stringify({ success: true, message: `Clicked element [${id}]` });
+          // Return macro-compatible selector for recording!
+          const macroSelector = generateMacroSelector(el);
+          return JSON.stringify({
+            success: true,
+            message: `Clicked element [${id}]`,
+            macroSelector: macroSelector,
+          });
         }
 
         case 'type': {
@@ -340,7 +548,11 @@
           const text = params.text || '';
           const clearFirst = params.clear_first !== false;
 
-          const el = elementsMap.get(id) || document.querySelector(`[data-bbx-id="${id}"]`);
+          let el = elementsMap.get(id) || document.querySelector(`[data-operon-id="${id}"]`) || document.querySelector(`[data-bbx-id="${id}"]`);
+          if (!el && params.selector) {
+            try { el = document.querySelector(params.selector); } catch (_) {}
+          }
+
           if (!el) {
             return JSON.stringify({ success: false, error: `Element [${id}] not found in DOM` });
           }
@@ -351,6 +563,9 @@
           if (typeof el.focus === 'function') {
             el.focus();
           }
+
+          const rect = el.getBoundingClientRect ? el.getBoundingClientRect() : { left: 0, top: 0, width: 0, height: 0 };
+          moveGhostCursor(rect.left + rect.width / 2, rect.top + rect.height / 2);
 
           const isEditable = (el.getAttribute && el.getAttribute('contenteditable') === 'true') || el.isContentEditable;
 
@@ -397,14 +612,18 @@
             el.innerText = text;
           }
 
-          return JSON.stringify({ success: true, message: `Typed into element [${id}]` });
+          const macroSelector = generateMacroSelector(el);
+          return JSON.stringify({
+            success: true,
+            message: `Typed into element [${id}]`,
+            macroSelector: macroSelector,
+          });
         }
 
         case 'press_key': {
-          // Universal keyboard emulation: Enter, Escape, Backspace, Tab
           const keyName = params.key || 'Enter';
           const id = params.element_id ? params.element_id.toString() : null;
-          const target = (id ? (elementsMap.get(id) || document.querySelector(`[data-bbx-id="${id}"]`)) : null) || document.activeElement || document.body;
+          const target = (id ? (elementsMap.get(id) || document.querySelector(`[data-operon-id="${id}"]`)) : null) || document.activeElement || document.body;
 
           let keyCode = 13;
           if (keyName.toLowerCase() === 'escape') keyCode = 27;
@@ -429,7 +648,6 @@
             } catch (_) {}
           }
 
-          // If Enter is pressed inside an input within a form, trigger form submit if not submitted
           if (keyName.toLowerCase() === 'enter' && target && target.form && typeof target.form.requestSubmit === 'function') {
             try { target.form.requestSubmit(); } catch (_) {}
           }
@@ -438,10 +656,9 @@
         }
 
         case 'select_option': {
-          // Handle native <select> dropdowns
           const id = (params.element_id || '').toString();
           const val = params.value || '';
-          const el = elementsMap.get(id) || document.querySelector(`[data-bbx-id="${id}"]`);
+          const el = elementsMap.get(id) || document.querySelector(`[data-operon-id="${id}"]`);
           if (!el || el.tagName !== 'SELECT') {
             return JSON.stringify({ success: false, error: `Element [${id}] is not a <select> element` });
           }
@@ -466,10 +683,13 @@
 
         case 'hover': {
           const id = (params.element_id || '').toString();
-          const el = elementsMap.get(id) || document.querySelector(`[data-bbx-id="${id}"]`);
+          const el = elementsMap.get(id) || document.querySelector(`[data-operon-id="${id}"]`);
           if (!el) {
             return JSON.stringify({ success: false, error: `Element [${id}] not found in DOM` });
           }
+          const rect = el.getBoundingClientRect ? el.getBoundingClientRect() : { left: 0, top: 0, width: 0, height: 0 };
+          moveGhostCursor(rect.left + rect.width / 2, rect.top + rect.height / 2);
+
           if (typeof MouseEvent !== 'undefined') {
             try {
               el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, cancelable: true, view: window }));
@@ -511,10 +731,6 @@
       }
     },
 
-    /**
-     * Dynamic DOM stabilization detector
-     * Returns true when DOM mutations cease for 350ms or on timeout
-     */
     waitForDomStable: function (timeoutMs = 2500) {
       return new Promise((resolve) => {
         if (typeof MutationObserver === 'undefined' || !document.body) {
@@ -556,8 +772,6 @@
     clearHighlights: removeBadges,
   };
 
-  // Export globally as Operon and alias for backward compatibility
   window.OPERON = window.BBX_AGENT = engine;
-
-  console.log('[Operon] Universal Agent Engine v2.0 Injected.');
+  console.log('[Operon] Universal Agent Engine v3.0 Ultra Injected.');
 })();

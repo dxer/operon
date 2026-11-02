@@ -4,6 +4,9 @@ import 'package:flutter/services.dart';
 import '../../config/app_constants.dart';
 import '../../config/app_theme.dart';
 import '../../models/agent_state.dart';
+import '../../models/macro_workflow.dart';
+import '../../services/macro_service.dart';
+import 'macro_dialog.dart';
 import 'step_log_view.dart';
 
 class AgentBottomSheet extends StatefulWidget {
@@ -13,6 +16,8 @@ class AgentBottomSheet extends StatefulWidget {
   final VoidCallback onResume;
   final VoidCallback onStop;
   final Function(bool confirmed) onConfirmAction;
+  final Function(bool passed) onConfirmCaptcha;
+  final Function(MacroWorkflow macro) onRunMacro;
 
   const AgentBottomSheet({
     Key? key,
@@ -22,6 +27,8 @@ class AgentBottomSheet extends StatefulWidget {
     required this.onResume,
     required this.onStop,
     required this.onConfirmAction,
+    required this.onConfirmCaptcha,
+    required this.onRunMacro,
   }) : super(key: key);
 
   @override
@@ -65,6 +72,77 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
     );
   }
 
+  Future<void> _saveAsMacro() async {
+    final steps = widget.state.recordedMacroSteps;
+    if (steps.isEmpty) return;
+
+    final titleController = TextEditingController(
+      text: widget.state.goal.length > 15
+          ? '${widget.state.goal.substring(0, 15)}...宏'
+          : '${widget.state.goal} 宏',
+    );
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.darkCard,
+        title: const Row(
+          children: [
+            Icon(Icons.bookmark_add_outlined, color: Colors.amber, size: 20),
+            SizedBox(width: 8),
+            Text('存为快捷宏任务', style: TextStyle(fontSize: 16)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              '保存后，下次可通过宏直接以 0 Token 毫秒级重放该流程！',
+              style: TextStyle(fontSize: 12, color: Colors.white70),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: titleController,
+              decoration: const InputDecoration(labelText: '宏名称'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('取消'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.accent),
+            child: const Text('保存', style: TextStyle(color: Colors.black)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && titleController.text.trim().isNotEmpty) {
+      final macro = MacroWorkflow(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        title: titleController.text.trim(),
+        initialUrl: '',
+        createdAt: DateTime.now(),
+        steps: steps,
+      );
+      final macroService = await MacroService.getInstance();
+      await macroService.saveMacro(macro);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('已成功保存为快捷宏！随时可以在宏库中执行'),
+            backgroundColor: AppTheme.accent,
+          ),
+        );
+      }
+    }
+  }
+
   Widget _buildStatusBadge(AgentStatus status) {
     Color bg;
     Color fg;
@@ -93,7 +171,7 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
       case AgentStatus.executing:
         bg = Colors.orange.withOpacity(0.2);
         fg = Colors.orangeAccent;
-        label = '执行动作';
+        label = '虚拟光标操控中';
         icon = Icons.touch_app_outlined;
         break;
       case AgentStatus.waitingConfirmation:
@@ -101,6 +179,12 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
         fg = Colors.redAccent;
         label = '等待人工授权';
         icon = Icons.security_outlined;
+        break;
+      case AgentStatus.waitingCaptcha:
+        bg = Colors.amber.withOpacity(0.2);
+        fg = Colors.amber;
+        label = '等待完成人机验证';
+        icon = Icons.verified_user_outlined;
         break;
       case AgentStatus.paused:
         bg = Colors.amber.withOpacity(0.2);
@@ -154,6 +238,7 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
     final state = widget.state;
     final isRunning = state.isRunning;
     final hasExtractedData = state.extractedData != null;
+    final canSaveMacro = state.status == AgentStatus.completed && state.recordedMacroSteps.isNotEmpty;
 
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
@@ -185,13 +270,23 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
           ),
           const SizedBox(height: 12),
 
-          // Header row with status & toggle log button
+          // Header row with status, macro library button, and toggle log
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               _buildStatusBadge(state.status),
               Row(
                 children: [
+                  IconButton(
+                    icon: const Icon(Icons.bolt, size: 20, color: Colors.amber),
+                    onPressed: () {
+                      showDialog(
+                        context: context,
+                        builder: (_) => MacroDialog(onRunMacro: widget.onRunMacro),
+                      );
+                    },
+                    tooltip: '快捷宏任务库 (0 Token)',
+                  ),
                   if (hasExtractedData)
                     IconButton(
                       icon: const Icon(Icons.copy, size: 16, color: AppTheme.accent),
@@ -245,7 +340,43 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
             ),
           ],
 
-          // Extracted Data Viewer (Scraper Output)
+          // Save As Macro Banner (when completed)
+          if (canSaveMacro) ...[
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.amber.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.amber.withOpacity(0.4)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.electric_bolt, size: 16, color: Colors.amber),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      '已成功执行 ${state.recordedMacroSteps.length} 个步骤',
+                      style: const TextStyle(fontSize: 12, color: Colors.white),
+                    ),
+                  ),
+                  ElevatedButton.icon(
+                    onPressed: _saveAsMacro,
+                    icon: const Icon(Icons.bookmark_add, size: 14),
+                    label: const Text('存为快捷宏'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.amber,
+                      foregroundColor: Colors.black,
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+                      textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+
+          // Extracted Data Viewer
           if (hasExtractedData && _showExtractedData) ...[
             const SizedBox(height: 10),
             Container(
@@ -296,6 +427,67 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
                         ),
                       ),
                     ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+
+          // CAPTCHA Hand-Off Banner
+          if (state.status == AgentStatus.waitingCaptcha) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.amber.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.amber.withOpacity(0.5)),
+              ),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.shield_outlined, color: Colors.amber, size: 18),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          '页面弹出人机验证 (${state.captchaType ?? "验证码"})',
+                          style: const TextStyle(
+                            color: Colors.amber,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    '请在上方网页中手动完成滑动或点击验证，完成后点击“我已通过验证”继续。',
+                    style: TextStyle(fontSize: 12, color: Colors.white70),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      OutlinedButton(
+                        onPressed: () => widget.onConfirmCaptcha(false),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.white70,
+                          side: const BorderSide(color: Colors.white30),
+                        ),
+                        child: const Text('中止任务'),
+                      ),
+                      const SizedBox(width: 16),
+                      ElevatedButton(
+                        onPressed: () => widget.onConfirmCaptcha(true),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.amber,
+                          foregroundColor: Colors.black,
+                        ),
+                        child: const Text('我已通过验证，继续'),
+                      ),
+                    ],
                   ),
                 ],
               ),
