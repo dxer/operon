@@ -417,8 +417,8 @@ class _BrowserPageState extends State<BrowserPage> {
     final maxSteps = _storage?.getMaxSteps() ?? 15;
     final safeMode = _storage?.getSafeMode() ?? true;
 
-    _agentRunner.startTask(
-      goal: goal,
+    _agentRunner.run(
+      userGoal: goal,
       webView: _wrapper!,
       config: config,
       maxSteps: maxSteps,
@@ -478,10 +478,12 @@ class _BrowserPageState extends State<BrowserPage> {
             final state = snapshot.data ?? _agentState;
             return AgentBottomSheet(
               state: state,
-              currentUrl: _urlController.text,
-              onSubmitGoal: (goal) {
+              onStart: (goal) {
                 _startAgentTask(goal);
+                Navigator.of(ctx).pop();
               },
+              onPause: () => _agentRunner.pause(),
+              onResume: () => _agentRunner.resume(),
               onStop: () => _agentRunner.stop(),
               onConfirmAction: (confirmed) => _agentRunner.confirmAction(confirmed),
               onConfirmCaptcha: (passed) => _agentRunner.confirmCaptchaSolved(passed),

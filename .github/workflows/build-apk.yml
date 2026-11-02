@@ -42,16 +42,7 @@ jobs:
           channel: 'stable'
           cache: true
 
-      # 4. Cache Android NDK (Avoids repeated 1.2GB downloads every build)
-      - name: Cache Android NDK
-        uses: actions/cache@v4
-        with:
-          path: /usr/local/lib/android/sdk/ndk
-          key: ${{ runner.os }}-ndk-28.2
-          restore-keys: |
-            ${{ runner.os }}-ndk-
-
-      # 5. Install project dependencies (Fast incremental restore, no redundant clean)
+      # 4. Install project dependencies
       - name: Install Dependencies
         run: flutter pub get
 
