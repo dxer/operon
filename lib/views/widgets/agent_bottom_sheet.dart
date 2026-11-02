@@ -1,0 +1,464 @@
+import 'dart:convert';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import '../../config/app_constants.dart';
+import '../../config/app_theme.dart';
+import '../../models/agent_state.dart';
+import 'step_log_view.dart';
+
+class AgentBottomSheet extends StatefulWidget {
+  final AgentState state;
+  final Function(String goal) onStart;
+  final VoidCallback onPause;
+  final VoidCallback onResume;
+  final VoidCallback onStop;
+  final Function(bool confirmed) onConfirmAction;
+
+  const AgentBottomSheet({
+    Key? key,
+    required this.state,
+    required this.onStart,
+    required this.onPause,
+    required this.onResume,
+    required this.onStop,
+    required this.onConfirmAction,
+  }) : super(key: key);
+
+  @override
+  State<AgentBottomSheet> createState() => _AgentBottomSheetState();
+}
+
+class _AgentBottomSheetState extends State<AgentBottomSheet> {
+  late TextEditingController _goalController;
+  bool _showLogs = false;
+  bool _showExtractedData = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _goalController = TextEditingController(text: widget.state.goal);
+  }
+
+  @override
+  void didUpdateWidget(covariant AgentBottomSheet oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.state.goal.isNotEmpty && _goalController.text.isEmpty) {
+      _goalController.text = widget.state.goal;
+    }
+  }
+
+  @override
+  void dispose() {
+    _goalController.dispose();
+    super.dispose();
+  }
+
+  void _copyExtractedData() {
+    if (widget.state.extractedData == null) return;
+    final jsonStr = const JsonEncoder.withIndent('  ').convert(widget.state.extractedData);
+    Clipboard.setData(ClipboardData(text: jsonStr));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('已复制结构化数据至剪贴板！'),
+        backgroundColor: AppTheme.accent,
+      ),
+    );
+  }
+
+  Widget _buildStatusBadge(AgentStatus status) {
+    Color bg;
+    Color fg;
+    String label;
+    IconData icon;
+
+    switch (status) {
+      case AgentStatus.idle:
+        bg = Colors.grey.withOpacity(0.2);
+        fg = Colors.grey;
+        label = '待命';
+        icon = Icons.stop_circle_outlined;
+        break;
+      case AgentStatus.observing:
+        bg = Colors.blue.withOpacity(0.2);
+        fg = Colors.blueAccent;
+        label = '读取页面中';
+        icon = Icons.visibility_outlined;
+        break;
+      case AgentStatus.thinking:
+        bg = Colors.purple.withOpacity(0.2);
+        fg = Colors.purpleAccent;
+        label = 'AI 思考规划中';
+        icon = Icons.psychology_outlined;
+        break;
+      case AgentStatus.executing:
+        bg = Colors.orange.withOpacity(0.2);
+        fg = Colors.orangeAccent;
+        label = '执行动作';
+        icon = Icons.touch_app_outlined;
+        break;
+      case AgentStatus.waitingConfirmation:
+        bg = Colors.red.withOpacity(0.2);
+        fg = Colors.redAccent;
+        label = '等待人工授权';
+        icon = Icons.security_outlined;
+        break;
+      case AgentStatus.paused:
+        bg = Colors.amber.withOpacity(0.2);
+        fg = Colors.amber;
+        label = '已暂停';
+        icon = Icons.pause_circle_outline;
+        break;
+      case AgentStatus.completed:
+        bg = Colors.green.withOpacity(0.2);
+        fg = Colors.greenAccent;
+        label = '任务顺利达成';
+        icon = Icons.check_circle_outline;
+        break;
+      case AgentStatus.error:
+        bg = Colors.red.withOpacity(0.2);
+        fg = Colors.redAccent;
+        label = '执行异常';
+        icon = Icons.error_outline;
+        break;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: fg),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(color: fg, fontSize: 12, fontWeight: FontWeight.bold),
+          ),
+          if (widget.state.currentStep > 0) ...[
+            const SizedBox(width: 6),
+            Text(
+              '${widget.state.currentStep}/${widget.state.maxSteps}',
+              style: TextStyle(color: fg.withOpacity(0.8), fontSize: 11),
+            ),
+          ]
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = widget.state;
+    final isRunning = state.isRunning;
+    final hasExtractedData = state.extractedData != null;
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+      decoration: const BoxDecoration(
+        color: AppTheme.darkCard,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black54,
+            blurRadius: 16,
+            offset: Offset(0, -4),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Drag handle
+          Center(
+            child: Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.white24,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // Header row with status & toggle log button
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              _buildStatusBadge(state.status),
+              Row(
+                children: [
+                  if (hasExtractedData)
+                    IconButton(
+                      icon: const Icon(Icons.copy, size: 16, color: AppTheme.accent),
+                      onPressed: _copyExtractedData,
+                      tooltip: '复制已抓取数据',
+                    ),
+                  TextButton.icon(
+                    onPressed: () => setState(() => _showLogs = !_showLogs),
+                    icon: Icon(
+                      _showLogs ? Icons.expand_less : Icons.expand_more,
+                      size: 16,
+                      color: AppTheme.primary,
+                    ),
+                    label: Text(
+                      _showLogs ? '收起日志' : '日志 (${state.logs.length})',
+                      style: const TextStyle(fontSize: 12, color: AppTheme.primary),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+
+          // Thought Display Box
+          if (state.currentThought.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: const Color(0xFF16181C),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: AppTheme.darkBorder),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(Icons.tips_and_updates_outlined, size: 16, color: Colors.amber),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      state.currentThought,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Colors.white70,
+                        fontStyle: FontStyle.italic,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+
+          // Extracted Data Viewer (Scraper Output)
+          if (hasExtractedData && _showExtractedData) ...[
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: const Color(0xFF0F141C),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: AppTheme.accent.withOpacity(0.5)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.dataset_outlined, size: 14, color: AppTheme.accent),
+                      const SizedBox(width: 6),
+                      const Text(
+                        '已抓取结构化数据',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: AppTheme.accent,
+                        ),
+                      ),
+                      const Spacer(),
+                      InkWell(
+                        onTap: _copyExtractedData,
+                        child: const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          child: Text(
+                            '一键复制',
+                            style: TextStyle(fontSize: 11, color: AppTheme.accent),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Container(
+                    constraints: const BoxConstraints(maxHeight: 120),
+                    child: SingleChildScrollView(
+                      child: Text(
+                        const JsonEncoder.withIndent('  ').convert(state.extractedData),
+                        style: const TextStyle(
+                          fontFamily: 'monospace',
+                          fontSize: 11,
+                          color: Colors.white70,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+
+          // Human Confirmation Banner
+          if (state.status == AgentStatus.waitingConfirmation) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.redAccent.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.redAccent.withOpacity(0.5)),
+              ),
+              child: Column(
+                children: [
+                  const Text(
+                    '⚠️ 敏感操作拦截提醒',
+                    style: TextStyle(
+                      color: Colors.redAccent,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'AI 准备执行: ${state.currentAction?.description ?? ""}',
+                    style: const TextStyle(fontSize: 12, color: Colors.white),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      OutlinedButton(
+                        onPressed: () => widget.onConfirmAction(false),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.white70,
+                          side: const BorderSide(color: Colors.white30),
+                        ),
+                        child: const Text('取消任务'),
+                      ),
+                      const SizedBox(width: 16),
+                      ElevatedButton(
+                        onPressed: () => widget.onConfirmAction(true),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppTheme.accent,
+                          foregroundColor: Colors.black,
+                        ),
+                        child: const Text('授权继续'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+
+          // Expandable Logs
+          if (_showLogs) ...[
+            const SizedBox(height: 10),
+            Container(
+              constraints: const BoxConstraints(maxHeight: 180),
+              decoration: BoxDecoration(
+                color: const Color(0xFF16181C),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: StepLogView(logs: state.logs),
+            ),
+          ],
+
+          const SizedBox(height: 12),
+
+          // Goal Input Field
+          TextField(
+            controller: _goalController,
+            enabled: !isRunning,
+            maxLines: 2,
+            minLines: 1,
+            style: const TextStyle(fontSize: 14),
+            decoration: InputDecoration(
+              hintText: '输入通用指令（抓取数据、发推、搜索、评论或任何网页操作）...',
+              hintStyle: const TextStyle(fontSize: 12, color: Colors.white38),
+              suffixIcon: isRunning
+                  ? null
+                  : IconButton(
+                      icon: const Icon(Icons.arrow_upward, color: AppTheme.primary),
+                      onPressed: () {
+                        final text = _goalController.text.trim();
+                        if (text.isNotEmpty) {
+                          widget.onStart(text);
+                        }
+                      },
+                    ),
+            ),
+          ),
+
+          // Universal Workflow Recipe chips
+          if (!isRunning) ...[
+            const SizedBox(height: 8),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: AppConstants.recipePresets.map((recipe) {
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 6.0),
+                    child: ActionChip(
+                      avatar: const Icon(Icons.auto_awesome, size: 14, color: AppTheme.primary),
+                      label: Text(
+                        recipe['title']!,
+                        style: const TextStyle(fontSize: 11, color: Colors.white70),
+                      ),
+                      backgroundColor: const Color(0xFF16181C),
+                      side: const BorderSide(color: AppTheme.darkBorder),
+                      onPressed: () {
+                        _goalController.text = recipe['prompt']!;
+                      },
+                    ),
+                  );
+                }).toList(),
+              ),
+            ),
+          ],
+
+          // Control Action Buttons (when running)
+          if (isRunning) ...[
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: state.status == AgentStatus.paused
+                        ? widget.onResume
+                        : widget.onPause,
+                    icon: Icon(
+                      state.status == AgentStatus.paused ? Icons.play_arrow : Icons.pause,
+                      size: 18,
+                    ),
+                    label: Text(state.status == AgentStatus.paused ? '恢复' : '暂停'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      side: const BorderSide(color: AppTheme.darkBorder),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: widget.onStop,
+                    icon: const Icon(Icons.stop, size: 18),
+                    label: const Text('停止运行'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.redAccent.withOpacity(0.8),
+                      foregroundColor: Colors.white,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
