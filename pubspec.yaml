@@ -1,11 +1,11 @@
 name: operon
 description: "Operon - A lightweight, autonomous AI agent browser for Android."
 publish_to: "none"
-version: 0.3.0+3
+version: 0.4.0+4
 
 environment:
-  sdk: ">=3.2.0 <4.0.0"
-  flutter: ">=3.16.0"
+  sdk: ">=3.3.0 <4.0.0"
+  flutter: ">=3.19.0"
 
 dependencies:
   flutter:
@@ -15,9 +15,12 @@ dependencies:
   # Local configuration persistence (API keys, Base URL, User-Agent, etc.)
   shared_preferences: ^2.3.2
   # HTTP client for OpenAI-compatible LLM endpoints
-  http: ^1.2.2
+  # 1.6+ provides AbortableRequest so stopping a task aborts the in-flight call.
+  http: ^1.6.0
   # Android system local notifications (background alerts, completion, captcha)
   flutter_local_notifications: ^17.2.2
+  # Reads the installed APK version, so the UI never hardcodes it again.
+  package_info_plus: ^8.3.1
 
 dev_dependencies:
   flutter_test:

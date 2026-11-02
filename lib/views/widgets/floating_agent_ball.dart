@@ -116,16 +116,16 @@ class _FloatingAgentBallState extends State<FloatingAgentBall>
     super.dispose();
   }
 
-  void _snapToNearestEdge(Size screenSize) {
+  void _snapToNearestEdge(Size screenSize, double bottomInset) {
     final double midX = screenSize.width / 2;
     final double targetX = (_position.dx + ballSize / 2 < midX)
         ? marginX
         : (screenSize.width - ballSize - marginX);
 
-    // Vertical boundaries: preserve room for top address bar (~100) and bottom gestures (~80)
+    // Vertical boundaries: preserve room for the address bar and bottom toolbar.
     const double minY = 90.0;
-    final double maxY = screenSize.height - ballSize - 80.0;
-    final double targetY = _position.dy.clamp(minY, maxY);
+    final double maxY = screenSize.height - ballSize - bottomInset;
+    final double targetY = _position.dy.clamp(minY, maxY > minY ? maxY : minY);
 
     final targetOffset = Offset(targetX, targetY);
 
@@ -150,12 +150,14 @@ class _FloatingAgentBallState extends State<FloatingAgentBall>
   @override
   Widget build(BuildContext context) {
     final screenSize = MediaQuery.of(context).size;
+    // Keep the orb above the bottom toolbar and the system gesture area.
+    final bottomInset = MediaQuery.of(context).padding.bottom + 72;
 
     // Initialize position near bottom-right on first frame
     if (!_isInitialized && screenSize.width > 0) {
       _position = Offset(
         screenSize.width - ballSize - marginX,
-        screenSize.height - ballSize - 140,
+        screenSize.height - ballSize - bottomInset,
       );
       _isInitialized = true;
     }
@@ -182,15 +184,21 @@ class _FloatingAgentBallState extends State<FloatingAgentBall>
           });
         },
         onPanUpdate: (details) {
+          final maxY = screenSize.height - ballSize - bottomInset;
           setState(() {
-            _position += details.delta;
+            _position = Offset(
+              (_position.dx + details.delta.dx)
+                  .clamp(0.0, screenSize.width - ballSize),
+              (_position.dy + details.delta.dy)
+                  .clamp(90.0, maxY > 90.0 ? maxY : 90.0),
+            );
           });
         },
         onPanEnd: (_) {
           setState(() {
             _isDragging = false;
           });
-          _snapToNearestEdge(screenSize);
+          _snapToNearestEdge(screenSize, bottomInset);
         },
         onTap: () {
           _wakeUp();

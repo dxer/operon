@@ -5,6 +5,7 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import '../config/app_constants.dart';
 import '../config/app_theme.dart';
 import '../models/agent_state.dart';
+import '../models/agent_task_record.dart';
 import '../models/llm_config.dart';
 import '../models/macro_workflow.dart';
 import '../models/web_tab.dart';
@@ -20,8 +21,9 @@ import '../services/webview_controller_wrapper.dart';
 import 'settings/settings_page.dart';
 import 'settings/user_scripts_page.dart';
 import 'widgets/agent_bottom_sheet.dart';
+import 'widgets/agent_status_bar.dart';
 import 'widgets/browser_controls.dart';
-import 'widgets/dynamic_agent_capsule.dart';
+import 'widgets/floating_agent_ball.dart';
 import 'widgets/selection_action_dialog.dart';
 import 'widgets/summary_bottom_sheet.dart';
 import 'widgets/tabs_overview_sheet.dart';
@@ -65,6 +67,32 @@ class _BrowserPageState extends State<BrowserPage> {
   bool get _isCleanMode => _currentTab.isCleanMode;
 
   AgentState _agentState = const AgentState();
+  bool _statusBarDismissed = false;
+  String? _agentTabId;
+  DateTime? _taskStartedAt;
+  bool _taskRecorded = false;
+  bool _permissionDialogOpen = false;
+
+  bool get _showAgentStatusBar {
+    final status = _agentState.status;
+    if (status == AgentStatus.idle) return false;
+    if (status == AgentStatus.completed ||
+        status == AgentStatus.maxStepsReached ||
+        status == AgentStatus.error) {
+      return !_statusBarDismissed;
+    }
+    return true;
+  }
+
+  bool get _showFloatingAgentBall {
+    final status = _agentState.status;
+    if (status == AgentStatus.idle) return true;
+    // Re-appear once the user dismisses the finished-task status strip.
+    final isTerminal = status == AgentStatus.completed ||
+        status == AgentStatus.maxStepsReached ||
+        status == AgentStatus.error;
+    return isTerminal && _statusBarDismissed;
+  }
 
   @override
   void initState() {
@@ -77,11 +105,31 @@ class _BrowserPageState extends State<BrowserPage> {
     ));
     _agentRunner = AgentRunner();
     _agentSub = _agentRunner.stateStream.listen((state) {
-      if (mounted) {
-        setState(() {
-          _agentState = state;
-        });
-      }
+      if (!mounted) return;
+      setState(() {
+        if (state.isRunning || state.status == AgentStatus.paused) {
+          _statusBarDismissed = false;
+        }
+        if (state.status == AgentStatus.idle ||
+            state.status == AgentStatus.completed ||
+            state.status == AgentStatus.maxStepsReached ||
+            state.status == AgentStatus.error) {
+          _agentTabId = null;
+        }
+        _agentState = state;
+        final isTerminal = state.status == AgentStatus.completed ||
+            state.status == AgentStatus.maxStepsReached ||
+            state.status == AgentStatus.error;
+        final shouldRecord = isTerminal ||
+            (state.status == AgentStatus.idle && _taskStartedAt != null);
+        if (shouldRecord && !_taskRecorded && state.goal.isNotEmpty) {
+          _taskRecorded = true;
+          unawaited(_persistTaskRecord(state));
+        }
+        if (state.status == AgentStatus.idle) {
+          _taskStartedAt = null;
+        }
+      });
     });
     NotificationService.getInstance().init();
     _initStorage();
@@ -90,6 +138,8 @@ class _BrowserPageState extends State<BrowserPage> {
   Future<void> _initStorage() async {
     _storage = await StorageService.getInstance();
     _themeService = await ThemeService.getInstance();
+    // Keep the runner aligned with the persisted policy from the very first run.
+    _agentRunner.setSafeMode(_storage?.getSafeMode() ?? true);
     final homepage = _storage?.getHomepage() ?? AppConstants.defaultHomepage;
     final isDesktop = _storage?.getDesktopMode() ?? false;
 
@@ -145,6 +195,23 @@ class _BrowserPageState extends State<BrowserPage> {
 
   void _switchTab(int index) {
     if (index < 0 || index >= _tabs.length) return;
+    final agentActive =
+        _agentState.isRunning || _agentState.status == AgentStatus.paused;
+    WebTab? agentTab;
+    for (final tab in _tabs) {
+      if (tab.id == _agentTabId) {
+        agentTab = tab;
+        break;
+      }
+    }
+    if (agentActive && agentTab != null && _tabs[index].id != _agentTabId) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('AI 仍在「${agentTab.title}」上运行，切换标签不会中断任务'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
     setState(() {
       _currentTabIndex = index;
       _urlController.text =
@@ -649,7 +716,6 @@ class _BrowserPageState extends State<BrowserPage> {
 
   void _startAgentTask(String goal) async {
     if (_wrapper == null) return;
-
     final config = _storage?.getLlmConfig() ?? LlmConfig.defaultConfig();
     if (!config.isValid) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -669,13 +735,145 @@ class _BrowserPageState extends State<BrowserPage> {
     final maxSteps = _storage?.getMaxSteps() ?? 15;
     final safeMode = _storage?.getSafeMode() ?? true;
 
+    _agentTabId = _currentTab.id;
+    _statusBarDismissed = false;
+    _taskStartedAt = DateTime.now();
+    _taskRecorded = false;
+
     _agentRunner.run(
       userGoal: goal,
       webView: _wrapper!,
       config: config,
       maxSteps: maxSteps,
       safeMode: safeMode,
+      isSiteAllowed: (host) => _storage?.isAgentSiteAllowed(host) ?? false,
     );
+  }
+
+  Future<void> _setSafeMode(bool enabled) async {
+    await _storage?.saveSafeMode(enabled);
+    // AgentRunner also releases a pending confirmation immediately when the
+    // switch is turned off mid-task.
+    _agentRunner.setSafeMode(enabled);
+    if (mounted) setState(() {});
+  }
+
+  Future<bool> _askWebPermission(String title, String detail) async {
+    if (!mounted || _permissionDialogOpen) return false;
+    _permissionDialogOpen = true;
+    try {
+      final allowed = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => AlertDialog(
+          title: Text(title),
+          content: Text(detail, style: const TextStyle(height: 1.45)),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('拒绝'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('允许'),
+            ),
+          ],
+        ),
+      );
+      return allowed == true;
+    } finally {
+      _permissionDialogOpen = false;
+    }
+  }
+
+  String _permissionLabel(String name) {
+    switch (name) {
+      case 'CAMERA':
+        return '摄像头';
+      case 'MICROPHONE':
+        return '麦克风';
+      case 'CAMERA_AND_MICROPHONE':
+        return '摄像头与麦克风';
+      case 'DEVICE_ORIENTATION_AND_MOTION':
+        return '设备方向与运动';
+      case 'PROTECTED_MEDIA_ID':
+        return '受保护媒体';
+      case 'MIDI_SYSEX':
+        return 'MIDI 设备';
+      case 'GEOLOCATION':
+        return '定位';
+      default:
+        return name;
+    }
+  }
+
+  Future<void> _persistTaskRecord(AgentState state) async {
+    final storage = _storage;
+    if (storage == null) return;
+    final startedAt = _taskStartedAt ??
+        (state.logs.isNotEmpty ? state.logs.first.timestamp : DateTime.now());
+    final lines = state.logs.map((log) {
+      final detail =
+          log.detail == null || log.detail!.isEmpty ? '' : ' — ${log.detail}';
+      final line = '[${log.step}] ${log.title}$detail';
+      return line.length > 300 ? '${line.substring(0, 300)}…' : line;
+    }).toList();
+    if (lines.length > 80) {
+      lines.removeRange(0, lines.length - 80);
+    }
+    final sensitive = state.logs
+        .where((log) =>
+            log.title.contains('敏感操作') ||
+            log.title.contains('完全自主模式') ||
+            log.title.contains('信任列表') ||
+            log.title.contains('取消'))
+        .map((log) => log.detail == null || log.detail!.isEmpty
+            ? log.title
+            : '${log.title} — ${log.detail}')
+        .toList();
+
+    final record = AgentTaskRecord(
+      id: startedAt.millisecondsSinceEpoch.toString(),
+      goal: state.goal,
+      status: state.status == AgentStatus.idle ? 'stopped' : state.status.name,
+      startedAt: startedAt,
+      endedAt: DateTime.now(),
+      steps: state.currentStep,
+      maxSteps: state.maxSteps,
+      safeMode: storage.getSafeMode(),
+      errorMessage: state.errorMessage,
+      targetUrl: _currentTab.url,
+      logs: lines,
+      sensitiveActions: sensitive,
+    );
+    try {
+      await storage.addAgentTaskRecord(record);
+    } catch (_) {
+      // History is best-effort; never let persistence break the task flow.
+    }
+  }
+
+  Future<void> _allowSiteForTask() async {
+    final url = _agentState.targetUrl ?? _currentTab.url;
+    var host = Uri.tryParse(url)?.host ?? '';
+    host = host.toLowerCase();
+    if (host.startsWith('www.')) host = host.substring(4);
+    if (host.isEmpty) {
+      _agentRunner.confirmAction(true);
+      return;
+    }
+    await _storage?.addAgentAllowedSite(host);
+    _agentRunner.confirmAction(true);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('已将 $host 加入信任列表，之后该站点不再询问'),
+          backgroundColor: AppTheme.accent,
+          duration: const Duration(seconds: 2),
+        ),
+      );
+      setState(() {});
+    }
   }
 
   void _runMacro(MacroWorkflow macro) async {
@@ -690,7 +888,7 @@ class _BrowserPageState extends State<BrowserPage> {
       ),
     );
 
-    await macroService.executeMacro(
+    final success = await macroService.executeMacro(
       macro: macro,
       webView: _wrapper!,
       onProgress: (cur, total, desc) {
@@ -701,8 +899,13 @@ class _BrowserPageState extends State<BrowserPage> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('宏任务 [${macro.title}] 执行完成！'),
-        backgroundColor: AppTheme.accent,
+        content: Text(
+          success
+              ? '宏任务 [${macro.title}] 执行完成！'
+              : '宏任务 [${macro.title}] 执行中断：有步骤未成功。涉及发帖/支付等步骤时不会自动重试，请检查页面。',
+        ),
+        backgroundColor: success ? AppTheme.accent : Colors.redAccent,
+        duration: Duration(seconds: success ? 3 : 6),
       ),
     );
   }
@@ -710,12 +913,16 @@ class _BrowserPageState extends State<BrowserPage> {
   void _openSettings() async {
     await Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => SettingsPage(onRunMacro: _runMacro),
+        builder: (_) => SettingsPage(
+          onRunMacro: _runMacro,
+          onSafeModeChanged: _setSafeMode,
+        ),
       ),
     );
     if (!mounted) return;
     // Settings sub-pages persist immediately, so always re-apply them on return.
     _storage = await StorageService.getInstance();
+    _agentRunner.setSafeMode(_storage?.getSafeMode() ?? true);
     await _applyCurrentWebViewSettings();
     setState(() {});
   }
@@ -733,6 +940,9 @@ class _BrowserPageState extends State<BrowserPage> {
             final state = snapshot.data ?? _agentState;
             return AgentBottomSheet(
               state: state,
+              safeMode: _storage?.getSafeMode() ?? true,
+              onSafeModeChanged: _setSafeMode,
+              onAllowSite: _allowSiteForTask,
               onStart: (goal) {
                 _startAgentTask(goal);
                 Navigator.of(ctx).pop();
@@ -1034,16 +1244,32 @@ class _BrowserPageState extends State<BrowserPage> {
             }
           },
           onPermissionRequest: (controller, permissionRequest) async {
+            final url = (await controller.getUrl())?.toString() ?? '';
+            final host = Uri.tryParse(url)?.host ?? '当前网页';
+            final kinds = permissionRequest.resources
+                .map((r) => _permissionLabel(r.toString().split('.').last))
+                .toSet()
+                .join('、');
+            final allowed = await _askWebPermission(
+              '网页权限请求',
+              '$host 请求使用：$kinds。\n\n仅在你信任该网站时允许。',
+            );
             return PermissionResponse(
               resources: permissionRequest.resources,
-              action: PermissionResponseAction.GRANT,
+              action: allowed
+                  ? PermissionResponseAction.GRANT
+                  : PermissionResponseAction.DENY,
             );
           },
           onGeolocationPermissionsShowPrompt: (controller, origin) async {
+            final allowed = await _askWebPermission(
+              '定位权限请求',
+              '${origin.isEmpty ? '当前网页' : origin} 请求获取你的位置信息。\n\n仅在你信任该网站时允许。',
+            );
             return GeolocationPermissionShowPromptResponse(
               origin: origin,
-              allow: true,
-              retain: true,
+              allow: allowed,
+              retain: allowed,
             );
           },
           onConsoleMessage: (controller, consoleMessage) {
@@ -1106,26 +1332,26 @@ class _BrowserPageState extends State<BrowserPage> {
         }
       },
       child: Scaffold(
-        body: Column(
+        body: Stack(
           children: [
-            // Top Navigation & Wide Address Bar (shown on web pages)
-            if (!isStartPage)
-              MediaQuery.withClampedTextScaling(
-                maxScaleFactor: 1.25,
-                child: BrowserControls(
-                  urlController: _urlController,
-                  isLoading: _isLoading,
-                  progress: _progress,
-                  onSubmitUrl: _loadUrl,
-                  onSummarize: _quickSummarize,
-                ),
-              ),
+            Column(
+              children: [
+                // Top Navigation & Wide Address Bar (shown on web pages)
+                if (!isStartPage)
+                  MediaQuery.withClampedTextScaling(
+                    maxScaleFactor: 1.25,
+                    child: BrowserControls(
+                      urlController: _urlController,
+                      isLoading: _isLoading,
+                      progress: _progress,
+                      onSubmitUrl: _loadUrl,
+                      onSummarize: _quickSummarize,
+                    ),
+                  ),
 
-            // Full-screen IndexedStack Multi-Tab WebView Canvas with Touch-To-Interrupt & Dynamic Capsule
-            Expanded(
-              child: Stack(
-                children: [
-                  Listener(
+                // Full-screen IndexedStack Multi-Tab WebView Canvas with Touch-To-Interrupt
+                Expanded(
+                  child: Listener(
                     behavior: HitTestBehavior.translucent,
                     onPointerDown: _onUserTouchedWebView,
                     child: IndexedStack(
@@ -1135,63 +1361,79 @@ class _BrowserPageState extends State<BrowserPage> {
                       }).toList(),
                     ),
                   ),
+                ),
 
-                  // Bottom-Centered Lightweight Dynamic Agent Capsule (Hovering above bottom toolbar)
-                  Positioned(
-                    bottom: 12,
-                    left: 0,
-                    right: 0,
-                    child: Center(
-                      child: MediaQuery.withClampedTextScaling(
-                        maxScaleFactor: 1.2,
-                        child: DynamicAgentCapsule(
-                          state: _agentState,
-                          onTap: _openAgentBottomSheet,
-                          onPause: () => _agentRunner.pause(),
-                          onResume: () => _agentRunner.resume(),
-                          onStop: () => _agentRunner.stop(),
-                          onConfirmCaptcha: () =>
-                              _agentRunner.confirmCaptchaSolved(true),
-                          onConfirmAction: () =>
-                              _agentRunner.confirmAction(true),
-                        ),
-                      ),
-                    ),
+                // Docked agent status strip: takes layout space instead of floating
+                // over the page, so it can never cover web content.
+                AnimatedSize(
+                  duration: const Duration(milliseconds: 220),
+                  curve: Curves.easeOutCubic,
+                  alignment: Alignment.topCenter,
+                  child: _showAgentStatusBar
+                      ? MediaQuery.withClampedTextScaling(
+                          maxScaleFactor: 1.2,
+                          child: AgentStatusBar(
+                            state: _agentState,
+                            safeMode: _storage?.getSafeMode() ?? true,
+                            onOpen: _openAgentBottomSheet,
+                            onPause: () => _agentRunner.pause(),
+                            onResume: () => _agentRunner.resume(),
+                            onStop: () => _agentRunner.stop(),
+                            onConfirmCaptcha: () =>
+                                _agentRunner.confirmCaptchaSolved(true),
+                            onConfirmAction: () =>
+                                _agentRunner.confirmAction(true),
+                            onDismiss: () =>
+                                setState(() => _statusBarDismissed = true),
+                          ),
+                        )
+                      : const SizedBox(width: double.infinity),
+                ),
+
+                // Via-Style One-Handed Bottom Toolbar
+                MediaQuery.withClampedTextScaling(
+                  maxScaleFactor: 1.25,
+                  child: BottomToolbar(
+                    canGoBack: _canGoBack && !isStartPage,
+                    canGoForward: _canGoForward && !isStartPage,
+                    isLoading: _isLoading,
+                    tabCount: _tabs.length,
+                    isBookmarked:
+                        _storage?.isBookmarked(_currentTab.url) ?? false,
+                    isDesktopMode: _isDesktopMode,
+                    isCleanMode: _isCleanMode,
+                    onBack: () => _webViewController?.goBack(),
+                    onForward: () => _webViewController?.goForward(),
+                    onHome: _goHome,
+                    onOpenTabs: _openTabOverview,
+                    onOpenAgent: _openAgentBottomSheet,
+                    onReload: () => _webViewController?.reload(),
+                    onStopLoad: () => _webViewController?.stopLoading(),
+                    onNewTab: () => _createNewTab(),
+                    onSummarize: _quickSummarize,
+                    onCleanPage: _toggleCleanMode,
+                    onOpenUserScripts: _openUserScripts,
+                    onToggleBookmark: _toggleBookmarkCurrentPage,
+                    onOpenHistory: () =>
+                        _openHistoryBookmarksSheet(initialTab: 0),
+                    onOpenBookmarks: () =>
+                        _openHistoryBookmarksSheet(initialTab: 1),
+                    onToggleDesktopMode: _toggleDesktopMode,
+                    onOpenSettings: _openSettings,
+                    currentUrl: _currentTab.url,
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
 
-            // Via-Style One-Handed Bottom Toolbar
-            MediaQuery.withClampedTextScaling(
-              maxScaleFactor: 1.25,
-              child: BottomToolbar(
-                canGoBack: _canGoBack && !isStartPage,
-                canGoForward: _canGoForward && !isStartPage,
-                isLoading: _isLoading,
-                tabCount: _tabs.length,
-                isBookmarked: _storage?.isBookmarked(_currentTab.url) ?? false,
-                isDesktopMode: _isDesktopMode,
-                isCleanMode: _isCleanMode,
-                onBack: () => _webViewController?.goBack(),
-                onForward: () => _webViewController?.goForward(),
-                onHome: _goHome,
-                onOpenTabs: _openTabOverview,
-                onReload: () => _webViewController?.reload(),
-                onStopLoad: () => _webViewController?.stopLoading(),
-                onNewTab: () => _createNewTab(),
-                onSummarize: _quickSummarize,
-                onCleanPage: _toggleCleanMode,
-                onOpenUserScripts: _openUserScripts,
-                onToggleBookmark: _toggleBookmarkCurrentPage,
-                onOpenHistory: () => _openHistoryBookmarksSheet(initialTab: 0),
-                onOpenBookmarks: () =>
-                    _openHistoryBookmarksSheet(initialTab: 1),
-                onToggleDesktopMode: _toggleDesktopMode,
-                onOpenSettings: _openSettings,
-                currentUrl: _currentTab.url,
+            // Self-snapping AI orb: shown only when no task needs the docked
+            // status strip, so it never competes with page content.
+            if (_showFloatingAgentBall)
+              FloatingAgentBall(
+                state: _agentState,
+                onTap: _openAgentBottomSheet,
+                onQuickSummarize: _quickSummarize,
               ),
-            ),
           ],
         ),
       ),

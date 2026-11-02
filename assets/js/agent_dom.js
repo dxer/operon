@@ -1,5 +1,5 @@
 /**
- * Operon Universal Agent DOM Engine (v0.1.0)
+ * Operon Universal Agent DOM Engine (v0.1.4)
  * - Stealth Anti-Bot Fingerprint Masking
  * - Ghost Cursor & Human-like Touch Ripple Animation
  * - Deep Shadow DOM & IFrame Traversal
@@ -8,7 +8,7 @@
  * - Dynamic MutationObserver DOM Settle Detection
  */
 (function () {
-  if (window.OPERON && window.OPERON.version === '0.1.0') {
+  if (window.OPERON && window.OPERON.version === '0.1.4') {
     return;
   }
 
@@ -46,6 +46,72 @@
   let elementsMap = new Map();
   let nextElementId = 1;
   let ghostCursor = null;
+  let lastInteractedEl = null;
+
+  // ==========================================
+  // 1.5 Network Activity Tracker
+  // The agent waits for both DOM stability and in-flight requests, otherwise
+  // SPA pages look unchanged for a few hundred ms and the model repeats clicks.
+  // ==========================================
+  try {
+    if (!window.__operonNetworkPatched) {
+      window.__operonNetworkPatched = true;
+      window.__operonPendingNetwork = 0;
+
+      const netBegin = () => {
+        window.__operonPendingNetwork =
+          (window.__operonPendingNetwork || 0) + 1;
+      };
+      const netEnd = () => {
+        window.__operonPendingNetwork = Math.max(
+          0,
+          (window.__operonPendingNetwork || 0) - 1
+        );
+      };
+
+      const originalFetch = window.fetch;
+      if (typeof originalFetch === 'function') {
+        window.fetch = function () {
+          netBegin();
+          let request;
+          try {
+            request = originalFetch.apply(this, arguments);
+          } catch (e) {
+            netEnd();
+            throw e;
+          }
+          if (request && typeof request.finally === 'function') {
+            return request.finally(netEnd);
+          }
+          netEnd();
+          return request;
+        };
+      }
+
+      if (window.XMLHttpRequest && XMLHttpRequest.prototype) {
+        const originalSend = XMLHttpRequest.prototype.send;
+        XMLHttpRequest.prototype.send = function () {
+          netBegin();
+          let finished = false;
+          const done = () => {
+            if (!finished) {
+              finished = true;
+              netEnd();
+            }
+          };
+          try {
+            this.addEventListener('loadend', done, { once: true });
+          } catch (e) {}
+          try {
+            return originalSend.apply(this, arguments);
+          } catch (e) {
+            done();
+            throw e;
+          }
+        };
+      }
+    }
+  } catch (e) {}
 
   // ==========================================
   // 2. Ghost Cursor & Touch Ripple System
@@ -187,30 +253,36 @@
   // ==========================================
   function detectCaptchaChallenge() {
     // 3.1 Cloudflare Turnstile / Challenge
+    const cfToken = document.querySelector('[name="cf-turnstile-response"]');
+    const cfPassed = !!(cfToken && cfToken.value);
     const cf = document.querySelector(
       '[name="cf-turnstile-response"], iframe[src*="cloudflare"], #challenge-stage, .cf-turnstile, #cf-wrapper'
     );
-    if (cf && isVisible(cf)) {
+    if (!cfPassed && cf && isRendered(cf)) {
       return { hasCaptcha: true, type: 'Cloudflare 5秒人机盾 / Turnstile' };
     }
 
     // 3.2 Google reCAPTCHA
+    const recaptchaToken = document.querySelector(
+      'textarea[name="g-recaptcha-response"], #g-recaptcha-response'
+    );
+    const recaptchaPassed = !!(recaptchaToken && recaptchaToken.value);
     const recaptcha = document.querySelector(
       '.g-recaptcha, iframe[src*="recaptcha"], #recaptcha-anchor'
     );
-    if (recaptcha && isVisible(recaptcha)) {
+    if (!recaptchaPassed && recaptcha && isRendered(recaptcha)) {
       return { hasCaptcha: true, type: 'Google reCAPTCHA 验证码' };
     }
 
     // 3.3 Geetest 极验
     const geetest = document.querySelector('.geetest_holder, .geetest_radar_tip, .geetest_popup');
-    if (geetest && isVisible(geetest)) {
+    if (geetest && isRendered(geetest)) {
       return { hasCaptcha: true, type: '极验 (Geetest) 滑动验证码' };
     }
 
     // 3.4 Arkose Labs (Twitter/X常用)
     const arkose = document.querySelector('iframe[src*="arkoselabs"], #arkose, div[data-e2e="arkose-frame"]');
-    if (arkose && isVisible(arkose)) {
+    if (arkose && isRendered(arkose)) {
       return { hasCaptcha: true, type: 'Arkose Labs (X人机验证)' };
     }
 
@@ -415,7 +487,34 @@
     return cleaned.length > maxLen ? cleaned.slice(0, maxLen) + '...' : cleaned;
   }
 
+  // Describe an element without ever leaking a password/card value. Macro
+  // recording stores this label, so secrets must never reach it.
+  function safeTargetText(el, maxLen = 60) {
+    if (!el) return '';
+    try {
+      const type = (el.getAttribute && el.getAttribute('type') || '').toLowerCase();
+      const autocomplete = (el.getAttribute && el.getAttribute('autocomplete') || '').toLowerCase();
+      const secret = type === 'password' ||
+        /cc-|current-password|new-password|one-time-code/.test(autocomplete);
+      const raw = el.innerText ||
+        (secret ? '' : el.value) ||
+        (el.getAttribute && el.getAttribute('aria-label')) ||
+        '';
+      return cleanText(raw, maxLen);
+    } catch (_) {
+      return '';
+    }
+  }
+
   function getElementLabel(el) {
+    if (el.tagName === 'INPUT' && (el.type === 'checkbox' || el.type === 'radio')) {
+      const base = el.getAttribute('aria-label') ||
+        el.getAttribute('title') ||
+        el.getAttribute('name') ||
+        (el.value && el.value !== 'on' ? el.value : '');
+      return `${el.checked ? '[已选中]' : '[未选中]'} ${cleanText(base)}`.trim();
+    }
+
     const ariaLabel = el.getAttribute ? el.getAttribute('aria-label') : null;
     if (ariaLabel) return cleanText(ariaLabel);
 
@@ -519,7 +618,7 @@
   // 6. Main Operon Engine Definition
   // ==========================================
   const engine = {
-    version: '0.1.0',
+    version: '0.1.4',
 
     detectCaptcha: detectCaptchaChallenge,
 
@@ -769,12 +868,21 @@
             try { el = document.querySelector(params.selector); } catch (_) {}
           }
 
-          if (!el) {
-            return JSON.stringify({ success: false, error: `Element [${id}] not found in DOM` });
+          if (!el || el.isConnected === false) {
+            return JSON.stringify({ success: false, error: `Element [${id}] not found or was replaced by a page update; please re-identify` });
           }
 
+          if (el.disabled === true || (el.getAttribute && el.getAttribute('aria-disabled') === 'true')) {
+            return JSON.stringify({
+              success: false,
+              error: `Element [${id}] is disabled and cannot be clicked right now`
+            });
+          }
+
+          lastInteractedEl = el;
+
           if (typeof el.scrollIntoView === 'function') {
-            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            try { el.scrollIntoView({ block: 'center' }); } catch (_) {}
           }
 
           const rect = el.getBoundingClientRect ? el.getBoundingClientRect() : { left: 0, top: 0, width: 0, height: 0 };
@@ -805,10 +913,13 @@
           }
           if (typeof MouseEvent !== 'undefined') {
             try { el.dispatchEvent(new MouseEvent('mouseup', eventInit)); } catch (_) {}
-            try { el.dispatchEvent(new MouseEvent('click', eventInit)); } catch (_) {}
           }
+          // Fire exactly one click: calling el.click() AND dispatching a
+          // synthetic click double-toggles checkboxes/follow buttons.
           if (typeof el.click === 'function') {
             try { el.click(); } catch (_) {}
+          } else if (typeof MouseEvent !== 'undefined') {
+            try { el.dispatchEvent(new MouseEvent('click', eventInit)); } catch (_) {}
           }
           if (typeof el.focus === 'function') {
             try { el.focus(); } catch (_) {}
@@ -828,6 +939,8 @@
             success: true,
             message: `Clicked element [${id}]`,
             macroSelector: macroSelector,
+            targetText: safeTargetText(el),
+            tag: el.tagName || ''
           });
         }
 
@@ -841,8 +954,8 @@
             try { el = document.querySelector(params.selector); } catch (_) {}
           }
 
-          if (!el) {
-            return JSON.stringify({ success: false, error: `Element [${id}] not found in DOM` });
+          if (!el || el.isConnected === false) {
+            return JSON.stringify({ success: false, error: `Element [${id}] not found or was replaced by a page update; please re-identify` });
           }
 
           // 1. Resolve actual editable element (auto-penetrate wrapper/placeholder for Twitter Draft.js/Lexical)
@@ -865,8 +978,9 @@
           }
 
           if (typeof target.scrollIntoView === 'function') {
-            try { target.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (_) {}
+            try { target.scrollIntoView({ block: 'center' }); } catch (_) {}
           }
+          lastInteractedEl = target;
           if (typeof target.focus === 'function') {
             try { target.focus(); } catch (_) {}
           }
@@ -1018,6 +1132,8 @@
             success: true,
             message: `Typed into element [${id}]`,
             macroSelector: macroSelector,
+            targetText: safeTargetText(target),
+            tag: target.tagName || ''
           });
         }
 
@@ -1060,8 +1176,8 @@
           const id = (params.element_id || '').toString();
           const val = params.value || '';
           const el = elementsMap.get(id) || document.querySelector(`[data-operon-id="${id}"]`);
-          if (!el || el.tagName !== 'SELECT') {
-            return JSON.stringify({ success: false, error: `Element [${id}] is not a <select> element` });
+          if (!el || el.isConnected === false || el.tagName !== 'SELECT') {
+            return JSON.stringify({ success: false, error: `Element [${id}] is not an available <select> element` });
           }
 
           let matched = false;
@@ -1085,9 +1201,10 @@
         case 'hover': {
           const id = (params.element_id || '').toString();
           const el = elementsMap.get(id) || document.querySelector(`[data-operon-id="${id}"]`);
-          if (!el) {
-            return JSON.stringify({ success: false, error: `Element [${id}] not found in DOM` });
+          if (!el || el.isConnected === false) {
+            return JSON.stringify({ success: false, error: `Element [${id}] not found or was replaced by a page update; please re-identify` });
           }
+          lastInteractedEl = el;
           const rect = el.getBoundingClientRect ? el.getBoundingClientRect() : { left: 0, top: 0, width: 0, height: 0 };
           moveGhostCursor(rect.left + rect.width / 2, rect.top + rect.height / 2);
 
@@ -1103,12 +1220,80 @@
         case 'scroll': {
           const direction = params.direction || 'down';
           const distance = params.amount || Math.round((window.innerHeight || 800) * 0.7);
-          const deltaY = direction === 'down' ? distance : -distance;
 
-          if (typeof window.scrollBy === 'function') {
-            window.scrollBy({ top: deltaY, left: 0, behavior: 'smooth' });
+          // Prefer the scrollable container around the last touched element
+          // (modals, side panels, comment lists) before falling back to page.
+          let scroller = null;
+          let probe = lastInteractedEl;
+          while (probe && probe !== document.body && probe !== document.documentElement) {
+            if (probe.isConnected === false) break;
+            try {
+              const style = window.getComputedStyle ? window.getComputedStyle(probe) : null;
+              const overflowY = style ? style.overflowY : '';
+              if ((overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'overlay') &&
+                  probe.scrollHeight > probe.clientHeight + 24) {
+                scroller = probe;
+                break;
+              }
+            } catch (_) {}
+            probe = probe.parentElement;
           }
-          return JSON.stringify({ success: true, message: `Scrolled ${direction} by ${distance}px` });
+
+          const isPageScroll = !scroller;
+          const vh = window.innerHeight || 800;
+          const docHeight = Math.max(
+            document.body ? document.body.scrollHeight : 0,
+            document.documentElement ? document.documentElement.scrollHeight : 0,
+            vh
+          );
+          const before = isPageScroll
+            ? (window.scrollY || window.pageYOffset || 0)
+            : scroller.scrollTop;
+          const maxScroll = isPageScroll
+            ? Math.max(0, docHeight - vh)
+            : Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+
+          if (direction === 'down' && before >= maxScroll - 6) {
+            return JSON.stringify({
+              success: false,
+              atBoundary: true,
+              error: isPageScroll
+                ? 'Already at the bottom of the page; scrolling down has no effect'
+                : 'Already at the bottom of this scrollable panel; try page scroll or another area'
+            });
+          }
+          if (direction !== 'down' && before <= 6) {
+            return JSON.stringify({
+              success: false,
+              atBoundary: true,
+              error: 'Already at the top; scrolling up has no effect'
+            });
+          }
+
+          if (isPageScroll) {
+            if (typeof window.scrollBy === 'function') {
+              window.scrollBy({
+                top: direction === 'down' ? distance : -distance,
+                left: 0,
+                behavior: 'auto'
+              });
+            }
+          } else {
+            try {
+              scroller.scrollBy({
+                top: direction === 'down' ? distance : -distance,
+                behavior: 'auto'
+              });
+            } catch (_) {
+              scroller.scrollTop = before + (direction === 'down' ? distance : -distance);
+            }
+          }
+
+          return JSON.stringify({
+            success: true,
+            message: `Scrolled ${direction} inside ${isPageScroll ? 'page' : 'panel'}`,
+            remaining: Math.max(0, Math.round(maxScroll - before))
+          });
         }
 
         case 'navigate': {
@@ -1139,33 +1324,52 @@
           return;
         }
 
-        let debounceTimer = null;
+        const startedAt = Date.now();
+        let lastMutationAt = Date.now();
+        let pollTimer = null;
         let totalTimer = null;
+        let settled = false;
 
         const observer = new MutationObserver(() => {
-          if (debounceTimer) clearTimeout(debounceTimer);
-          debounceTimer = setTimeout(() => {
-            cleanup();
-            resolve(true);
-          }, 350);
+          lastMutationAt = Date.now();
         });
 
         function cleanup() {
-          if (debounceTimer) clearTimeout(debounceTimer);
+          if (pollTimer) clearInterval(pollTimer);
           if (totalTimer) clearTimeout(totalTimer);
           try { observer.disconnect(); } catch (_) {}
         }
 
-        totalTimer = setTimeout(() => {
+        function finish(value) {
+          if (settled) return;
+          settled = true;
           cleanup();
-          resolve(false);
-        }, timeoutMs);
+          resolve(value);
+        }
+
+        // Require a minimum settle window so a fetch/XHR triggered by the
+        // action has time to start before we declare the page stable.
+        pollTimer = setInterval(() => {
+          const now = Date.now();
+          const quiet = now - lastMutationAt >= 350;
+          const networkIdle = (window.__operonPendingNetwork || 0) === 0;
+          const networkGraceExpired = now - startedAt >= 1300;
+          if (now - startedAt >= 450 && quiet &&
+              (networkIdle || networkGraceExpired)) {
+            finish(true);
+          }
+        }, 100);
+
+        totalTimer = setTimeout(() => finish(false), timeoutMs);
 
         try {
-          observer.observe(document.body, { childList: true, subtree: true, attributes: true });
+          observer.observe(document.body, {
+            childList: true,
+            subtree: true,
+            attributes: true
+          });
         } catch (_) {
-          cleanup();
-          resolve(true);
+          finish(true);
         }
       });
     },
@@ -1308,6 +1512,66 @@
     // ==========================================
     // 10. Inline Selection Bridge
     // ==========================================
+    // Classify the actual DOM element behind an Operon ID. This closes the gap
+    // where the model's reasoning looked harmless while the target was a
+    // password field, a card input, or a destructive submit button.
+    getElementRisk: function (elementId) {
+      let el = null;
+      try {
+        el = elementsMap.get(String(elementId)) ||
+          document.querySelector(`[data-operon-id="${elementId}"]`);
+      } catch (e) {
+        el = null;
+      }
+      if (!el) {
+        return JSON.stringify({ found: false, sensitive: false, reason: '' });
+      }
+
+      const tag = (el.tagName || '').toUpperCase();
+      const type = (el.getAttribute('type') || '').toLowerCase();
+      const autocomplete = (el.getAttribute('autocomplete') || '').toLowerCase();
+      const name = [
+        el.getAttribute('name') || '',
+        el.id || '',
+        el.getAttribute('placeholder') || '',
+        el.getAttribute('aria-label') || '',
+        el.getAttribute('title') || ''
+      ].join(' ');
+      const text = safeTargetText(el, 120);
+      let formAction = '';
+      try {
+        const form = el.closest ? el.closest('form') : null;
+        formAction = form ? (form.getAttribute('action') || '') : '';
+      } catch (e) {}
+
+      const fieldContext = `${name} ${formAction}`.toLowerCase();
+      const actionContext = `${text} ${name} ${formAction}`.toLowerCase();
+
+      let reason = '';
+      if (type === 'password') {
+        reason = '密码输入框';
+      } else if (type === 'file') {
+        reason = '文件上传';
+      } else if (/cc-|current-password|new-password|one-time-code/.test(autocomplete)) {
+        reason = '支付或凭证字段';
+      } else if (/(password|passwd|密码|验证码|信用卡|card.?number|卡号|cvv|cvc|安全码|身份证|social.?security)/i.test(fieldContext)) {
+        reason = '凭证或支付字段';
+      } else if (/(pay|payment|checkout|billing|purchase|place.?order|transfer|withdraw|delete.?account|refund)/i.test(formAction)) {
+        reason = '支付/账户流程表单';
+      } else if (/(提交|发布|发送|支付|付款|购买|下单|结算|删除|注销|解绑|授权|绑定|转账|提现|退款|submit|publish|send|pay|buy|checkout|place.?order|delete|remove|unfollow|logout|confirm)/i.test(text)) {
+        reason = '高危操作按钮';
+      }
+
+      return JSON.stringify({
+        found: true,
+        sensitive: !!reason,
+        reason: reason,
+        tag: tag,
+        type: type,
+        text: text.slice(0, 60)
+      });
+    },
+
     getSelectedTextInfo: function () {
       const sel = window.getSelection();
       if (!sel || sel.isCollapsed) return JSON.stringify({ hasSelection: false });
@@ -1335,5 +1599,5 @@
   };
 
   window.OPERON = window.BBX_AGENT = engine;
-  console.log('[Operon] Universal Agent Engine v0.1.0 Injected.');
+  console.log('[Operon] Universal Agent Engine v0.1.4 Injected.');
 })();

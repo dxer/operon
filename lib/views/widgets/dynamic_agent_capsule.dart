@@ -438,6 +438,31 @@ class _DynamicAgentCapsuleState extends State<DynamicAgentCapsule>
         );
         break;
 
+      case AgentStatus.maxStepsReached:
+        targetWidth = 190.0;
+        targetHeight = 34.0;
+        borderColor = Colors.amber.withValues(alpha: 0.7);
+        content = const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.timer_outlined, size: 14, color: Colors.amber),
+            SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                '已达步数上限 (查看)',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        );
+        break;
+
       case AgentStatus.error:
         targetWidth = 190.0;
         targetHeight = 34.0;

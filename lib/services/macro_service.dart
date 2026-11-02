@@ -65,33 +65,68 @@ class MacroService {
       onProgress(i + 1, macro.steps.length, step.description);
 
       ActionType actionType = ActionType.click;
-      if (step.action == 'type') actionType = ActionType.type;
-      if (step.action == 'press_key' || step.action == 'pressKey') {
-        actionType = ActionType.pressKey;
+      switch (step.action) {
+        case 'type':
+          actionType = ActionType.type;
+          break;
+        case 'press_key':
+        case 'pressKey':
+          actionType = ActionType.pressKey;
+          break;
+        case 'select_option':
+        case 'selectOption':
+          actionType = ActionType.selectOption;
+          break;
+        case 'scroll':
+          actionType = ActionType.scroll;
+          break;
+        case 'navigate':
+          actionType = ActionType.navigate;
+          break;
+        case 'hover':
+          actionType = ActionType.hover;
+          break;
+        case 'go_back':
+        case 'goBack':
+          actionType = ActionType.goBack;
+          break;
+        default:
+          actionType = ActionType.click;
       }
-      if (step.action == 'select_option' || step.action == 'selectOption') {
-        actionType = ActionType.selectOption;
-      }
-      if (step.action == 'scroll') actionType = ActionType.scroll;
 
       final action = AgentAction(
         thought: '宏回放: ${step.description}',
         action: actionType,
         text: step.text,
         key: step.key,
+        selectValue: step.selectValue,
         direction: step.direction,
+        url: step.url,
         rawParams: {
           if (step.selector != null) 'selector': step.selector,
         },
       );
 
-      final result = await webView.executeAction(action);
-      if (result['success'] == false) {
-        // Retry slightly with wait
+      var result = await webView.executeAction(action);
+
+      if (result['success'] != true) {
+        // A failed dispatch means the element was not found/disabled. Retry
+        // only idempotent steps: replaying a reply/post/pay step after an
+        // uncertain failure could create a duplicate.
+        if (step.nonIdempotent) {
+          return false;
+        }
         await Future.delayed(const Duration(milliseconds: 500));
-        await webView.executeAction(action);
+        result = await webView.executeAction(action);
+        if (result['success'] != true) {
+          return false;
+        }
       }
 
+      if (step.nonIdempotent) {
+        // Give the server time to update the UI before the next step.
+        await Future.delayed(const Duration(milliseconds: 800));
+      }
       await webView.waitForDomStable(timeoutMs: 1800);
     }
     return true;

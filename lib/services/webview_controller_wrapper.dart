@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -54,13 +55,19 @@ class WebViewControllerWrapper {
   final InAppWebViewController controller;
   String? _cachedJsScript;
 
+  static const Duration _scriptInjectionTimeout = Duration(seconds: 15);
+  static const Duration _extractTimeout = Duration(seconds: 15);
+  static const Duration _actionTimeout = Duration(seconds: 10);
+
   WebViewControllerWrapper(this.controller);
 
   /// Injects the core agent JS script if not already initialized
   Future<void> ensureScriptInjected() async {
     _cachedJsScript ??= await rootBundle.loadString('assets/js/agent_dom.js');
 
-    await controller.evaluateJavascript(source: _cachedJsScript!);
+    await controller
+        .evaluateJavascript(source: _cachedJsScript!)
+        .timeout(_scriptInjectionTimeout);
   }
 
   /// Extracts the observable interactive DOM representation & key content
@@ -68,9 +75,17 @@ class WebViewControllerWrapper {
       {bool showBadges = true, bool includeContent = true}) async {
     await ensureScriptInjected();
 
-    final result = await controller.evaluateJavascript(
-      source: 'window.OPERON.extractPrunedDOM($showBadges, $includeContent);',
-    );
+    dynamic result;
+    try {
+      result = await controller
+          .evaluateJavascript(
+            source:
+                'window.OPERON.extractPrunedDOM($showBadges, $includeContent);',
+          )
+          .timeout(_extractTimeout);
+    } on TimeoutException {
+      throw Exception('页面长时间无响应，无法读取 DOM（可尝试刷新页面）');
+    }
 
     if (result == null) {
       throw Exception('无法从当前页面读取 DOM 状态');
@@ -96,9 +111,19 @@ class WebViewControllerWrapper {
     await ensureScriptInjected();
 
     final jsonPayload = jsonEncode(action.toJsPayload());
-    final result = await controller.evaluateJavascript(
-      source: 'window.OPERON.executeAction($jsonPayload);',
-    );
+    dynamic result;
+    try {
+      result = await controller
+          .evaluateJavascript(
+            source: 'window.OPERON.executeAction($jsonPayload);',
+          )
+          .timeout(_actionTimeout);
+    } on TimeoutException {
+      return {
+        'success': false,
+        'error': '页面脚本执行超时（10 秒），可能页面卡死，请刷新后重试',
+      };
+    }
 
     if (result == null) {
       return {'success': false, 'error': 'No response from JS execution'};
@@ -108,6 +133,27 @@ class WebViewControllerWrapper {
       return jsonDecode(result) as Map<String, dynamic>;
     }
     return Map<String, dynamic>.from(result);
+  }
+
+  /// Classifies the real DOM target before a sensitive action runs.
+  Future<Map<String, dynamic>?> getElementRisk(int elementId) async {
+    try {
+      await ensureScriptInjected();
+      final result = await controller
+          .evaluateJavascript(
+            source: 'window.OPERON.getElementRisk($elementId);',
+          )
+          .timeout(const Duration(seconds: 3));
+      if (result == null) return null;
+      if (result is String) {
+        final decoded = jsonDecode(result);
+        return decoded is Map<String, dynamic> ? decoded : null;
+      }
+      return Map<String, dynamic>.from(result);
+    } catch (e) {
+      debugPrint('[WebView] getElementRisk failed: $e');
+      return null;
+    }
   }
 
   /// Captures current viewport screenshot as PNG bytes for Vision Fallback
@@ -122,13 +168,18 @@ class WebViewControllerWrapper {
   /// Waits dynamically until DOM mutations cease (stable rendering)
   Future<bool> waitForDomStable({int timeoutMs = 2500}) async {
     try {
-      await ensureScriptInjected();
-      // `callAsyncJavaScript` runs the body inside an async function, so the
-      // Promise returned by waitForDomStable is properly awaited on Android.
-      final res = await controller.callAsyncJavaScript(
-        functionBody: 'return await window.OPERON.waitForDomStable(timeoutMs);',
-        arguments: {'timeoutMs': timeoutMs},
-      );
+      // Cap the whole operation: after a link click the old JS context can be
+      // destroyed mid-call, and ensureScriptInjected could otherwise stall.
+      final res = await Future(() async {
+        await ensureScriptInjected();
+        // `callAsyncJavaScript` runs the body inside an async function, so the
+        // Promise returned by waitForDomStable is properly awaited on Android.
+        return controller.callAsyncJavaScript(
+          functionBody:
+              'return await window.OPERON.waitForDomStable(timeoutMs);',
+          arguments: {'timeoutMs': timeoutMs},
+        );
+      }).timeout(Duration(milliseconds: timeoutMs + 1500));
       return res?.value == true;
     } catch (_) {
       return false;
@@ -159,10 +210,12 @@ class WebViewControllerWrapper {
   Future<Map<String, dynamic>> cleanPageMode() async {
     try {
       await ensureScriptInjected();
-      final res = await controller.evaluateJavascript(
-        source:
-            'if (window.OPERON && window.OPERON.cleanPageMode) { window.OPERON.cleanPageMode(); }',
-      );
+      final res = await controller
+          .evaluateJavascript(
+            source:
+                'if (window.OPERON && window.OPERON.cleanPageMode) { window.OPERON.cleanPageMode(); }',
+          )
+          .timeout(_extractTimeout);
       if (res != null) {
         return res is String ? jsonDecode(res) : Map<String, dynamic>.from(res);
       }
@@ -174,10 +227,12 @@ class WebViewControllerWrapper {
   Future<Map<String, dynamic>> extractReadableContent() async {
     try {
       await ensureScriptInjected();
-      final res = await controller.evaluateJavascript(
-        source:
-            'if (window.OPERON && window.OPERON.extractReadableContent) { window.OPERON.extractReadableContent(); }',
-      );
+      final res = await controller
+          .evaluateJavascript(
+            source:
+                'if (window.OPERON && window.OPERON.extractReadableContent) { window.OPERON.extractReadableContent(); }',
+          )
+          .timeout(_extractTimeout);
       if (res != null) {
         return res is String ? jsonDecode(res) : Map<String, dynamic>.from(res);
       }
@@ -193,7 +248,9 @@ class WebViewControllerWrapper {
   /// Executes arbitrary JavaScript in the current page
   Future<dynamic> evaluateJavascript(String source) async {
     try {
-      return await controller.evaluateJavascript(source: source);
+      return await controller
+          .evaluateJavascript(source: source)
+          .timeout(_scriptInjectionTimeout);
     } catch (e) {
       debugPrint('[WebView] evaluateJavascript error: $e');
       return null;
@@ -204,10 +261,12 @@ class WebViewControllerWrapper {
   Future<Map<String, dynamic>> getSelectedTextInfo() async {
     try {
       await ensureScriptInjected();
-      final res = await controller.evaluateJavascript(
-        source:
-            'if (window.OPERON && window.OPERON.getSelectedTextInfo) { window.OPERON.getSelectedTextInfo(); }',
-      );
+      final res = await controller
+          .evaluateJavascript(
+            source:
+                'if (window.OPERON && window.OPERON.getSelectedTextInfo) { window.OPERON.getSelectedTextInfo(); }',
+          )
+          .timeout(const Duration(seconds: 3));
       if (res != null) {
         return res is String ? jsonDecode(res) : Map<String, dynamic>.from(res);
       }

@@ -1,4 +1,4 @@
-# Operon v0.3.0 - 轻量级通用 AI 智能体安卓浏览器 (Operon Agentic Browser)
+# Operon - 轻量级通用 AI 智能体安卓浏览器 (Operon Agentic Browser)
 
 > *"Don't just browse. Operate."* —— 不仅是浏览，更是操控。
 
@@ -7,12 +7,12 @@
 
 ---
 
-## 🌟 核心特性 (v0.3.0)
+## 🌟 核心特性
 
 1. **Via 式极简交互**：
    * 顶部单行胶囊地址栏 + 底部五指操作栏，单手即可完成浏览与 AI 调度。
    * 地址栏首次聚焦自动全选 URL，输入即走；页面下拉即可刷新。
-   * 全屏 edge-to-edge 画布、毛玻璃灵动胶囊、克制的动效与触感反馈。
+   * 全屏 edge-to-edge 画布、停靠式 AI 状态条、克制的动效与触感反馈。
 2. **轻量级原生内核**：
    * 基于 Android 系统的原生 Chromium WebView，安装包极小（无需打包冗余浏览器内核），内存占用低。
    * 支持硬件加速与现代化 HTML5 / WebGL / 单页应用（SPA）渲染。
@@ -99,16 +99,19 @@ CI 会先执行 `flutter analyze` 与 `flutter test`，通过后再编译并发�
 
 #### 方式一：发布新版本 Tag（推荐 ⭐️）
 ```bash
-git tag v0.3.0
-git push origin v0.3.0
+git tag vX.Y.Z
+git push origin vX.Y.Z
 ```
-GitHub 会自动编译并在仓库右侧 **Releases** 中生成发布包，直接附带原生 **`operon-v0.3.0.apk`**。
+GitHub 会自动编译并在仓库右侧 **Releases** 中生成发布包，直接附带原生 **`operon-vX.Y.Z.apk`**。
+
+> **版本号只改一处**：修改 `pubspec.yaml` 的 `version: x.y.z+build` 即可。
+> 设置页/关于页通过 `package_info_plus` 读取 APK 实际版本，CI 也会从 `pubspec.yaml` 自动推导 tag，无需再改其他文件。
 
 #### 方式二：在 GitHub 网页上一键手动构建
 1. 打开仓库主页，点击顶部 **Actions**；
 2. 左侧选择 **Build & Release Android APK**；
 3. 点击 **Run workflow**；
-4. 完成后前往 **Releases** 下载 `operon-v0.3.0.apk`。
+4. 完成后前往 **Releases** 下载 `operon-vX.Y.Z.apk`。
 
 ---
 

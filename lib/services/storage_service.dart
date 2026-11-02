@@ -4,6 +4,7 @@ import '../config/app_constants.dart';
 import '../models/llm_config.dart';
 import '../models/history_item.dart';
 import '../models/bookmark_item.dart';
+import '../models/agent_task_record.dart';
 
 class StorageService {
   static StorageService? _instance;
@@ -21,7 +22,8 @@ class StorageService {
 
   // LLM Config
   LlmConfig getLlmConfig() {
-    final baseUrl = _prefs.getString(AppConstants.keyBaseUrl) ?? 'https://api.deepseek.com/v1';
+    final baseUrl = _prefs.getString(AppConstants.keyBaseUrl) ??
+        'https://api.deepseek.com/v1';
     final apiKey = _prefs.getString(AppConstants.keyApiKey) ?? '';
     final model = _prefs.getString(AppConstants.keyModel) ?? 'deepseek-chat';
     final temp = _prefs.getDouble(AppConstants.keyTemperature) ?? 0.1;
@@ -43,7 +45,8 @@ class StorageService {
 
   // User-Agent
   String getUserAgent() {
-    return _prefs.getString(AppConstants.keyUserAgent) ?? AppConstants.uaAndroidChrome;
+    return _prefs.getString(AppConstants.keyUserAgent) ??
+        AppConstants.uaAndroidChrome;
   }
 
   Future<void> saveUserAgent(String ua) async {
@@ -70,7 +73,8 @@ class StorageService {
 
   // Homepage
   String getHomepage() {
-    return _prefs.getString(AppConstants.keyHomepage) ?? AppConstants.defaultHomepage;
+    return _prefs.getString(AppConstants.keyHomepage) ??
+        AppConstants.defaultHomepage;
   }
 
   Future<void> saveHomepage(String url) async {
@@ -88,7 +92,8 @@ class StorageService {
 
   // Search Engine Name
   String getSearchEngine() {
-    return _prefs.getString(AppConstants.keySearchEngine) ?? AppConstants.defaultSearchEngine;
+    return _prefs.getString(AppConstants.keySearchEngine) ??
+        AppConstants.defaultSearchEngine;
   }
 
   Future<void> saveSearchEngine(String name) async {
@@ -247,5 +252,82 @@ class StorageService {
   Future<void> saveShortcuts(List<Map<String, String>> list) async {
     final raw = list.map((m) => jsonEncode(m)).toList();
     await _prefs.setStringList(_keyShortcuts, raw);
+  }
+
+  // --- Agent Task History & Audit ---
+  static const String _keyAgentTaskHistory = 'agent_task_history';
+  static const int _maxAgentTaskRecords = 50;
+
+  List<AgentTaskRecord> getAgentTaskHistory() {
+    final raw = _prefs.getStringList(_keyAgentTaskHistory) ?? [];
+    final list = <AgentTaskRecord>[];
+    for (final s in raw) {
+      try {
+        final map = jsonDecode(s) as Map<String, dynamic>;
+        list.add(AgentTaskRecord.fromJson(map));
+      } catch (_) {}
+    }
+    return list;
+  }
+
+  Future<void> addAgentTaskRecord(AgentTaskRecord record) async {
+    final list = getAgentTaskHistory();
+    list.removeWhere((r) => r.id == record.id);
+    list.insert(0, record);
+    if (list.length > _maxAgentTaskRecords) {
+      list.removeRange(_maxAgentTaskRecords, list.length);
+    }
+    final raw = list.map((r) => jsonEncode(r.toJson())).toList();
+    await _prefs.setStringList(_keyAgentTaskHistory, raw);
+  }
+
+  Future<void> removeAgentTaskRecord(String id) async {
+    final list = getAgentTaskHistory()..removeWhere((r) => r.id == id);
+    final raw = list.map((r) => jsonEncode(r.toJson())).toList();
+    await _prefs.setStringList(_keyAgentTaskHistory, raw);
+  }
+
+  Future<void> clearAgentTaskHistory() async {
+    await _prefs.remove(_keyAgentTaskHistory);
+  }
+
+  // --- Per-site authorization allowlist ---
+  static const String _keyAgentAllowedSites = 'agent_allowed_sites';
+
+  String _normalizeAgentHost(String raw) {
+    var host = raw.trim().toLowerCase();
+    if (host.startsWith('www.')) host = host.substring(4);
+    return host;
+  }
+
+  List<String> getAgentAllowedSites() {
+    return List<String>.from(
+        _prefs.getStringList(_keyAgentAllowedSites) ?? const []);
+  }
+
+  bool isAgentSiteAllowed(String host) {
+    final normalized = _normalizeAgentHost(host);
+    if (normalized.isEmpty) return false;
+    return getAgentAllowedSites().contains(normalized);
+  }
+
+  Future<void> addAgentAllowedSite(String host) async {
+    final normalized = _normalizeAgentHost(host);
+    if (normalized.isEmpty) return;
+    final sites = getAgentAllowedSites();
+    if (!sites.contains(normalized)) {
+      sites.add(normalized);
+      await _prefs.setStringList(_keyAgentAllowedSites, sites);
+    }
+  }
+
+  Future<void> removeAgentAllowedSite(String host) async {
+    final normalized = _normalizeAgentHost(host);
+    final sites = getAgentAllowedSites()..remove(normalized);
+    await _prefs.setStringList(_keyAgentAllowedSites, sites);
+  }
+
+  Future<void> clearAgentAllowedSites() async {
+    await _prefs.remove(_keyAgentAllowedSites);
   }
 }

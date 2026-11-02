@@ -14,6 +14,7 @@ class BottomToolbar extends StatelessWidget {
   final VoidCallback onForward;
   final VoidCallback onHome;
   final VoidCallback onOpenTabs;
+  final VoidCallback onOpenAgent;
   final VoidCallback onReload;
   final VoidCallback onStopLoad;
   final VoidCallback onNewTab;
@@ -40,6 +41,7 @@ class BottomToolbar extends StatelessWidget {
     required this.onForward,
     required this.onHome,
     required this.onOpenTabs,
+    required this.onOpenAgent,
     required this.onReload,
     required this.onStopLoad,
     required this.onNewTab,
@@ -171,6 +173,13 @@ class BottomToolbar extends StatelessWidget {
                     ),
                   ),
                 ),
+              ),
+              _ToolbarButton(
+                icon: Icons.smart_toy_outlined,
+                size: 21,
+                color: AppTheme.accent,
+                tooltip: 'AI 智能体',
+                onTap: onOpenAgent,
               ),
               _ToolbarButton(
                 icon: Icons.menu_rounded,

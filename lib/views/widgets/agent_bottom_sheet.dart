@@ -18,6 +18,9 @@ class AgentBottomSheet extends StatefulWidget {
   final Function(bool confirmed) onConfirmAction;
   final Function(bool passed) onConfirmCaptcha;
   final Function(MacroWorkflow macro) onRunMacro;
+  final bool safeMode;
+  final ValueChanged<bool> onSafeModeChanged;
+  final VoidCallback? onAllowSite;
 
   const AgentBottomSheet({
     super.key,
@@ -29,6 +32,9 @@ class AgentBottomSheet extends StatefulWidget {
     required this.onConfirmAction,
     required this.onConfirmCaptcha,
     required this.onRunMacro,
+    required this.safeMode,
+    required this.onSafeModeChanged,
+    this.onAllowSite,
   });
 
   @override
@@ -37,6 +43,7 @@ class AgentBottomSheet extends StatefulWidget {
 
 class _AgentBottomSheetState extends State<AgentBottomSheet> {
   late TextEditingController _goalController;
+  late bool _safeMode;
   bool _showLogs = false;
   final bool _showExtractedData = true;
 
@@ -44,6 +51,7 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
   void initState() {
     super.initState();
     _goalController = TextEditingController(text: widget.state.goal);
+    _safeMode = widget.safeMode;
   }
 
   @override
@@ -52,6 +60,15 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
     if (widget.state.goal.isNotEmpty && _goalController.text.isEmpty) {
       _goalController.text = widget.state.goal;
     }
+    if (widget.safeMode != oldWidget.safeMode) {
+      _safeMode = widget.safeMode;
+    }
+  }
+
+  void _toggleSafeMode(bool enabled) {
+    HapticFeedback.selectionClick();
+    setState(() => _safeMode = enabled);
+    widget.onSafeModeChanged(enabled);
   }
 
   @override
@@ -151,6 +168,14 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
     titleController.dispose();
   }
 
+  String _hostOf(String? url) {
+    if (url == null || url.isEmpty) return '';
+    var host = Uri.tryParse(url)?.host ?? '';
+    host = host.toLowerCase();
+    if (host.startsWith('www.')) host = host.substring(4);
+    return host;
+  }
+
   Widget _buildStatusBadge(AgentStatus status) {
     Color bg;
     Color fg;
@@ -205,6 +230,12 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
         fg = Colors.greenAccent;
         label = '任务顺利达成';
         icon = Icons.check_circle_outline;
+        break;
+      case AgentStatus.maxStepsReached:
+        bg = Colors.amber.withValues(alpha: 0.2);
+        fg = Colors.amber;
+        label = '已达步数上限';
+        icon = Icons.timer_outlined;
         break;
       case AgentStatus.error:
         bg = Colors.red.withValues(alpha: 0.2);
@@ -336,6 +367,52 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
                 ],
               ),
             ],
+          ),
+
+          // Authorization switch: off means the agent auto-runs sensitive actions.
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.fromLTRB(10, 6, 6, 6),
+            decoration: BoxDecoration(
+              color: surface,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: hairline),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  _safeMode ? Icons.shield_outlined : Icons.bolt_rounded,
+                  size: 16,
+                  color: _safeMode ? AppTheme.accent : Colors.amber,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '敏感操作人工授权',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: onSurface,
+                        ),
+                      ),
+                      const SizedBox(height: 1),
+                      Text(
+                        _safeMode ? '支付 / 发布 / 删除前暂停并等待确认' : '已关闭：AI 将自动执行所有操作',
+                        style: TextStyle(fontSize: 10.5, color: muted),
+                      ),
+                    ],
+                  ),
+                ),
+                Switch.adaptive(
+                  value: _safeMode,
+                  activeThumbColor: AppTheme.accent,
+                  onChanged: _toggleSafeMode,
+                ),
+              ],
+            ),
           ),
 
           // Thought Display Box
@@ -566,6 +643,25 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
                     'AI 准备执行: ${state.currentAction?.description ?? ""}',
                     style: TextStyle(fontSize: 12, color: onSurface),
                   ),
+                  if (state.confirmationReason != null &&
+                      state.confirmationReason!.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      '风险类型: ${state.confirmationReason}',
+                      style: const TextStyle(
+                        fontSize: 11.5,
+                        color: Colors.redAccent,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                  if (_hostOf(state.targetUrl).isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      '目标站点: ${_hostOf(state.targetUrl)}',
+                      style: TextStyle(fontSize: 11.5, color: muted),
+                    ),
+                  ],
                   const SizedBox(height: 10),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -589,6 +685,22 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
                       ),
                     ],
                   ),
+                  if (widget.onAllowSite != null) ...[
+                    const SizedBox(height: 2),
+                    TextButton.icon(
+                      onPressed: widget.onAllowSite,
+                      icon: const Icon(Icons.verified_user_outlined, size: 15),
+                      label: Text(
+                        '本站始终允许（${_hostOf(state.targetUrl)}）',
+                        style: const TextStyle(fontSize: 11.5),
+                      ),
+                      style: TextButton.styleFrom(
+                        foregroundColor: AppTheme.accent,
+                        minimumSize: const Size(0, 30),
+                        padding: const EdgeInsets.symmetric(horizontal: 6),
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),

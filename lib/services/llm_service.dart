@@ -1,18 +1,127 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../models/agent_action.dart';
 import '../models/llm_config.dart';
+import '../utils/cancellation.dart';
 import '../utils/json_parser.dart';
+
+/// Thrown when the user stops a task while its model request is in flight.
+class LlmCancelledException implements Exception {
+  const LlmCancelledException();
+
+  @override
+  String toString() => '大模型请求已取消';
+}
 
 class LlmService {
   final http.Client _client;
 
   LlmService({http.Client? client}) : _client = client ?? http.Client();
 
+  static const Duration _requestTimeout = Duration(seconds: 45);
+  static const int _maxRetries = 1;
+
+  /// Sends a JSON POST with abort support and bounded retries.
+  ///
+  /// Retries only transient connection resets and 429/5xx responses. Timeouts
+  /// fail fast (one 45s wait) so the user is not left waiting for minutes.
+  Future<http.Response> _postJson({
+    required Uri uri,
+    required Map<String, String> headers,
+    required String body,
+    CancellationToken? cancelToken,
+    bool retry = true,
+  }) async {
+    Object? lastError;
+    final maxAttempts = retry ? _maxRetries + 1 : 1;
+
+    for (var attempt = 0; attempt < maxAttempts; attempt++) {
+      if (cancelToken?.isCancelled == true) {
+        throw const LlmCancelledException();
+      }
+
+      final abort = Completer<void>();
+      void abortNow() {
+        if (!abort.isCompleted) abort.complete();
+      }
+
+      cancelToken?.whenCancelled.then((_) => abortNow());
+      final timer = Timer(_requestTimeout, abortNow);
+
+      try {
+        final request = http.AbortableRequest(
+          'POST',
+          uri,
+          abortTrigger: abort.future,
+        )
+          ..headers.addAll(headers)
+          ..body = body;
+
+        final streamed = await _client.send(request);
+        final response = await http.Response.fromStream(streamed);
+
+        if (attempt < maxAttempts - 1 &&
+            _isRetryableStatus(response.statusCode)) {
+          timer.cancel();
+          await Future.delayed(_retryDelay(response, attempt));
+          continue;
+        }
+        timer.cancel();
+        return response;
+      } on http.RequestAbortedException {
+        timer.cancel();
+        if (cancelToken?.isCancelled == true) {
+          throw const LlmCancelledException();
+        }
+        throw Exception(
+          '大模型请求超时（${_requestTimeout.inSeconds} 秒），请检查网络后重试',
+        );
+      } catch (e) {
+        timer.cancel();
+        if (cancelToken?.isCancelled == true) {
+          throw const LlmCancelledException();
+        }
+        if (e is TimeoutException) {
+          throw Exception(
+            '大模型请求超时（${_requestTimeout.inSeconds} 秒），请检查网络后重试',
+          );
+        }
+        if (e is http.ClientException) {
+          lastError = e;
+        } else {
+          rethrow;
+        }
+      }
+
+      if (attempt < maxAttempts - 1) {
+        await Future.delayed(Duration(milliseconds: 800 * (attempt + 1)));
+      }
+    }
+
+    throw Exception('大模型请求失败: $lastError');
+  }
+
+  bool _isRetryableStatus(int status) =>
+      status == 429 ||
+      status == 500 ||
+      status == 502 ||
+      status == 503 ||
+      status == 504;
+
+  Duration _retryDelay(http.Response response, int attempt) {
+    final retryAfter = int.tryParse(response.headers['retry-after'] ?? '');
+    if (retryAfter != null && retryAfter > 0) {
+      return Duration(seconds: retryAfter.clamp(1, 5));
+    }
+    return Duration(milliseconds: 800 * (attempt + 1));
+  }
+
   /// Sends the prompt to the configured LLM and returns the parsed AgentAction
   Future<AgentAction> getNextAction({
     required LlmConfig config,
     required List<Map<String, String>> messages,
+    CancellationToken? cancelToken,
   }) async {
     if (!config.isValid) {
       throw Exception('请先在设置中配置有效的 API Key 与大模型服务地址。');
@@ -44,12 +153,14 @@ class LlmService {
 
     http.Response response;
     try {
-      response = await _client
-          .post(uri, headers: headers, body: body)
-          .timeout(const Duration(seconds: 45));
+      response = await _postJson(
+        uri: uri,
+        headers: headers,
+        body: body,
+        cancelToken: cancelToken,
+      );
     } catch (e) {
-      // Do not blindly retry on network errors: a slow request may still be
-      // in flight, and retrying would double-charge the user.
+      if (e is LlmCancelledException) rethrow;
       throw Exception('连接大模型服务失败: $e');
     }
 
@@ -65,9 +176,15 @@ class LlmService {
             'messages': messages,
             'temperature': config.temperature,
           });
-          response = await _client
-              .post(uri, headers: headers, body: fallbackBody)
-              .timeout(const Duration(seconds: 45));
+          response = await _postJson(
+            uri: uri,
+            headers: headers,
+            body: fallbackBody,
+            cancelToken: cancelToken,
+            retry: false,
+          );
+        } on LlmCancelledException {
+          rethrow;
         } catch (_) {}
       }
     }
@@ -130,9 +247,11 @@ class LlmService {
       'temperature': temperature ?? config.temperature,
     });
 
-    final response = await _client
-        .post(uri, headers: headers, body: body)
-        .timeout(const Duration(seconds: 45));
+    final response = await _postJson(
+      uri: uri,
+      headers: headers,
+      body: body,
+    );
 
     if (response.statusCode != 200) {
       throw Exception('大模型响应错误 (${response.statusCode}): ${response.body}');

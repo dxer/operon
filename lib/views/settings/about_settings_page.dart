@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../config/app_constants.dart';
 import '../../config/app_theme.dart';
+import '../../services/app_version_service.dart';
 
 class AboutSettingsPage extends StatelessWidget {
   const AboutSettingsPage({super.key});
@@ -46,9 +47,9 @@ class AboutSettingsPage extends StatelessWidget {
                     color: AppTheme.primary.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: const Text(
-                    '版本: v0.3.0 (构建版本 0.3.0+3)',
-                    style: TextStyle(
+                  child: Text(
+                    '版本: ${AppVersionService.fullLabel}',
+                    style: const TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.bold,
                         color: AppTheme.primary),
@@ -85,7 +86,7 @@ class AboutSettingsPage extends StatelessWidget {
                   title: Text('自主 Agent 引擎',
                       style:
                           TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                  subtitle: Text('原生 DOM 语义感知、微型灵动胶囊交互与触屏即接管机制。',
+                  subtitle: Text('原生 DOM 语义感知、边缘吸附悬浮球与触屏即接管机制。',
                       style: TextStyle(fontSize: 12, color: Colors.grey)),
                 ),
                 const Divider(height: 1),

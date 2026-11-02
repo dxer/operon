@@ -175,22 +175,79 @@ class AgentAction {
     }
   }
 
-  bool isSensitive(String currentElementText) {
-    if (action != ActionType.click && action != ActionType.pressKey) {
+  /// Whether this action needs human authorization in safe mode.
+  ///
+  /// [currentElementText] is the element label or the model's reasoning about
+  /// the target; [pageUrl] lets navigation into payment/account flows be
+  /// flagged even when the element text looks harmless.
+  bool isSensitive(String currentElementText, {String pageUrl = ''}) {
+    final isInteracting = action == ActionType.click ||
+        action == ActionType.pressKey ||
+        action == ActionType.type ||
+        action == ActionType.selectOption;
+    final isNavigation = action == ActionType.navigate;
+    if (!isInteracting && !isNavigation) {
       return false;
     }
+
     final lower =
         '$currentElementText ${text ?? ''} ${url ?? ''} $thought'.toLowerCase();
+
+    // Typing credentials or card data is always worth a confirmation.
+    const credentialWords = [
+      'password',
+      'passwd',
+      '密码',
+      '支付密码',
+      '验证码',
+      'verification code',
+      'one-time code',
+      'otp',
+      'credit card',
+      'card number',
+      '信用卡',
+      '卡号',
+      'cvv',
+      'cvc',
+      '安全码',
+      '身份证',
+      'social security',
+    ];
+    if ((action == ActionType.type || action == ActionType.selectOption) &&
+        credentialWords.any(lower.contains)) {
+      return true;
+    }
+
+    if (isNavigation) {
+      final target = '${url ?? ''} $pageUrl'.toLowerCase();
+      const riskyPaths = [
+        '/pay',
+        'checkout',
+        'billing',
+        'purchase',
+        'place-order',
+        'place_order',
+        'transfer',
+        'withdraw',
+        'delete-account',
+        'delete_account',
+        'refund',
+      ];
+      if (riskyPaths.any(target.contains)) return true;
+    }
+
     const sensitiveWords = [
       'tweet',
       'post',
       'publish',
       'send',
       'submit',
+      'confirm',
       '发推',
       '发布',
       '发送',
       '提交',
+      '确认',
       '评论',
       '回复',
       '转发',
@@ -200,20 +257,26 @@ class AgentAction {
       'purchase',
       'buy',
       'checkout',
+      'place order',
       '支付',
       '付款',
       '购买',
       '下单',
       '结算',
       '转账',
+      '提现',
+      '退款',
       'delete',
       'remove',
       'unfollow',
       'logout',
+      'delete account',
       '删除',
       '注销',
       '退出登录',
       '解绑',
+      '授权',
+      '绑定',
     ];
     return sensitiveWords.any(lower.contains);
   }

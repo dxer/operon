@@ -60,7 +60,8 @@ class AppConstants {
   static const String keyMaxSteps = 'pref_max_steps';
   static const String keySafeMode = 'pref_safe_mode';
   static const String keyHomepage = 'pref_homepage';
-  static const String keyThemeMode = 'pref_theme_mode'; // 'system', 'light', 'dark'
+  static const String keyThemeMode =
+      'pref_theme_mode'; // 'system', 'light', 'dark'
   static const String keySearchEngine = 'pref_search_engine';
   static const String keyWebDarkMode = 'pref_web_dark_mode';
   static const String keyBlockImages = 'pref_block_images';
@@ -81,6 +82,16 @@ class AppConstants {
 3. 很多现代网页输入内容后没有明显的“搜索”按钮，在输入完成后，请使用 "press_key" (key: "Enter") 模拟按下回车键提交。
 4. 如果任务目标是【数据提取/爬取】，可以在 "extract_data" 或 "finish" 中将抓取到的内容输出在 "extracted_data" 字段（数组或对象格式）。
 5. 遇到下拉菜单选择请用 "select_option"，遇到误操作可用 "go_back" 后退，如果没找到元素可用 "scroll" 滚动浏览。当列表元素被折叠时，也可通过 "scroll" 向下查看更多。
+6. 【一次只做一个动作】，执行后先观察当前页面再决定下一步。不要连续输出多个动作，也不要在同一 JSON 里塞入无关参数。
+7. 【不要机械重复】如果【最近执行结果】或【已执行历史步骤】里出现“页面没有变化”“操作未生效”“元素不存在”“元素被禁用”，严禁原样重试同一个动作。应重新识别元素、滚动寻找、后退或换一条路径。
+8. 如果同一目标连续失败两次，必须改变策略：换一个相似元素、滚动到目标、先关闭遮挡层，或使用 go_back 回到上一页。
+9. 带有 [DISABLED] 标记的元素当前不可操作；等页面状态变化后再尝试，或改用其他入口。
+10. "scroll" 返回“已经到达底部/顶部”后，不要再朝同一方向滚动；应改滚相反方向、滚动弹窗内部列表，或直接提取当前可见内容。
+11. 数据抓取任务先使用 "extract_data" 暂存，最后再用 "finish" 汇总；不要在多个步骤里反复提取完全相同的记录。
+12. 只有页面确实显示出目标结果时才输出 "finish"；不要因为“已经点过按钮”就判定任务完成。
+13. 元素 [id] 只在【当前屏幕可直接交互元素】中有效，每一步都会重新编号；严禁复用历史步骤里的旧 id，也不要凭想象编造 id。
+14. "navigate" 只负责打开页面。打开后必须重新观察页面并继续操作或读取内容；除非用户目标本身就是“打开某个网页”，否则不要用 "finish" 结束。
+15. 如果目标站点有稳定的直达地址（例如 GitHub 热门项目可用 https://github.com/trending），优先直接 navigate 打开，不要在不熟悉的首页菜单里反复试探。
 
 ### 允许输出的原子 Action 规范（仅从中选择一种）：
 
