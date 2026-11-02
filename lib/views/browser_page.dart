@@ -7,6 +7,7 @@ import '../config/app_theme.dart';
 import '../models/agent_state.dart';
 import '../models/llm_config.dart';
 import '../models/macro_workflow.dart';
+import '../models/web_tab.dart';
 import '../services/agent_runner.dart';
 import '../services/macro_service.dart';
 import '../services/notification_service.dart';
@@ -20,6 +21,7 @@ import 'widgets/browser_controls.dart';
 import 'widgets/floating_agent_ball.dart';
 import 'widgets/selection_action_dialog.dart';
 import 'widgets/summary_bottom_sheet.dart';
+import 'widgets/tabs_overview_sheet.dart';
 
 class BrowserPage extends StatefulWidget {
   const BrowserPage({Key? key}) : super(key: key);
@@ -29,19 +31,40 @@ class BrowserPage extends StatefulWidget {
 }
 
 class _BrowserPageState extends State<BrowserPage> {
-  InAppWebViewController? _webViewController;
-  WebViewControllerWrapper? _wrapper;
   late AgentRunner _agentRunner;
   StorageService? _storage;
   StreamSubscription<AgentState>? _agentSub;
 
   final TextEditingController _urlController = TextEditingController();
-  bool _canGoBack = false;
-  bool _canGoForward = false;
-  bool _isLoading = false;
-  double _progress = 0.0;
-  bool _isDesktopMode = false;
-  bool _isCleanMode = false;
+
+  // Multi-Tab State
+  final List<WebTab> _tabs = [];
+  int _currentTabIndex = 0;
+
+  WebTab get _currentTab {
+    if (_tabs.isEmpty) {
+      final homepage = _storage?.getHomepage() ?? AppConstants.defaultHomepage;
+      _tabs.add(WebTab(
+        id: 'tab_init',
+        url: homepage,
+        title: '新标签页',
+      ));
+      _currentTabIndex = 0;
+    }
+    if (_currentTabIndex >= _tabs.length) {
+      _currentTabIndex = _tabs.length - 1;
+    }
+    return _tabs[_currentTabIndex];
+  }
+
+  InAppWebViewController? get _webViewController => _currentTab.controller;
+  WebViewControllerWrapper? get _wrapper => _currentTab.wrapper;
+  bool get _canGoBack => _currentTab.canGoBack;
+  bool get _canGoForward => _currentTab.canGoForward;
+  bool get _isLoading => _currentTab.isLoading;
+  double get _progress => _currentTab.progress;
+  bool get _isDesktopMode => _currentTab.isDesktopMode;
+  bool get _isCleanMode => _currentTab.isCleanMode;
 
   AgentState _agentState = const AgentState();
 
@@ -63,8 +86,19 @@ class _BrowserPageState extends State<BrowserPage> {
   Future<void> _initStorage() async {
     _storage = await StorageService.getInstance();
     final homepage = _storage?.getHomepage() ?? AppConstants.defaultHomepage;
-    _urlController.text = homepage;
-    _isDesktopMode = _storage?.getDesktopMode() ?? false;
+    final isDesktop = _storage?.getDesktopMode() ?? false;
+
+    if (_tabs.isEmpty) {
+      _tabs.add(WebTab(
+        id: 'tab_${DateTime.now().millisecondsSinceEpoch}',
+        url: homepage,
+        title: '主页',
+        isDesktopMode: isDesktop,
+      ));
+      _currentTabIndex = 0;
+      _urlController.text = homepage;
+    }
+
     if (mounted) setState(() {});
   }
 
@@ -76,37 +110,84 @@ class _BrowserPageState extends State<BrowserPage> {
     super.dispose();
   }
 
-  void _onWebViewCreated(InAppWebViewController controller) {
-    _webViewController = controller;
-    _wrapper = WebViewControllerWrapper(controller);
+  void _createNewTab({String? url}) {
+    final homepage = _storage?.getHomepage() ?? AppConstants.defaultHomepage;
+    final targetUrl = url ?? homepage;
+    final isDesktop = _storage?.getDesktopMode() ?? false;
+
+    final newTab = WebTab(
+      id: 'tab_${DateTime.now().millisecondsSinceEpoch}_${_tabs.length}',
+      url: targetUrl,
+      title: '新标签页',
+      isDesktopMode: isDesktop,
+    );
+
+    setState(() {
+      _tabs.add(newTab);
+      _currentTabIndex = _tabs.length - 1;
+      _urlController.text = targetUrl;
+    });
   }
 
-  void _onLoadStop(InAppWebViewController controller, WebUri? url) async {
+  void _switchTab(int index) {
+    if (index < 0 || index >= _tabs.length) return;
     setState(() {
-      _isLoading = false;
-      _urlController.text = url?.toString() ?? '';
+      _currentTabIndex = index;
+      _urlController.text = _currentTab.url;
     });
+  }
 
-    _canGoBack = await controller.canGoBack();
-    _canGoForward = await controller.canGoForward();
-
-    // Auto-inject agent script when page finishes loading
-    if (_wrapper != null) {
-      await _wrapper!.ensureScriptInjected();
-      // If clean mode is enabled, auto-apply anti-jump & auto-expand
-      if (_isCleanMode) {
-        await _wrapper!.cleanPageMode();
+  void _closeTab(int index) {
+    if (index < 0 || index >= _tabs.length) return;
+    setState(() {
+      _tabs.removeAt(index);
+      if (_tabs.isEmpty) {
+        final homepage = _storage?.getHomepage() ?? AppConstants.defaultHomepage;
+        _tabs.add(WebTab(
+          id: 'tab_${DateTime.now().millisecondsSinceEpoch}',
+          url: homepage,
+          title: '新标签页',
+        ));
+        _currentTabIndex = 0;
+      } else if (_currentTabIndex >= _tabs.length) {
+        _currentTabIndex = _tabs.length - 1;
       }
-      _injectMatchedUserScripts(url?.toString() ?? '');
-    }
-    if (mounted) setState(() {});
+      _urlController.text = _currentTab.url;
+    });
   }
 
-  void _onProgressChanged(InAppWebViewController controller, int progress) {
+  void _closeAllTabs() {
     setState(() {
-      _progress = progress / 100.0;
-      _isLoading = progress < 100;
+      _tabs.clear();
+      final homepage = _storage?.getHomepage() ?? AppConstants.defaultHomepage;
+      _tabs.add(WebTab(
+        id: 'tab_${DateTime.now().millisecondsSinceEpoch}',
+        url: homepage,
+        title: '新标签页',
+      ));
+      _currentTabIndex = 0;
+      _urlController.text = homepage;
     });
+    Navigator.of(context).pop();
+  }
+
+  void _openTabOverview() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => TabsOverviewSheet(
+        tabs: _tabs,
+        activeIndex: _currentTabIndex,
+        onSelectTab: _switchTab,
+        onCloseTab: (idx) {
+          _closeTab(idx);
+          if (mounted) setState(() {});
+        },
+        onNewTab: () => _createNewTab(),
+        onCloseAll: _closeAllTabs,
+      ),
+    );
   }
 
   void _loadUrl(String input) {
@@ -131,13 +212,18 @@ class _BrowserPageState extends State<BrowserPage> {
       trimmed = '$engineBase${Uri.encodeComponent(trimmed)}';
     }
 
-    _webViewController?.loadUrl(urlRequest: URLRequest(url: WebUri(trimmed)));
+    _currentTab.url = trimmed;
+    _urlController.text = trimmed;
+    _currentTab.controller?.loadUrl(urlRequest: URLRequest(url: WebUri(trimmed)));
+    setState(() {});
   }
 
   Future<void> _applyCurrentWebViewSettings() async {
     if (_webViewController == null) return;
 
-    final userAgent = _storage?.getUserAgent() ?? AppConstants.uaAndroidChrome;
+    final userAgent = _currentTab.isDesktopMode
+        ? AppConstants.uaDesktopChrome
+        : (_storage?.getUserAgent() ?? AppConstants.uaAndroidChrome);
     final webDarkMode = _storage?.getWebDarkMode() ?? false;
     final blockImages = _storage?.getBlockImages() ?? false;
     final jsEnabled = _storage?.getJavaScriptEnabled() ?? true;
@@ -156,22 +242,15 @@ class _BrowserPageState extends State<BrowserPage> {
   }
 
   void _toggleDesktopMode() async {
-    _isDesktopMode = !_isDesktopMode;
-    await _storage?.saveDesktopMode(_isDesktopMode);
-
-    final newUA = _isDesktopMode
-        ? AppConstants.uaDesktopChrome
-        : AppConstants.uaAndroidChrome;
-    await _storage?.saveUserAgent(newUA);
-
+    _currentTab.isDesktopMode = !_currentTab.isDesktopMode;
     await _applyCurrentWebViewSettings();
-    _webViewController?.reload();
+    _currentTab.controller?.reload();
 
     if (mounted) {
       setState(() {});
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(_isDesktopMode ? '已切换至电脑桌面版模式' : '已切换至移动手机版模式'),
+          content: Text(_currentTab.isDesktopMode ? '已切换至电脑桌面版模式' : '已切换至移动手机版模式'),
           duration: const Duration(seconds: 1),
         ),
       );
@@ -179,7 +258,7 @@ class _BrowserPageState extends State<BrowserPage> {
   }
 
   void _toggleCleanMode() async {
-    _isCleanMode = !_isCleanMode;
+    _currentTab.isCleanMode = !_currentTab.isCleanMode;
     if (_wrapper != null) {
       final res = await _wrapper!.cleanPageMode();
       final count = res['removedCount'] ?? 0;
@@ -188,7 +267,7 @@ class _BrowserPageState extends State<BrowserPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              _isCleanMode
+              _currentTab.isCleanMode
                   ? '🍃 纯净模式已开启：清理了 $count 处弹窗/遮罩，展开 $expCount 处折叠正文'
                   : '已关闭纯净模式',
             ),
@@ -323,10 +402,10 @@ class _BrowserPageState extends State<BrowserPage> {
     if (!config.isValid) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: const Text('请先在配置中心填写大模型 API Key！'),
+          content: const Text('请先在设置中配置有效的大模型 API Key'),
           backgroundColor: Colors.redAccent,
           action: SnackBarAction(
-            label: '去配置',
+            label: '去设置',
             textColor: Colors.white,
             onPressed: _openSettings,
           ),
@@ -338,8 +417,8 @@ class _BrowserPageState extends State<BrowserPage> {
     final maxSteps = _storage?.getMaxSteps() ?? 15;
     final safeMode = _storage?.getSafeMode() ?? true;
 
-    _agentRunner.run(
-      userGoal: goal,
+    _agentRunner.startTask(
+      goal: goal,
       webView: _wrapper!,
       config: config,
       maxSteps: maxSteps,
@@ -347,43 +426,41 @@ class _BrowserPageState extends State<BrowserPage> {
     );
   }
 
-  Future<void> _runMacro(MacroWorkflow macro) async {
+  void _runMacro(MacroWorkflow macro) async {
     if (_wrapper == null) return;
 
+    final macroService = await MacroService.getInstance();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('⚡ 开始以 0 Token 极速重放宏: ${macro.title}'),
-        backgroundColor: Colors.amber[800],
+        content: Text('正在重放宏任务: ${macro.title}...'),
+        duration: const Duration(seconds: 1),
       ),
     );
 
-    final macroService = await MacroService.getInstance();
     await macroService.executeMacro(
       macro: macro,
       webView: _wrapper!,
-      onProgress: (current, total, desc) {
-        debugPrint('[Macro Progress] $current/$total: $desc');
+      onProgress: (cur, total, desc) {
+        debugPrint('[Macro Progress] Step $cur/$total: $desc');
       },
     );
 
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('🎉 宏任务执行完毕！耗时极短，消耗 0 Token'),
-          backgroundColor: AppTheme.accent,
-        ),
-      );
-    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('宏任务 [${macro.title}] 执行完成！'),
+        backgroundColor: AppTheme.accent,
+      ),
+    );
   }
 
-  Future<void> _openSettings() async {
+  void _openSettings() async {
     final updated = await Navigator.of(context).push<bool>(
       MaterialPageRoute(builder: (_) => const SettingsPage()),
     );
-
     if (updated == true && mounted) {
-      _isDesktopMode = _storage?.getDesktopMode() ?? false;
+      _storage = await StorageService.getInstance();
       await _applyCurrentWebViewSettings();
+      _currentTab.controller?.reload();
       setState(() {});
     }
   }
@@ -398,15 +475,13 @@ class _BrowserPageState extends State<BrowserPage> {
           stream: _agentRunner.stateStream,
           initialData: _agentState,
           builder: (context, snapshot) {
-            final currentState = snapshot.data ?? _agentState;
+            final state = snapshot.data ?? _agentState;
             return AgentBottomSheet(
-              state: currentState,
-              onStart: (goal) {
+              state: state,
+              currentUrl: _urlController.text,
+              onSubmitGoal: (goal) {
                 _startAgentTask(goal);
-                Navigator.of(ctx).pop(); // dismiss sheet so user can watch webview
               },
-              onPause: () => _agentRunner.pause(),
-              onResume: () => _agentRunner.resume(),
               onStop: () => _agentRunner.stop(),
               onConfirmAction: (confirmed) => _agentRunner.confirmAction(confirmed),
               onConfirmCaptcha: (passed) => _agentRunner.confirmCaptchaSolved(passed),
@@ -421,21 +496,110 @@ class _BrowserPageState extends State<BrowserPage> {
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final userAgent = _storage?.getUserAgent() ?? AppConstants.uaAndroidChrome;
-    final initialUrl = _storage?.getHomepage() ?? AppConstants.defaultHomepage;
+  Widget _buildTabWebView(WebTab tab, int tabIndex) {
+    final userAgent = tab.isDesktopMode
+        ? AppConstants.uaDesktopChrome
+        : (_storage?.getUserAgent() ?? AppConstants.uaAndroidChrome);
     final webDarkMode = _storage?.getWebDarkMode() ?? false;
     final blockImages = _storage?.getBlockImages() ?? false;
     final jsEnabled = _storage?.getJavaScriptEnabled() ?? true;
     final textZoom = _storage?.getTextZoom() ?? 100;
 
+    return InAppWebView(
+      key: ValueKey(tab.id),
+      initialUrlRequest: URLRequest(url: WebUri(tab.url)),
+      initialSettings: InAppWebViewSettings(
+        userAgent: userAgent,
+        javaScriptEnabled: jsEnabled,
+        domStorageEnabled: true,
+        databaseEnabled: true,
+        cacheEnabled: true,
+        transparentBackground: false,
+        useWideViewPort: true,
+        loadWithOverviewMode: true,
+        supportZoom: true,
+        builtInZoomControls: false,
+        displayZoomControls: false,
+        allowsInlineMediaPlayback: true,
+        forceDark: webDarkMode ? ForceDark.ON : ForceDark.OFF,
+        algorithmicDarkeningAllowed: webDarkMode,
+        blockNetworkImage: blockImages,
+        textZoom: textZoom,
+      ),
+      onWebViewCreated: (controller) {
+        tab.controller = controller;
+        tab.wrapper = WebViewControllerWrapper(controller);
+        if (tabIndex == _currentTabIndex && mounted) {
+          setState(() {});
+        }
+      },
+      onLoadStart: (controller, url) {
+        setState(() {
+          tab.isLoading = true;
+          tab.progress = 0.1;
+        });
+      },
+      onLoadStop: (controller, url) async {
+        final title = await controller.getTitle() ?? tab.title;
+        final urlStr = url?.toString() ?? tab.url;
+        final canBack = await controller.canGoBack();
+        final canFwd = await controller.canGoForward();
+
+        setState(() {
+          tab.isLoading = false;
+          tab.progress = 1.0;
+          tab.title = title.isNotEmpty ? title : '新标签页';
+          tab.url = urlStr;
+          tab.canGoBack = canBack;
+          tab.canGoForward = canFwd;
+          if (tabIndex == _currentTabIndex) {
+            _urlController.text = urlStr;
+          }
+        });
+
+        // Auto-inject agent script when page finishes loading
+        if (tab.wrapper != null) {
+          await tab.wrapper!.ensureScriptInjected();
+          if (tab.isCleanMode) {
+            await tab.wrapper!.cleanPageMode();
+          }
+          _injectMatchedUserScripts(urlStr);
+        }
+      },
+      onProgressChanged: (controller, progress) {
+        setState(() {
+          tab.progress = progress / 100.0;
+          tab.isLoading = progress < 100;
+        });
+      },
+      onTitleChanged: (controller, title) {
+        if (title != null && title.isNotEmpty) {
+          setState(() {
+            tab.title = title;
+          });
+        }
+      },
+      onLongPressHitTestResult: (controller, hitTestResult) {
+        Future.delayed(const Duration(milliseconds: 300), () {
+          _checkSelectionAndTrigger();
+        });
+      },
+      onConsoleMessage: (controller, consoleMessage) {
+        debugPrint('[WebView Console] ${consoleMessage.message}');
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, result) async {
         if (didPop) return;
         if (_webViewController != null && await _webViewController!.canGoBack()) {
           await _webViewController!.goBack();
+        } else if (_tabs.length > 1) {
+          _closeTab(_currentTabIndex);
         } else {
           SystemNavigator.pop();
         }
@@ -443,7 +607,7 @@ class _BrowserPageState extends State<BrowserPage> {
       child: Scaffold(
         body: Column(
           children: [
-            // Top Navigation & Address Bar
+            // Top Navigation & Wide Address Bar with Tab Counter
             BrowserControls(
               urlController: _urlController,
               canGoBack: _canGoBack,
@@ -452,6 +616,7 @@ class _BrowserPageState extends State<BrowserPage> {
               progress: _progress,
               isDesktopMode: _isDesktopMode,
               isCleanMode: _isCleanMode,
+              tabCount: _tabs.length,
               onBack: () => _webViewController?.goBack(),
               onForward: () => _webViewController?.goForward(),
               onReload: () => _webViewController?.reload(),
@@ -461,44 +626,19 @@ class _BrowserPageState extends State<BrowserPage> {
               onSummarize: _quickSummarize,
               onCleanPage: _toggleCleanMode,
               onOpenUserScripts: _openUserScripts,
+              onOpenTabOverview: _openTabOverview,
+              onNewTab: () => _createNewTab(),
             ),
 
-            // Full-screen WebView Canvas + Draggable Edge-Snapping Floating Agent Ball
+            // Full-screen IndexedStack Multi-Tab WebView Canvas + Draggable Edge-Snapping Floating Agent Ball
             Expanded(
               child: Stack(
                 children: [
-                  InAppWebView(
-                    initialUrlRequest: URLRequest(url: WebUri(initialUrl)),
-                    initialSettings: InAppWebViewSettings(
-                      userAgent: userAgent,
-                      javaScriptEnabled: jsEnabled,
-                      domStorageEnabled: true,
-                      databaseEnabled: true,
-                      cacheEnabled: true,
-                      transparentBackground: false,
-                      useWideViewPort: true,
-                      loadWithOverviewMode: true,
-                      supportZoom: true,
-                      builtInZoomControls: false,
-                      displayZoomControls: false,
-                      allowsInlineMediaPlayback: true,
-                      forceDark: webDarkMode ? ForceDark.ON : ForceDark.OFF,
-                      algorithmicDarkeningAllowed: webDarkMode,
-                      blockNetworkImage: blockImages,
-                      textZoom: textZoom,
-                    ),
-                    onWebViewCreated: _onWebViewCreated,
-                    onLoadStop: _onLoadStop,
-                    onProgressChanged: _onProgressChanged,
-                    onLongPressHitTestResult: (controller, hitTestResult) {
-                      // Trigger selection check on mobile long press
-                      Future.delayed(const Duration(milliseconds: 300), () {
-                        _checkSelectionAndTrigger();
-                      });
-                    },
-                    onConsoleMessage: (controller, consoleMessage) {
-                      debugPrint('[WebView Console] ${consoleMessage.message}');
-                    },
+                  IndexedStack(
+                    index: _currentTabIndex,
+                    children: _tabs.asMap().entries.map((entry) {
+                      return _buildTabWebView(entry.value, entry.key);
+                    }).toList(),
                   ),
 
                   // Draggable & Magnetic Edge-Snapping Floating Agent Button

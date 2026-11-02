@@ -463,6 +463,63 @@ class _SettingsPageState extends State<SettingsPage> {
                 },
               ),
 
+              const Divider(height: 16),
+              // User-Agent (浏览器标识) 设置与预设
+              Row(
+                children: const [
+                  Icon(Icons.perm_identity, size: 16, color: AppTheme.primary),
+                  SizedBox(width: 6),
+                  Text('浏览器标识 (User-Agent):', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+                ],
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                '快捷预设（点击自动填充）:',
+                style: TextStyle(fontSize: 11.5, color: Colors.grey),
+              ),
+              const SizedBox(height: 6),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: AppConstants.userAgentPresets.entries.map((entry) {
+                  final isSelected = _uaController.text == entry.value;
+                  return ChoiceChip(
+                    label: Text(entry.key.split(' ')[0], style: const TextStyle(fontSize: 12)),
+                    selected: isSelected,
+                    selectedColor: AppTheme.primary.withOpacity(0.2),
+                    onSelected: (selected) {
+                      if (selected) {
+                        setState(() {
+                          _uaController.text = entry.value;
+                          _desktopMode = entry.value == AppConstants.uaDesktopChrome;
+                        });
+                      }
+                    },
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _uaController,
+                maxLines: 2,
+                style: const TextStyle(fontSize: 11.5, fontFamily: 'monospace'),
+                decoration: InputDecoration(
+                  labelText: '生效中的 User-Agent 字符串',
+                  hintText: '输入自定义 HTTP User-Agent 请求头...',
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  suffixIcon: IconButton(
+                    icon: const Icon(Icons.refresh, size: 16),
+                    tooltip: '重置为默认 Android Chrome',
+                    onPressed: () {
+                      setState(() {
+                        _uaController.text = AppConstants.uaAndroidChrome;
+                        _desktopMode = false;
+                      });
+                    },
+                  ),
+                ),
+              ),
+
               const SizedBox(height: 8),
               OutlinedButton.icon(
                 onPressed: _showClearDataDialog,

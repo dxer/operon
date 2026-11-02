@@ -10,6 +10,7 @@ class BrowserControls extends StatefulWidget {
   final double progress;
   final bool isDesktopMode;
   final bool isCleanMode;
+  final int tabCount;
   final VoidCallback onBack;
   final VoidCallback onForward;
   final VoidCallback onReload;
@@ -19,6 +20,8 @@ class BrowserControls extends StatefulWidget {
   final VoidCallback onSummarize;
   final VoidCallback onCleanPage;
   final VoidCallback onOpenUserScripts;
+  final VoidCallback onOpenTabOverview;
+  final VoidCallback onNewTab;
 
   const BrowserControls({
     Key? key,
@@ -29,6 +32,7 @@ class BrowserControls extends StatefulWidget {
     required this.progress,
     required this.isDesktopMode,
     this.isCleanMode = false,
+    this.tabCount = 1,
     required this.onBack,
     required this.onForward,
     required this.onReload,
@@ -38,6 +42,8 @@ class BrowserControls extends StatefulWidget {
     required this.onSummarize,
     required this.onCleanPage,
     required this.onOpenUserScripts,
+    required this.onOpenTabOverview,
+    required this.onNewTab,
   }) : super(key: key);
 
   @override
@@ -85,7 +91,7 @@ class _BrowserControlsState extends State<BrowserControls> {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final barBg = isDark ? AppTheme.darkBg : AppTheme.lightCard;
-    final inputBg = isDark ? const Color(0xFF202327) : const Color(0xFFEFF3F4);
+    final inputBg = isDark ? const Color(0xFF1E242B) : const Color(0xFFEFF3F4);
     final borderColor = isDark ? AppTheme.darkBorder : AppTheme.lightBorder;
     final iconColor = isDark ? Colors.white70 : const Color(0xFF536471);
 
@@ -101,37 +107,13 @@ class _BrowserControlsState extends State<BrowserControls> {
         child: Column(
           children: [
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4.0, vertical: 4.0),
+              padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 6.0),
               child: Row(
                 children: [
-                  // Back button
-                  IconButton(
-                    icon: const Icon(Icons.arrow_back_ios_new, size: 18),
-                    color: widget.canGoBack ? iconColor : iconColor.withOpacity(0.3),
-                    onPressed: widget.canGoBack ? widget.onBack : null,
-                    tooltip: '后退',
-                  ),
-                  // Forward button
-                  IconButton(
-                    icon: const Icon(Icons.arrow_forward_ios, size: 18),
-                    color: widget.canGoForward ? iconColor : iconColor.withOpacity(0.3),
-                    onPressed: widget.canGoForward ? widget.onForward : null,
-                    tooltip: '前进',
-                  ),
-                  // Reload button
-                  IconButton(
-                    icon: Icon(
-                      widget.isLoading ? Icons.close : Icons.refresh,
-                      size: 20,
-                    ),
-                    color: iconColor,
-                    onPressed: widget.onReload,
-                    tooltip: widget.isLoading ? '停止' : '刷新',
-                  ),
-                  // URL / Search input
+                  // 1. Wide Spacious Address & Search Input Box
                   Expanded(
                     child: Container(
-                      height: 38,
+                      height: 40,
                       decoration: BoxDecoration(
                         color: inputBg,
                         borderRadius: BorderRadius.circular(20),
@@ -140,13 +122,23 @@ class _BrowserControlsState extends State<BrowserControls> {
                       child: Row(
                         children: [
                           const SizedBox(width: 10),
-                          const Icon(Icons.lock_outline, size: 14, color: AppTheme.accent),
-                          const SizedBox(width: 6),
+                          Icon(
+                            widget.urlController.text.startsWith('https://')
+                                ? Icons.lock
+                                : (widget.urlController.text.isEmpty ? Icons.search : Icons.public),
+                            size: 15,
+                            color: widget.urlController.text.startsWith('https://')
+                                ? AppTheme.accent
+                                : (isDark ? Colors.white54 : Colors.black45),
+                          ),
+                          const SizedBox(width: 8),
+
+                          // Text input field
                           Expanded(
                             child: TextField(
                               controller: widget.urlController,
                               style: TextStyle(
-                                fontSize: 13,
+                                fontSize: 13.5,
                                 color: isDark ? Colors.white : Colors.black87,
                               ),
                               decoration: InputDecoration(
@@ -157,7 +149,7 @@ class _BrowserControlsState extends State<BrowserControls> {
                                 contentPadding: EdgeInsets.zero,
                                 hintText: '输入网址或搜索关键词...',
                                 hintStyle: TextStyle(
-                                  fontSize: 12,
+                                  fontSize: 12.5,
                                   color: isDark ? Colors.white38 : Colors.black38,
                                 ),
                               ),
@@ -166,37 +158,87 @@ class _BrowserControlsState extends State<BrowserControls> {
                               onSubmitted: widget.onSubmitUrl,
                             ),
                           ),
-                          // Clear button inside input
+
+                          // Clear 'X' button inside input
                           if (_showClear)
                             GestureDetector(
-                              onTap: () => widget.urlController.clear(),
+                              onTap: () {
+                                widget.urlController.clear();
+                              },
                               child: Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                                padding: const EdgeInsets.symmetric(horizontal: 4.0),
                                 child: Icon(
                                   Icons.cancel,
-                                  size: 16,
+                                  size: 17,
                                   color: isDark ? Colors.white38 : Colors.black38,
                                 ),
                               ),
                             ),
+
+                          // Quick ⚡ AI Summarize Button inside input
+                          IconButton(
+                            icon: const Icon(Icons.bolt, size: 20, color: Colors.amber),
+                            tooltip: '⚡ AI 网页速读',
+                            padding: const EdgeInsets.symmetric(horizontal: 6),
+                            constraints: const BoxConstraints(),
+                            onPressed: widget.onSummarize,
+                          ),
+                          const SizedBox(width: 4),
                         ],
                       ),
                     ),
                   ),
 
-                  // Quick One-Click Summarize Button
-                  IconButton(
-                    icon: const Icon(Icons.bolt, size: 22, color: Colors.amber),
-                    tooltip: '⚡ AI 网页速读',
-                    onPressed: widget.onSummarize,
+                  const SizedBox(width: 6),
+
+                  // 2. Tab Switcher Button (Shows Tab Count, e.g. [ 2 ])
+                  InkWell(
+                    onTap: widget.onOpenTabOverview,
+                    borderRadius: BorderRadius.circular(8),
+                    child: Container(
+                      width: 28,
+                      height: 28,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(7),
+                        border: Border.all(
+                          color: isDark ? Colors.white70 : const Color(0xFF536471),
+                          width: 1.8,
+                        ),
+                      ),
+                      alignment: Alignment.center,
+                      child: Text(
+                        '${widget.tabCount}',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: isDark ? Colors.white : const Color(0xFF0F141C),
+                        ),
+                      ),
+                    ),
                   ),
 
-                  // Quick tools menu (PopupMenuButton)
+                  const SizedBox(width: 2),
+
+                  // 3. More Tools & Navigation Menu
                   PopupMenuButton<String>(
-                    icon: Icon(Icons.more_vert, size: 20, color: iconColor),
+                    icon: Icon(Icons.more_vert, size: 22, color: iconColor),
                     tooltip: '更多操作',
+                    offset: const Offset(0, 42),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                     onSelected: (val) {
                       switch (val) {
+                        case 'back':
+                          if (widget.canGoBack) widget.onBack();
+                          break;
+                        case 'forward':
+                          if (widget.canGoForward) widget.onForward();
+                          break;
+                        case 'reload':
+                          widget.onReload();
+                          break;
+                        case 'new_tab':
+                          widget.onNewTab();
+                          break;
                         case 'summarize':
                           widget.onSummarize();
                           break;
@@ -218,6 +260,57 @@ class _BrowserControlsState extends State<BrowserControls> {
                       }
                     },
                     itemBuilder: (context) => [
+                      // Quick Navigation Top Bar (Back, Forward, Reload, New Tab)
+                      PopupMenuItem(
+                        enabled: false,
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceAround,
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.arrow_back_ios_new, size: 18),
+                              color: widget.canGoBack ? AppTheme.primary : (isDark ? Colors.white24 : Colors.black26),
+                              tooltip: '后退',
+                              onPressed: widget.canGoBack
+                                  ? () {
+                                      Navigator.pop(context);
+                                      widget.onBack();
+                                    }
+                                  : null,
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.arrow_forward_ios, size: 18),
+                              color: widget.canGoForward ? AppTheme.primary : (isDark ? Colors.white24 : Colors.black26),
+                              tooltip: '前进',
+                              onPressed: widget.canGoForward
+                                  ? () {
+                                      Navigator.pop(context);
+                                      widget.onForward();
+                                    }
+                                  : null,
+                            ),
+                            IconButton(
+                              icon: Icon(widget.isLoading ? Icons.close : Icons.refresh, size: 20),
+                              color: isDark ? Colors.white : Colors.black87,
+                              tooltip: widget.isLoading ? '停止' : '刷新',
+                              onPressed: () {
+                                Navigator.pop(context);
+                                widget.onReload();
+                              },
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.add_box_outlined, size: 20, color: AppTheme.accent),
+                              tooltip: '新建标签页',
+                              onPressed: () {
+                                Navigator.pop(context);
+                                widget.onNewTab();
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                      const PopupMenuDivider(),
+
+                      // AI & Feature Items
                       PopupMenuItem(
                         value: 'summarize',
                         child: Row(
@@ -231,10 +324,17 @@ class _BrowserControlsState extends State<BrowserControls> {
                       PopupMenuItem(
                         value: 'clean',
                         child: Row(
-                          children: const [
-                            Icon(Icons.cleaning_services_outlined, size: 18, color: AppTheme.accent),
-                            SizedBox(width: 10),
-                            Text('🍃 纯净阅读 / 去跳App', style: TextStyle(fontSize: 13)),
+                          children: [
+                            Icon(
+                              widget.isCleanMode ? Icons.cleaning_services : Icons.cleaning_services_outlined,
+                              size: 18,
+                              color: AppTheme.accent,
+                            ),
+                            const SizedBox(width: 10),
+                            Text(
+                              widget.isCleanMode ? '🍃 纯净模式已开启' : '🍃 纯净阅读 / 去跳App',
+                              style: const TextStyle(fontSize: 13),
+                            ),
                           ],
                         ),
                       ),
@@ -266,24 +366,22 @@ class _BrowserControlsState extends State<BrowserControls> {
                             Icon(
                               widget.isDesktopMode ? Icons.phone_android : Icons.desktop_windows,
                               size: 18,
-                              color: widget.isDesktopMode ? AppTheme.primary : null,
                             ),
                             const SizedBox(width: 10),
                             Text(
-                              widget.isDesktopMode ? '切换为手机版' : '以电脑版浏览',
+                              widget.isDesktopMode ? '切换为手机版' : '请求电脑桌面版',
                               style: const TextStyle(fontSize: 13),
                             ),
                           ],
                         ),
                       ),
-                      const PopupMenuDivider(),
                       PopupMenuItem(
                         value: 'settings',
                         child: Row(
                           children: const [
-                            Icon(Icons.tune, size: 18),
+                            Icon(Icons.settings_outlined, size: 18),
                             SizedBox(width: 10),
-                            Text('浏览器与 AI 设置', style: TextStyle(fontSize: 13)),
+                            Text('浏览器设置', style: TextStyle(fontSize: 13)),
                           ],
                         ),
                       ),
@@ -292,11 +390,12 @@ class _BrowserControlsState extends State<BrowserControls> {
                 ],
               ),
             ),
-            // Linear loading indicator
-            if (widget.isLoading && widget.progress < 1.0)
+
+            // Top Linear Progress Bar
+            if (widget.isLoading)
               LinearProgressIndicator(
-                value: widget.progress,
-                minHeight: 2.5,
+                value: widget.progress > 0 ? widget.progress : null,
+                minHeight: 2.0,
                 backgroundColor: Colors.transparent,
                 valueColor: const AlwaysStoppedAnimation<Color>(AppTheme.primary),
               ),
