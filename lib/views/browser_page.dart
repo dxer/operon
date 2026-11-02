@@ -4,6 +4,7 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import '../config/app_constants.dart';
 import '../config/app_theme.dart';
 import '../models/agent_state.dart';
+import '../models/llm_config.dart';
 import '../models/macro_workflow.dart';
 import '../services/agent_runner.dart';
 import '../services/macro_service.dart';
@@ -54,7 +55,7 @@ class _BrowserPageState extends State<BrowserPage> {
 
   Future<void> _initStorage() async {
     _storage = await StorageService.getInstance();
-    final homepage = _storage.getHomepage();
+    final homepage = _storage?.getHomepage() ?? AppConstants.defaultHomepage;
     _urlController.text = homepage;
   }
 
