@@ -39,7 +39,9 @@ jobs:
 
       # 4. Install project dependencies
       - name: Install Dependencies
-        run: flutter pub get
+        run: |
+          flutter clean
+          flutter pub get
 
       # 5. Build Release APK
       - name: Build APK
