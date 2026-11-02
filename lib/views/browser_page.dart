@@ -11,11 +11,15 @@ import '../services/agent_runner.dart';
 import '../services/macro_service.dart';
 import '../services/notification_service.dart';
 import '../services/storage_service.dart';
+import '../services/user_script_service.dart';
 import '../services/webview_controller_wrapper.dart';
 import 'settings/settings_page.dart';
+import 'settings/user_scripts_page.dart';
 import 'widgets/agent_bottom_sheet.dart';
 import 'widgets/browser_controls.dart';
 import 'widgets/floating_agent_ball.dart';
+import 'widgets/selection_action_dialog.dart';
+import 'widgets/summary_bottom_sheet.dart';
 
 class BrowserPage extends StatefulWidget {
   const BrowserPage({Key? key}) : super(key: key);
@@ -37,6 +41,7 @@ class _BrowserPageState extends State<BrowserPage> {
   bool _isLoading = false;
   double _progress = 0.0;
   bool _isDesktopMode = false;
+  bool _isCleanMode = false;
 
   AgentState _agentState = const AgentState();
 
@@ -88,6 +93,11 @@ class _BrowserPageState extends State<BrowserPage> {
     // Auto-inject agent script when page finishes loading
     if (_wrapper != null) {
       await _wrapper!.ensureScriptInjected();
+      // If clean mode is enabled, auto-apply anti-jump & auto-expand
+      if (_isCleanMode) {
+        await _wrapper!.cleanPageMode();
+      }
+      _injectMatchedUserScripts(url?.toString() ?? '');
     }
     if (mounted) setState(() {});
   }
@@ -165,6 +175,144 @@ class _BrowserPageState extends State<BrowserPage> {
           duration: const Duration(seconds: 1),
         ),
       );
+    }
+  }
+
+  void _toggleCleanMode() async {
+    _isCleanMode = !_isCleanMode;
+    if (_wrapper != null) {
+      final res = await _wrapper!.cleanPageMode();
+      final count = res['removedCount'] ?? 0;
+      final expCount = res['expandedCount'] ?? 0;
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              _isCleanMode
+                  ? '🍃 纯净模式已开启：清理了 $count 处弹窗/遮罩，展开 $expCount 处折叠正文'
+                  : '已关闭纯净模式',
+            ),
+            backgroundColor: AppTheme.accent,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    }
+    setState(() {});
+  }
+
+  void _injectMatchedUserScripts(String currentUrl) async {
+    if (currentUrl.isEmpty || currentUrl.startsWith('about:') || _wrapper == null) return;
+    try {
+      final scriptService = await UserScriptService.getInstance();
+      final scripts = scriptService.getScripts();
+      int count = 0;
+      for (final s in scripts) {
+        if (s.matchesUrl(currentUrl)) {
+          await _wrapper!.evaluateJavascript(s.code);
+          count++;
+        }
+      }
+      if (count > 0) {
+        debugPrint('🚀 [UserScript] Injected $count active user scripts into $currentUrl');
+      }
+    } catch (e) {
+      debugPrint('⚠️ [UserScript] Injection error: $e');
+    }
+  }
+
+  void _openUserScripts() async {
+    final currentUrl = await _wrapper?.getUrl() ?? _urlController.text;
+    final currentTitle = await _wrapper?.getTitle() ?? '';
+    if (mounted) {
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => UserScriptsPage(
+            currentUrl: currentUrl,
+            currentTitle: currentTitle,
+          ),
+        ),
+      );
+    }
+  }
+
+  void _quickSummarize() async {
+    if (_wrapper == null) return;
+
+    final config = _storage?.getLlmConfig() ?? LlmConfig.defaultConfig();
+    if (!config.isValid) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('请先在设置中配置有效的大模型 API Key'),
+          backgroundColor: Colors.redAccent,
+          action: SnackBarAction(
+            label: '去配置',
+            textColor: Colors.white,
+            onPressed: _openSettings,
+          ),
+        ),
+      );
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('⚡ 正在提取网页正文...'),
+        duration: Duration(milliseconds: 900),
+      ),
+    );
+
+    final articleData = await _wrapper!.extractReadableContent();
+    final title = articleData['title'] as String? ?? await _wrapper!.getTitle();
+    final url = articleData['url'] as String? ?? await _wrapper!.getUrl();
+    final content = articleData['content'] as String? ?? '';
+
+    if (content.length < 30) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('当前页面正文内容过少，无法生成深度速读摘要'),
+            backgroundColor: Colors.amber,
+          ),
+        );
+      }
+      return;
+    }
+
+    if (mounted) {
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (_) => SummaryBottomSheet(
+          title: title,
+          url: url,
+          content: content,
+          config: config,
+        ),
+      );
+    }
+  }
+
+  void _checkSelectionAndTrigger() async {
+    if (_wrapper == null) return;
+    final selInfo = await _wrapper!.getSelectedTextInfo();
+    if (selInfo['hasSelection'] == true) {
+      final selectedText = selInfo['text'] as String? ?? '';
+      if (selectedText.isNotEmpty) {
+        final config = _storage?.getLlmConfig() ?? LlmConfig.defaultConfig();
+        if (mounted) {
+          showModalBottomSheet(
+            context: context,
+            isScrollControlled: true,
+            backgroundColor: Colors.transparent,
+            builder: (_) => SelectionActionDialog(
+              selectedText: selectedText,
+              config: config,
+            ),
+          );
+        }
+      }
     }
   }
 
@@ -303,12 +451,16 @@ class _BrowserPageState extends State<BrowserPage> {
               isLoading: _isLoading,
               progress: _progress,
               isDesktopMode: _isDesktopMode,
+              isCleanMode: _isCleanMode,
               onBack: () => _webViewController?.goBack(),
               onForward: () => _webViewController?.goForward(),
               onReload: () => _webViewController?.reload(),
               onSubmitUrl: _loadUrl,
               onOpenSettings: _openSettings,
               onToggleDesktopMode: _toggleDesktopMode,
+              onSummarize: _quickSummarize,
+              onCleanPage: _toggleCleanMode,
+              onOpenUserScripts: _openUserScripts,
             ),
 
             // Full-screen WebView Canvas + Draggable Edge-Snapping Floating Agent Ball
@@ -338,6 +490,12 @@ class _BrowserPageState extends State<BrowserPage> {
                     onWebViewCreated: _onWebViewCreated,
                     onLoadStop: _onLoadStop,
                     onProgressChanged: _onProgressChanged,
+                    onLongPressHitTestResult: (controller, hitTestResult) {
+                      // Trigger selection check on mobile long press
+                      Future.delayed(const Duration(milliseconds: 300), () {
+                        _checkSelectionAndTrigger();
+                      });
+                    },
                     onConsoleMessage: (controller, consoleMessage) {
                       debugPrint('[WebView Console] ${consoleMessage.message}');
                     },
@@ -347,6 +505,7 @@ class _BrowserPageState extends State<BrowserPage> {
                   FloatingAgentBall(
                     state: _agentState,
                     onTap: _openAgentBottomSheet,
+                    onQuickSummarize: _quickSummarize,
                   ),
                 ],
               ),

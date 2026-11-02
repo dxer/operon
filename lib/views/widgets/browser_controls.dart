@@ -9,12 +9,16 @@ class BrowserControls extends StatefulWidget {
   final bool isLoading;
   final double progress;
   final bool isDesktopMode;
+  final bool isCleanMode;
   final VoidCallback onBack;
   final VoidCallback onForward;
   final VoidCallback onReload;
   final Function(String url) onSubmitUrl;
   final VoidCallback onOpenSettings;
   final VoidCallback onToggleDesktopMode;
+  final VoidCallback onSummarize;
+  final VoidCallback onCleanPage;
+  final VoidCallback onOpenUserScripts;
 
   const BrowserControls({
     Key? key,
@@ -24,12 +28,16 @@ class BrowserControls extends StatefulWidget {
     required this.isLoading,
     required this.progress,
     required this.isDesktopMode,
+    this.isCleanMode = false,
     required this.onBack,
     required this.onForward,
     required this.onReload,
     required this.onSubmitUrl,
     required this.onOpenSettings,
     required this.onToggleDesktopMode,
+    required this.onSummarize,
+    required this.onCleanPage,
+    required this.onOpenUserScripts,
   }) : super(key: key);
 
   @override
@@ -176,12 +184,28 @@ class _BrowserControlsState extends State<BrowserControls> {
                     ),
                   ),
 
+                  // Quick One-Click Summarize Button
+                  IconButton(
+                    icon: const Icon(Icons.bolt, size: 22, color: Colors.amber),
+                    tooltip: '⚡ AI 网页速读',
+                    onPressed: widget.onSummarize,
+                  ),
+
                   // Quick tools menu (PopupMenuButton)
                   PopupMenuButton<String>(
                     icon: Icon(Icons.more_vert, size: 20, color: iconColor),
                     tooltip: '更多操作',
                     onSelected: (val) {
                       switch (val) {
+                        case 'summarize':
+                          widget.onSummarize();
+                          break;
+                        case 'clean':
+                          widget.onCleanPage();
+                          break;
+                        case 'scripts':
+                          widget.onOpenUserScripts();
+                          break;
                         case 'copy':
                           _copyUrlToClipboard();
                           break;
@@ -194,6 +218,37 @@ class _BrowserControlsState extends State<BrowserControls> {
                       }
                     },
                     itemBuilder: (context) => [
+                      PopupMenuItem(
+                        value: 'summarize',
+                        child: Row(
+                          children: const [
+                            Icon(Icons.bolt, size: 18, color: Colors.amber),
+                            SizedBox(width: 10),
+                            Text('⚡ AI 网页速读', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                          ],
+                        ),
+                      ),
+                      PopupMenuItem(
+                        value: 'clean',
+                        child: Row(
+                          children: const [
+                            Icon(Icons.cleaning_services_outlined, size: 18, color: AppTheme.accent),
+                            SizedBox(width: 10),
+                            Text('🍃 纯净阅读 / 去跳App', style: TextStyle(fontSize: 13)),
+                          ],
+                        ),
+                      ),
+                      PopupMenuItem(
+                        value: 'scripts',
+                        child: Row(
+                          children: const [
+                            Icon(Icons.code, size: 18, color: AppTheme.primary),
+                            SizedBox(width: 10),
+                            Text('🧪 AI 脚本工坊', style: TextStyle(fontSize: 13)),
+                          ],
+                        ),
+                      ),
+                      const PopupMenuDivider(),
                       PopupMenuItem(
                         value: 'copy',
                         child: Row(

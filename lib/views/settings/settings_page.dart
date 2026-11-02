@@ -7,6 +7,7 @@ import '../../services/llm_service.dart';
 import '../../services/storage_service.dart';
 import '../../services/theme_service.dart';
 import '../widgets/macro_dialog.dart';
+import 'user_scripts_page.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({Key? key}) : super(key: key);
@@ -622,7 +623,36 @@ class _SettingsPageState extends State<SettingsPage> {
           const SizedBox(height: 16),
 
           // -------------------------------------------------------------
-          // Group 5: 宏管理与关于
+          // Group 5: AI 脚本工坊与自动化扩展
+          // -------------------------------------------------------------
+          _buildGroupCard(
+            title: 'AI 脚本工坊 (UserScripts)',
+            icon: Icons.code,
+            children: [
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.javascript, size: 28, color: Colors.amber),
+                title: const Text('管理自定义脚本', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                subtitle: const Text(
+                  '让 AI 编写专属用户脚本，在网页加载完成后自动执行，可自由启动/关闭单个脚本',
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const UserScriptsPage(),
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 16),
+
+          // -------------------------------------------------------------
+          // Group 6: 宏管理与关于
           // -------------------------------------------------------------
           _buildGroupCard(
             title: '宏工作流与关于',

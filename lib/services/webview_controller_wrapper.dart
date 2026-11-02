@@ -133,4 +133,61 @@ class WebViewControllerWrapper {
   Future<String> getTitle() async {
     return await controller.getTitle() ?? '';
   }
+
+  /// Removes mobile app-jump banners, modal masks, and auto-expands collapsed articles
+  Future<Map<String, dynamic>> cleanPageMode() async {
+    try {
+      await ensureScriptInjected();
+      final res = await controller.evaluateJavascript(
+        source: 'if (window.OPERON && window.OPERON.cleanPageMode) { window.OPERON.cleanPageMode(); }',
+      );
+      if (res != null) {
+        return res is String ? jsonDecode(res) : Map<String, dynamic>.from(res);
+      }
+    } catch (_) {}
+    return {'success': false};
+  }
+
+  /// Extracts readable article content and metadata for AI summarization
+  Future<Map<String, dynamic>> extractReadableContent() async {
+    try {
+      await ensureScriptInjected();
+      final res = await controller.evaluateJavascript(
+        source: 'if (window.OPERON && window.OPERON.extractReadableContent) { window.OPERON.extractReadableContent(); }',
+      );
+      if (res != null) {
+        return res is String ? jsonDecode(res) : Map<String, dynamic>.from(res);
+      }
+    } catch (_) {}
+    return {
+      'title': await getTitle(),
+      'url': await getUrl(),
+      'content': '',
+      'length': 0,
+    };
+  }
+
+  /// Executes arbitrary JavaScript in the current page
+  Future<dynamic> evaluateJavascript(String source) async {
+    try {
+      return await controller.evaluateJavascript(source: source);
+    } catch (e) {
+      debugPrint('[WebView] evaluateJavascript error: $e');
+      return null;
+    }
+  }
+
+  /// Gets currently selected text info on the page
+  Future<Map<String, dynamic>> getSelectedTextInfo() async {
+    try {
+      await ensureScriptInjected();
+      final res = await controller.evaluateJavascript(
+        source: 'if (window.OPERON && window.OPERON.getSelectedTextInfo) { window.OPERON.getSelectedTextInfo(); }',
+      );
+      if (res != null) {
+        return res is String ? jsonDecode(res) : Map<String, dynamic>.from(res);
+      }
+    } catch (_) {}
+    return {'hasSelection': false};
+  }
 }

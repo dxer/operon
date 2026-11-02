@@ -7,11 +7,13 @@ import '../../models/agent_state.dart';
 class FloatingAgentBall extends StatefulWidget {
   final AgentState state;
   final VoidCallback onTap;
+  final VoidCallback? onQuickSummarize;
 
   const FloatingAgentBall({
     Key? key,
     required this.state,
     required this.onTap,
+    this.onQuickSummarize,
   }) : super(key: key);
 
   @override
@@ -197,6 +199,15 @@ class _FloatingAgentBallState extends State<FloatingAgentBall>
           _wakeUp();
           HapticFeedback.selectionClick();
           widget.onTap();
+        },
+        onLongPress: () {
+          _wakeUp();
+          HapticFeedback.mediumImpact();
+          if (widget.onQuickSummarize != null) {
+            widget.onQuickSummarize!();
+          } else {
+            widget.onTap();
+          }
         },
         child: AnimatedOpacity(
           opacity: _isDragging ? 1.0 : (_isDimmed ? 0.65 : 1.0),
