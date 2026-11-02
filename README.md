@@ -94,26 +94,31 @@ operon/
 
 ---
 
-## 📦 如何在 GitHub 上自动编译与下载 APK (CI/CD)
+## 📦 如何在 GitHub 上自动编译并直接下载 APK（非 ZIP，直接安装）
 
-项目已内置了 GitHub Actions 自动化编译工作流 [`.github/workflows/build-apk.yml`](file:///root/workspace/bbx/.github/workflows/build-apk.yml)。**无需在本地配置繁琐的 Android SDK 或 Flutter 环境，直接让 GitHub 云端免费为你打包！**
+项目已内置了 GitHub Actions 自动化编译工作流 [`.github/workflows/build-apk.yml`](file:///root/workspace/bbx/.github/workflows/build-apk.yml)。
 
-### 方式一：发布新版本 Tag 自动生成 Release（最推荐）
+> **⚠️ 为什么有些人在 GitHub 下载到的是 ZIP 文件？**
+> * GitHub Actions 页面底部的 **Artifacts** 是 GitHub 官方平台强制打包为 `.zip` 的归档；
+> * 为了让你在手机上**直接下载纯 `.apk` 文件（点击即可唤起安卓安装，无需解压）**，本工作流会自动将编译出的原生安装包发布至 **GitHub Releases** 资源区！
 
-当你在本地给代码打上版本号标签并推送到 GitHub：
+---
+
+### 📲 获取纯 APK 的两种方式：
+
+#### 方式一：发布新版本 Tag（推荐 ⭐️）
+在本地推送版本标签：
 ```bash
 git tag v0.1.0
 git push origin v0.1.0
 ```
-GitHub Actions 会自动触发构建，并在几十秒到几分钟后自动在你的仓库 **Releases** 页面发布新版本，并直接附带可下载的安装包：`app-release.apk`！
+GitHub 会自动编译并在你的仓库右侧 **Releases** 中生成一个发布包，里面直接附带原生的 **`operon-v0.1.0.apk`** 文件，手机浏览器点击即可直接下载安装！
 
-### 方式二：在 GitHub 网页上一键手动构建（On-Demand）
-
-1. 打开你的 GitHub 仓库主页；
-2. 点击顶部的 **Actions** 选项卡；
-3. 在左侧选择 **Build & Release Android APK** 工作流；
-4. 点击右侧的 **Run workflow** 下拉按钮，点击绿色的 **Run workflow** 开始运行；
-5. 构建完成后，点击该次运行记录，在底部的 **Artifacts** 区域即可直接下载编译好的 `operon-release-apk.zip`（解压即为 `app-release.apk`）。
+#### 方式二：在 GitHub 网页上一键手动构建
+1. 打开你的 GitHub 仓库主页，点击顶部的 **Actions** 选项卡；
+2. 在左侧选择 **Build & Release Android APK** 工作流；
+3. 点击右侧的 **Run workflow** 绿色按钮触发编译；
+4. 编译完成后，直接前往仓库主页右侧的 **Releases** 区域，在 `Operon Latest Build` 下直接下载纯原生的 **`operon-v0.1.0.apk`**！
 
 ---
 
