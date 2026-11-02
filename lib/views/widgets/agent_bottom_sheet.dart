@@ -1,17 +1,27 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../../config/app_constants.dart';
 import '../../config/app_theme.dart';
+import '../../models/agent_action.dart';
 import '../../models/agent_state.dart';
 import '../../models/macro_workflow.dart';
+import '../../models/quick_command.dart';
 import '../../services/macro_service.dart';
+import '../../services/quick_command_service.dart';
 import 'macro_dialog.dart';
+import 'quick_command_run_sheet.dart';
 import 'step_log_view.dart';
+
+typedef AgentStartHandler = void Function(
+  String goal,
+  QuickCommandPolicy? policy,
+);
 
 class AgentBottomSheet extends StatefulWidget {
   final AgentState state;
-  final Function(String goal) onStart;
+  final AgentStartHandler onStart;
+  final List<QuickCommand> quickCommands;
+  final Future<void> Function()? onManageQuickCommands;
   final VoidCallback onPause;
   final VoidCallback onResume;
   final VoidCallback onStop;
@@ -35,6 +45,8 @@ class AgentBottomSheet extends StatefulWidget {
     required this.safeMode,
     required this.onSafeModeChanged,
     this.onAllowSite,
+    this.quickCommands = const [],
+    this.onManageQuickCommands,
   });
 
   @override
@@ -44,6 +56,9 @@ class AgentBottomSheet extends StatefulWidget {
 class _AgentBottomSheetState extends State<AgentBottomSheet> {
   late TextEditingController _goalController;
   late bool _safeMode;
+  late List<QuickCommand> _quickCommands;
+  QuickCommand? _activeCommand;
+  QuickCommandPolicy? _activePolicy;
   bool _showLogs = false;
   final bool _showExtractedData = true;
 
@@ -52,6 +67,7 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
     super.initState();
     _goalController = TextEditingController(text: widget.state.goal);
     _safeMode = widget.safeMode;
+    _quickCommands = List<QuickCommand>.from(widget.quickCommands);
   }
 
   @override
@@ -63,12 +79,75 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
     if (widget.safeMode != oldWidget.safeMode) {
       _safeMode = widget.safeMode;
     }
+    if (widget.quickCommands != oldWidget.quickCommands) {
+      _quickCommands = List<QuickCommand>.from(widget.quickCommands);
+    }
+    if (_activeCommand != null &&
+        !_quickCommands.any((item) => item.id == _activeCommand!.id)) {
+      _activeCommand = null;
+      _activePolicy = null;
+    }
   }
 
   void _toggleSafeMode(bool enabled) {
     HapticFeedback.selectionClick();
     setState(() => _safeMode = enabled);
     widget.onSafeModeChanged(enabled);
+  }
+
+  void _startGoal() {
+    final text = _goalController.text.trim();
+    if (text.isEmpty) return;
+    widget.onStart(text, _activePolicy);
+  }
+
+  Future<void> _applyQuickCommand(QuickCommand command) async {
+    if (command.inputs.isEmpty) {
+      setState(() {
+        _activeCommand = command;
+        _activePolicy = command.policy;
+        _goalController.text = command.render();
+      });
+      return;
+    }
+
+    final result = await showModalBottomSheet<QuickCommandRunResult>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => QuickCommandRunSheet(command: command),
+    );
+    if (!mounted || result == null) return;
+    setState(() {
+      _activeCommand = command;
+      _activePolicy = result.policy;
+      _goalController.text = result.prompt;
+    });
+  }
+
+  Future<void> _manageQuickCommands() async {
+    final manage = widget.onManageQuickCommands;
+    if (manage == null) return;
+    await manage();
+    if (!mounted) return;
+    final service = await QuickCommandService.getInstance();
+    if (!mounted) return;
+    final commands = service.getCommands();
+    setState(() {
+      _quickCommands = commands;
+      final activeId = _activeCommand?.id;
+      _activeCommand = null;
+      _activePolicy = null;
+      if (activeId != null) {
+        for (final command in commands) {
+          if (command.id == activeId) {
+            _activeCommand = command;
+            _activePolicy = command.policy;
+            break;
+          }
+        }
+      }
+    });
   }
 
   @override
@@ -166,6 +245,15 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
       }
     }
     titleController.dispose();
+  }
+
+  /// Never show typed text (passwords, drafts) in the authorization banner.
+  String _actionLabel(AgentAction? action) {
+    if (action == null) return '';
+    if (action.action == ActionType.type) {
+      return '在 [${action.elementId}] 输入内容';
+    }
+    return action.description;
   }
 
   String _hostOf(String? url) {
@@ -640,7 +728,7 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'AI 准备执行: ${state.currentAction?.description ?? ""}',
+                    'AI 准备执行: ${_actionLabel(state.currentAction)}',
                     style: TextStyle(fontSize: 12, color: onSurface),
                   ),
                   if (state.confirmationReason != null &&
@@ -660,6 +748,30 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
                     Text(
                       '目标站点: ${_hostOf(state.targetUrl)}',
                       style: TextStyle(fontSize: 11.5, color: muted),
+                    ),
+                  ],
+                  if (state.confirmationPayload != null &&
+                      state.confirmationPayload!.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: isDark
+                            ? Colors.white.withValues(alpha: 0.06)
+                            : Colors.black.withValues(alpha: 0.05),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        '将发送：${state.confirmationPayload}',
+                        maxLines: 6,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          height: 1.4,
+                          color: onSurface,
+                        ),
+                      ),
                     ),
                   ],
                   const SizedBox(height: 10),
@@ -736,42 +848,111 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
                   : IconButton(
                       icon: const Icon(Icons.arrow_upward,
                           color: AppTheme.primary),
-                      onPressed: () {
-                        final text = _goalController.text.trim();
-                        if (text.isNotEmpty) {
-                          widget.onStart(text);
-                        }
-                      },
+                      onPressed: _startGoal,
                     ),
             ),
           ),
 
-          // Universal Workflow Recipe chips
+          // Site-agnostic quick command templates.
           if (!isRunning) ...[
-            const SizedBox(height: 8),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: AppConstants.recipePresets.map((recipe) {
-                  return Padding(
-                    padding: const EdgeInsets.only(right: 6.0),
-                    child: ActionChip(
-                      avatar: const Icon(Icons.auto_awesome,
-                          size: 14, color: AppTheme.primary),
-                      label: Text(
-                        recipe['title']!,
-                        style: TextStyle(fontSize: 11, color: muted),
-                      ),
-                      backgroundColor: surface,
-                      side: BorderSide(color: hairline),
-                      onPressed: () {
-                        _goalController.text = recipe['prompt']!;
-                      },
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                const Icon(Icons.bolt_rounded, size: 14, color: Colors.amber),
+                const SizedBox(width: 4),
+                Text(
+                  '快捷指令',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: onSurface,
+                  ),
+                ),
+                const Spacer(),
+                if (widget.onManageQuickCommands != null)
+                  TextButton.icon(
+                    onPressed: _manageQuickCommands,
+                    icon: const Icon(Icons.tune_rounded, size: 14),
+                    label: const Text('管理', style: TextStyle(fontSize: 11.5)),
+                    style: TextButton.styleFrom(
+                      foregroundColor: AppTheme.primary,
+                      minimumSize: const Size(0, 28),
+                      padding: const EdgeInsets.symmetric(horizontal: 6),
                     ),
-                  );
-                }).toList(),
-              ),
+                  ),
+              ],
             ),
+            const SizedBox(height: 4),
+            if (_quickCommands.isEmpty)
+              Text(
+                '暂无快捷指令，点击“管理”添加',
+                style: TextStyle(fontSize: 11.5, color: subtle),
+              )
+            else
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: _quickCommands.map((command) {
+                    return Padding(
+                      padding: const EdgeInsets.only(right: 6.0),
+                      child: ActionChip(
+                        avatar: const Icon(
+                          Icons.auto_awesome,
+                          size: 14,
+                          color: AppTheme.primary,
+                        ),
+                        label: Text(
+                          command.title,
+                          style: TextStyle(fontSize: 11, color: muted),
+                        ),
+                        backgroundColor: surface,
+                        side: BorderSide(color: hairline),
+                        onPressed: () => _applyQuickCommand(command),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ),
+            if (_activeCommand != null) ...[
+              const SizedBox(height: 2),
+              Row(
+                children: [
+                  const Icon(
+                    Icons.check_circle_rounded,
+                    size: 12,
+                    color: AppTheme.accent,
+                  ),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      '已套用：${_activeCommand!.title}'
+                      '${_activePolicy == null ? '' : ' · ${_activePolicy!.mode.label}'}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: AppTheme.accent,
+                      ),
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: () => setState(() {
+                      _activeCommand = null;
+                      _activePolicy = null;
+                    }),
+                    style: TextButton.styleFrom(
+                      foregroundColor: muted,
+                      minimumSize: const Size(0, 24),
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                    ),
+                    child: const Text(
+                      '清除',
+                      style: TextStyle(fontSize: 10.5),
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ],
 
           // Control Action Buttons (when running)

@@ -243,6 +243,8 @@ class AgentAction {
       'send',
       'submit',
       'confirm',
+      'reply',
+      'comment',
       '发推',
       '发布',
       '发送',

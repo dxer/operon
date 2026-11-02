@@ -27,30 +27,6 @@ class AppConstants {
   };
   static const String defaultSearchEngine = 'Google (谷歌)';
 
-  // Recipe templates (Universal Workflow Prompts)
-  static const List<Map<String, String>> recipePresets = [
-    {
-      'title': '抓取推文/动态',
-      'prompt': '抓取当前页面最新的 5 条推文内容及博主名字，并输出为结构化数据',
-    },
-    {
-      'title': '自动回复第一条',
-      'prompt': '找到当前页面的第一条推文/帖子，点击回复并键入：非常有价值的分享，感谢！',
-    },
-    {
-      'title': '搜索话题并按回车',
-      'prompt': '在顶部搜索框输入 #AI，并按下 Enter 键提交搜索',
-    },
-    {
-      'title': '网页正文抓取总结',
-      'prompt': '阅读提取当前网页正文核心内容，并提炼 3 点关键摘要',
-    },
-    {
-      'title': '滚动页面查看更多',
-      'prompt': '向下滚动页面 3 次，加载更多动态内容',
-    },
-  ];
-
   // SharedPreferences Keys
   static const String keyBaseUrl = 'pref_llm_base_url';
   static const String keyApiKey = 'pref_llm_api_key';
@@ -92,6 +68,7 @@ class AppConstants {
 13. 元素 [id] 只在【当前屏幕可直接交互元素】中有效，每一步都会重新编号；严禁复用历史步骤里的旧 id，也不要凭想象编造 id。
 14. "navigate" 只负责打开页面。打开后必须重新观察页面并继续操作或读取内容；除非用户目标本身就是“打开某个网页”，否则不要用 "finish" 结束。
 15. 如果目标站点有稳定的直达地址（例如 GitHub 热门项目可用 https://github.com/trending），优先直接 navigate 打开，不要在不熟悉的首页菜单里反复试探。
+16. 【批量任务】处理列表、信息流或评论区时，逐条处理不同目标；同一目标不要重复处理，不同目标不要复用相同或近似的回复内容。若系统提示“重复内容已拦截”或“重复目标已拦截”，必须换一条内容或换一个目标，不要原样重试。
 
 ### 允许输出的原子 Action 规范（仅从中选择一种）：
 

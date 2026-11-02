@@ -13,6 +13,7 @@ class PromptBuilder {
     int? currentStep,
     int? maxSteps,
     dynamic extractedData,
+    List<String> sentContents = const [],
   }) {
     final messages = <Map<String, String>>[];
 
@@ -70,6 +71,17 @@ class PromptBuilder {
       } catch (_) {}
     }
 
+    // 4.1 Previously sent content is shown explicitly so the model can vary
+    // batch replies even though typed text is hidden from the audit logs.
+    var sentText = '';
+    if (sentContents.isNotEmpty) {
+      final recentSent = sentContents.length > 5
+          ? sentContents.sublist(sentContents.length - 5)
+          : sentContents;
+      sentText =
+          '\n【本次已发送内容（禁止重复或近似复用）】:\n${recentSent.map((e) => '- $e').join('\n')}\n';
+    }
+
     final step = currentStep ?? 1;
     final total = maxSteps ?? 15;
     final remaining = total - step + 1;
@@ -84,7 +96,7 @@ $historyText
 
 【最近执行结果】:
 $recentText
-$extractedText
+$extractedText$sentText
 【当前网页状态】:
 - URL: $currentUrl
 - 标题: $pageTitle
@@ -93,6 +105,7 @@ $currentDomTree
 
 请先根据【最近执行结果】和当前页面判断上一步是否生效，再决定下一步。
 如果上一步显示“页面没有变化”“操作未生效”或“元素不存在”，严禁原样重复，必须换一种做法。
+如果【本次已发送内容】里已经有相似句子，必须换一种表达，不要复用。
 如果目标已达成，输出 finish；如果还需要继续，只输出一个原子动作的 JSON。
 ''';
 

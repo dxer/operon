@@ -8,16 +8,19 @@ import '../models/agent_state.dart';
 import '../models/agent_task_record.dart';
 import '../models/llm_config.dart';
 import '../models/macro_workflow.dart';
+import '../models/quick_command.dart';
 import '../models/web_tab.dart';
 import '../models/bookmark_item.dart';
 import '../models/history_item.dart';
 import '../services/agent_runner.dart';
 import '../services/macro_service.dart';
 import '../services/notification_service.dart';
+import '../services/quick_command_service.dart';
 import '../services/storage_service.dart';
 import '../services/theme_service.dart';
 import '../services/user_script_service.dart';
 import '../services/webview_controller_wrapper.dart';
+import 'settings/quick_commands_page.dart';
 import 'settings/settings_page.dart';
 import 'settings/user_scripts_page.dart';
 import 'widgets/agent_bottom_sheet.dart';
@@ -67,6 +70,7 @@ class _BrowserPageState extends State<BrowserPage> {
   bool get _isCleanMode => _currentTab.isCleanMode;
 
   AgentState _agentState = const AgentState();
+  List<QuickCommand> _quickCommands = const [];
   bool _statusBarDismissed = false;
   String? _agentTabId;
   DateTime? _taskStartedAt;
@@ -135,9 +139,25 @@ class _BrowserPageState extends State<BrowserPage> {
     _initStorage();
   }
 
+  Future<void> _loadQuickCommands() async {
+    final service = await QuickCommandService.getInstance();
+    if (!mounted) return;
+    setState(() => _quickCommands = service.getCommands());
+  }
+
+  Future<void> _openQuickCommands() async {
+    if (!mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const QuickCommandsPage()),
+    );
+    if (!mounted) return;
+    await _loadQuickCommands();
+  }
+
   Future<void> _initStorage() async {
     _storage = await StorageService.getInstance();
     _themeService = await ThemeService.getInstance();
+    await _loadQuickCommands();
     // Keep the runner aligned with the persisted policy from the very first run.
     _agentRunner.setSafeMode(_storage?.getSafeMode() ?? true);
     final homepage = _storage?.getHomepage() ?? AppConstants.defaultHomepage;
@@ -714,7 +734,10 @@ class _BrowserPageState extends State<BrowserPage> {
     }
   }
 
-  void _startAgentTask(String goal) async {
+  void _startAgentTask(
+    String goal, {
+    QuickCommandPolicy? policy,
+  }) async {
     if (_wrapper == null) return;
     final config = _storage?.getLlmConfig() ?? LlmConfig.defaultConfig();
     if (!config.isValid) {
@@ -732,7 +755,7 @@ class _BrowserPageState extends State<BrowserPage> {
       return;
     }
 
-    final maxSteps = _storage?.getMaxSteps() ?? 15;
+    final maxSteps = policy?.maxSteps ?? _storage?.getMaxSteps() ?? 15;
     final safeMode = _storage?.getSafeMode() ?? true;
 
     _agentTabId = _currentTab.id;
@@ -747,6 +770,7 @@ class _BrowserPageState extends State<BrowserPage> {
       maxSteps: maxSteps,
       safeMode: safeMode,
       isSiteAllowed: (host) => _storage?.isAgentSiteAllowed(host) ?? false,
+      policy: policy,
     );
   }
 
@@ -927,7 +951,9 @@ class _BrowserPageState extends State<BrowserPage> {
     setState(() {});
   }
 
-  void _openAgentBottomSheet() {
+  Future<void> _openAgentBottomSheet() async {
+    await _loadQuickCommands();
+    if (!mounted) return;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -943,8 +969,10 @@ class _BrowserPageState extends State<BrowserPage> {
               safeMode: _storage?.getSafeMode() ?? true,
               onSafeModeChanged: _setSafeMode,
               onAllowSite: _allowSiteForTask,
-              onStart: (goal) {
-                _startAgentTask(goal);
+              quickCommands: _quickCommands,
+              onManageQuickCommands: _openQuickCommands,
+              onStart: (goal, policy) {
+                _startAgentTask(goal, policy: policy);
                 Navigator.of(ctx).pop();
               },
               onPause: () => _agentRunner.pause(),
@@ -1381,8 +1409,9 @@ class _BrowserPageState extends State<BrowserPage> {
                             onStop: () => _agentRunner.stop(),
                             onConfirmCaptcha: () =>
                                 _agentRunner.confirmCaptchaSolved(true),
-                            onConfirmAction: () =>
-                                _agentRunner.confirmAction(true),
+                            // Open the console instead of approving blindly:
+                            // the sheet shows the exact text/URL to be sent.
+                            onConfirmAction: _openAgentBottomSheet,
                             onDismiss: () =>
                                 setState(() => _statusBarDismissed = true),
                           ),

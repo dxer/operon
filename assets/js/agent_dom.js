@@ -1,5 +1,5 @@
 /**
- * Operon Universal Agent DOM Engine (v0.1.4)
+ * Operon Universal Agent DOM Engine (v0.1.7)
  * - Stealth Anti-Bot Fingerprint Masking
  * - Ghost Cursor & Human-like Touch Ripple Animation
  * - Deep Shadow DOM & IFrame Traversal
@@ -8,7 +8,7 @@
  * - Dynamic MutationObserver DOM Settle Detection
  */
 (function () {
-  if (window.OPERON && window.OPERON.version === '0.1.4') {
+  if (window.OPERON && window.OPERON.version === '0.1.7') {
     return;
   }
 
@@ -487,6 +487,56 @@
     return cleaned.length > maxLen ? cleaned.slice(0, maxLen) + '...' : cleaned;
   }
 
+  function simpleHash(text) {
+    let hash = 5381;
+    for (let i = 0; i < text.length; i++) {
+      hash = ((hash << 5) + hash + text.charCodeAt(i)) | 0;
+    }
+    return (hash >>> 0).toString(36);
+  }
+
+  // Generic fingerprint of the semantic container around an element. This
+  // lets the agent tell apart multiple "Reply"/"Like"/"Buy" buttons on the
+  // same page without any site-specific selectors.
+  function getElementContext(el) {
+    let contextText = '';
+    try {
+      let node = el ? el.parentElement : null;
+      let container = null;
+      let fallback = null;
+      while (node && node !== document.body && node !== document.documentElement) {
+        const tag = (node.tagName || '').toUpperCase();
+        const role = node.getAttribute
+          ? (node.getAttribute('role') || '').toLowerCase()
+          : '';
+        // Prefer the semantic article/feed item over a tiny inner <li>.
+        if (tag === 'ARTICLE' || role === 'article') {
+          container = node;
+          break;
+        }
+        if (!fallback && (
+          tag === 'LI' ||
+          tag === 'TR' ||
+          tag === 'SECTION' ||
+          role === 'listitem' ||
+          role === 'row'
+        )) {
+          fallback = node;
+        }
+        node = node.parentElement;
+      }
+      const contextNode = container || fallback || (el ? el.parentElement : null);
+      contextText = cleanText(
+        contextNode ? (contextNode.innerText || '') : '',
+        160
+      );
+    } catch (_) {}
+    return {
+      contextText: contextText,
+      contextKey: contextText ? simpleHash(contextText) : ''
+    };
+  }
+
   // Describe an element without ever leaking a password/card value. Macro
   // recording stores this label, so secrets must never reach it.
   function safeTargetText(el, maxLen = 60) {
@@ -618,7 +668,7 @@
   // 6. Main Operon Engine Definition
   // ==========================================
   const engine = {
-    version: '0.1.4',
+    version: '0.1.7',
 
     detectCaptcha: detectCaptchaChallenge,
 
@@ -1524,7 +1574,13 @@
         el = null;
       }
       if (!el) {
-        return JSON.stringify({ found: false, sensitive: false, reason: '' });
+        return JSON.stringify({
+          found: false,
+          sensitive: false,
+          reason: '',
+          contextKey: '',
+          contextText: ''
+        });
       }
 
       const tag = (el.tagName || '').toUpperCase();
@@ -1562,13 +1618,16 @@
         reason = '高危操作按钮';
       }
 
+      const context = getElementContext(el);
       return JSON.stringify({
         found: true,
         sensitive: !!reason,
         reason: reason,
         tag: tag,
         type: type,
-        text: text.slice(0, 60)
+        text: text.slice(0, 60),
+        contextKey: context.contextKey,
+        contextText: context.contextText
       });
     },
 
@@ -1599,5 +1658,5 @@
   };
 
   window.OPERON = window.BBX_AGENT = engine;
-  console.log('[Operon] Universal Agent Engine v0.1.4 Injected.');
+  console.log('[Operon] Universal Agent Engine v0.1.7 Injected.');
 })();

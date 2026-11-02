@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../config/app_theme.dart';
+import '../../models/agent_action.dart';
 import '../../models/agent_state.dart';
 
 /// Docked agent status strip shown between the web page and the bottom toolbar.
@@ -161,7 +162,7 @@ class AgentStatusBar extends StatelessWidget {
     }
     if (_isWaitingConfirmation) {
       return [
-        _TextAction(label: '授权', color: accent, onTap: onConfirmAction),
+        _TextAction(label: '审阅', color: accent, onTap: onConfirmAction),
       ];
     }
     if (_isFinished) {
@@ -197,7 +198,9 @@ class AgentStatusBar extends StatelessWidget {
         );
       case AgentStatus.executing:
         return _StatusMeta(
-          state.currentAction?.description ?? '正在操作网页',
+          _actionLabel(state.currentAction).isEmpty
+              ? '正在操作网页'
+              : _actionLabel(state.currentAction),
           Icons.touch_app_outlined,
           AppTheme.accent,
         );
@@ -216,7 +219,7 @@ class AgentStatusBar extends StatelessWidget {
       case AgentStatus.waitingConfirmation:
         final host = _hostOf(state.targetUrl);
         final reason =
-            state.confirmationReason ?? state.currentAction?.description ?? '';
+            state.confirmationReason ?? _actionLabel(state.currentAction);
         return _StatusMeta(
           host.isEmpty ? '敏感操作待授权：$reason' : '敏感操作待授权：$reason · $host',
           Icons.shield_outlined,
@@ -243,6 +246,14 @@ class AgentStatusBar extends StatelessWidget {
           Colors.redAccent,
         );
     }
+  }
+
+  String _actionLabel(AgentAction? action) {
+    if (action == null) return '';
+    if (action.action == ActionType.type) {
+      return '在 [${action.elementId}] 输入内容';
+    }
+    return action.description;
   }
 
   String _hostOf(String? url) {

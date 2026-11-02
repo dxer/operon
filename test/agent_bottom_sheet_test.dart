@@ -18,7 +18,7 @@ void main() {
           state: const AgentState(),
           safeMode: true,
           onSafeModeChanged: (value) => changedTo = value,
-          onStart: (_) {},
+          onStart: (_, __) {},
           onPause: () {},
           onResume: () {},
           onStop: () {},

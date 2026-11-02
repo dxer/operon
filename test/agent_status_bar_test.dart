@@ -79,7 +79,7 @@ void main() {
       onConfirmAction: () => actionApproved = true,
     )));
     expect(find.textContaining('敏感操作待授权'), findsOneWidget);
-    await tester.tap(find.text('授权'));
+    await tester.tap(find.text('审阅'));
     expect(actionApproved, isTrue);
     expect(tester.takeException(), isNull);
   });

@@ -4,6 +4,7 @@ import '../models/agent_action_result.dart';
 import '../models/agent_state.dart';
 import '../models/llm_config.dart';
 import '../models/macro_workflow.dart';
+import '../models/quick_command.dart';
 import '../utils/cancellation.dart';
 import '../utils/prompt_builder.dart';
 import 'finish_verifier.dart';
@@ -45,6 +46,17 @@ class AgentRunner {
   String? _pendingSideEffectKey;
   String? _lastActionDescription;
   String? _lastConfirmedCaptchaKey;
+  QuickCommandPolicy? _policy;
+  final Set<String> _sentContents = {};
+  final List<String> _sentContentPreviews = [];
+  final Set<String> _processedSideEffectKeys = {};
+  String? _lastTypedText;
+  int _lastTypedStep = -10;
+  bool _lastTypedSecret = false;
+  int _completedSideEffects = 0;
+  bool _batchLimitReached = false;
+  String? _pendingItemContextKey;
+  String? _pendingItemUrl;
 
   AgentRunner({LlmService? llmService})
       : _llmService = llmService ?? LlmService();
@@ -78,6 +90,7 @@ class AgentRunner {
     int maxSteps = 15,
     bool safeMode = true,
     bool Function(String host)? isSiteAllowed,
+    QuickCommandPolicy? policy,
   }) async {
     _isCancelled = false;
     _isPaused = false;
@@ -99,6 +112,18 @@ class AgentRunner {
     _pendingSideEffectKey = null;
     _lastActionDescription = null;
     _lastConfirmedCaptchaKey = null;
+    _policy = policy;
+    _sentContents.clear();
+    _sentContentPreviews.clear();
+    _processedSideEffectKeys.clear();
+    _lastTypedText = null;
+    _lastTypedStep = -10;
+    _lastTypedSecret = false;
+    _completedSideEffects = 0;
+    _batchLimitReached = false;
+    _pendingItemContextKey = null;
+    _pendingItemUrl = null;
+    final stepLimit = policy?.maxSteps ?? maxSteps;
     final token = _taskToken!;
     final generation = ++_generation;
 
@@ -108,7 +133,7 @@ class AgentRunner {
       status: AgentStatus.observing,
       goal: userGoal,
       currentStep: 0,
-      maxSteps: maxSteps,
+      maxSteps: stepLimit,
       extractedData: null,
       logs: [],
       recordedMacroSteps: [],
@@ -119,7 +144,7 @@ class AgentRunner {
     int step = 0;
 
     try {
-      while (step < maxSteps) {
+      while (step < stepLimit) {
         if (_isCancelled) {
           await _abortTask(webView, generation: generation);
           return;
@@ -166,6 +191,23 @@ class AgentRunner {
             await Future.delayed(const Duration(seconds: 1));
             continue;
           }
+        }
+
+        // 1.05 Stop on generic rate-limit / temporary-block pages. This is
+        // checked before spending another model call.
+        if (((_policy?.stopOn ?? const ['rateLimit']).contains('rateLimit')) &&
+            _isRateLimited(snapshot)) {
+          _addLog(
+            '检测到访问频率限制，任务已停止',
+            detail: '页面提示操作过于频繁或稍后再试。请稍后手动重试，避免账号被限制。',
+            isError: true,
+          );
+          _emit(_state.copyWith(
+            status: AgentStatus.error,
+            errorMessage: '目标网站提示访问频率限制，任务已停止。请稍后重试。',
+          ));
+          await webView.clearHighlights();
+          return;
         }
 
         // 1.1 CAPTCHA Hand-Off Check
@@ -327,8 +369,9 @@ class AgentRunner {
           pageTitle: snapshot.title,
           currentDomTree: snapshot.textTree,
           currentStep: step,
-          maxSteps: maxSteps,
+          maxSteps: stepLimit,
           extractedData: _state.extractedData,
+          sentContents: _sentContentPreviews,
         );
 
         AgentAction action;
@@ -358,13 +401,14 @@ class AgentRunner {
         }
 
         _emit(_state.copyWith(
-          currentThought: action.thought,
+          currentThought: _safeThought(action),
           currentAction: action,
         ));
 
         _addLog(
-          action.description,
-          detail: action.thought.isNotEmpty ? '思考: ${action.thought}' : null,
+          _actionLogDescription(action),
+          detail:
+              action.thought.isNotEmpty ? '思考: ${_safeThought(action)}' : null,
         );
 
         // Reject malformed actions early instead of burning a step on a JS
@@ -405,7 +449,7 @@ class AgentRunner {
         if (_recordActionAndDetectLoop(action)) {
           _addLog(
             '检测到连续重复操作，自动停止以避免空转',
-            detail: action.description,
+            detail: _actionLogDescription(action),
             isError: true,
           );
           _emit(_state.copyWith(
@@ -464,8 +508,6 @@ class AgentRunner {
         }
 
         // 5. Handle Sensitive Action Confirmation (Human-in-the-loop)
-        var isSensitive =
-            action.isSensitive(action.thought, pageUrl: snapshot.url);
         String? riskReason;
         Map<String, dynamic>? elementRisk;
 
@@ -476,10 +518,6 @@ class AgentRunner {
                 action.action == ActionType.selectOption);
         if (needsElementRisk) {
           elementRisk = await webView.getElementRisk(action.elementId!);
-          if (elementRisk?['sensitive'] == true) {
-            isSensitive = true;
-            riskReason = elementRisk?['reason'] as String?;
-          }
         }
 
         if (_isCancelled) {
@@ -487,24 +525,125 @@ class AgentRunner {
           return;
         }
 
+        final elementText = (elementRisk?['text'] ?? '').toString();
+        final elementContextKey = (elementRisk?['contextKey'] ?? '').toString();
+        var isSensitive = action.isSensitive(
+          '${action.thought} $elementText',
+          pageUrl: snapshot.url,
+        );
+        if (elementRisk?['sensitive'] == true) {
+          isSensitive = true;
+          riskReason = elementRisk?['reason'] as String?;
+        }
+        // Search submissions are not publishing side effects, even when the
+        // model's thought says "提交搜索".
+        final searchOnly = _isSearchOnly(action, elementText);
+        if (searchOnly) {
+          isSensitive = false;
+          riskReason = null;
+        }
+        final elementTag = (elementRisk?['tag'] ?? '').toString().toUpperCase();
+        // Typing an ordinary reply/message is local until it is submitted.
+        // Only credential/payment entry needs confirmation here.
+        final credentialIntent = RegExp(
+          r'password|passwd|密码|验证码|credit card|card number|信用卡|卡号|'
+          r'cvv|cvc|安全码|身份证|social security',
+        ).hasMatch(
+          '${action.thought} ${action.text ?? ''} $elementText'.toLowerCase(),
+        );
+        final credentialRisk = riskReason != null &&
+            (riskReason.contains('密码') ||
+                riskReason.contains('凭证') ||
+                riskReason.contains('支付'));
+        final credentialField = credentialRisk ||
+            ((elementTag == 'INPUT' || elementTag == 'TEXTAREA') &&
+                credentialIntent);
+        final secretTyping =
+            action.action == ActionType.type && credentialField && !searchOnly;
+        if (action.action == ActionType.type) {
+          if (secretTyping) {
+            isSensitive = true;
+          } else if (isSensitive) {
+            isSensitive = false;
+            riskReason = null;
+          }
+        }
+        // Clicking a text/password field only focuses it; the actual submit
+        // is a separate action. Do not ask for confirmation on focus.
+        final inputType = (elementRisk?['type'] ?? '').toString().toLowerCase();
+        final focusOnlyInput = inputType.isEmpty ||
+            const [
+              'text',
+              'password',
+              'email',
+              'search',
+              'tel',
+              'url',
+              'number',
+            ].contains(inputType);
+        if (action.action == ActionType.click &&
+            elementTag == 'INPUT' &&
+            focusOnlyInput) {
+          isSensitive = false;
+          riskReason = null;
+        }
+        // Focusing a text field / textarea / select usually does not change
+        // the DOM signature. Do not count it as a failed action.
+        final focusOnlyClick = action.action == ActionType.click &&
+            ((elementTag == 'INPUT' && focusOnlyInput) ||
+                elementTag == 'TEXTAREA' ||
+                elementTag == 'SELECT');
+        final submitLikeRaw =
+            isSensitive && _looksLikeSubmit(action, elementText);
+        final submittedContent =
+            submitLikeRaw ? _contentForSubmit(action) : null;
+        // Opening a reply/comment composer is not a side effect by itself.
+        // The actual send is detected separately, when typed content exists
+        // or the intent explicitly says send/post/publish.
+        final openerOnly = submitLikeRaw &&
+            submittedContent == null &&
+            _isComposerOpener(action, elementText);
+        final submitLike = submitLikeRaw && !openerOnly;
+        if (openerOnly && elementContextKey.isNotEmpty) {
+          // Remember which item the composer was opened for, so the actual
+          // send is deduplicated by the item rather than by the modal.
+          _pendingItemContextKey = elementContextKey;
+          _pendingItemUrl = snapshot.url;
+        }
+        final targetContextKey =
+            (_pendingItemContextKey != null && _pendingItemUrl == snapshot.url)
+                ? _pendingItemContextKey!
+                : elementContextKey;
         final targetHost = _hostOf(snapshot.url);
         final siteAllowed =
             isSensitive && (_isSiteAllowed?.call(targetHost) ?? false);
 
-        if (isSensitive && _safeMode && !siteAllowed) {
+        final mustConfirm = isSensitive &&
+            !openerOnly &&
+            !siteAllowed &&
+            (_safeMode || (_policy?.confirmBeforeSideEffect ?? false));
+
+        if (mustConfirm) {
           _emit(_state.copyWith(
             status: AgentStatus.waitingConfirmation,
-            confirmationReason: riskReason ?? action.description,
+            confirmationReason: riskReason ?? _actionLogDescription(action),
             targetUrl: snapshot.url,
+            confirmationPayload: (_policy?.showPayloadInConfirmation ?? true)
+                ? _confirmationPayload(
+                    action,
+                    elementRisk,
+                    secret: secretTyping,
+                  )
+                : null,
           ));
           _addLog(
             '检测到敏感操作，等待人工授权...',
             detail: riskReason != null
-                ? '目标：$riskReason · ${action.description} · $targetHost'
-                : '${action.description} · $targetHost',
+                ? '目标：$riskReason · ${_actionLogDescription(action)} · $targetHost'
+                : '${_actionLogDescription(action)} · $targetHost',
           );
           await _notificationService
-              .notifyConfirmationNeeded(action.description);
+              .notifyConfirmationNeeded(_actionLogDescription(action));
 
           _confirmationCompleter = Completer<bool>();
           final confirmed = await _confirmationCompleter!.future;
@@ -521,18 +660,18 @@ class AgentRunner {
             await webView.clearHighlights();
             return;
           }
-        } else if (isSensitive && siteAllowed) {
+        } else if (isSensitive && !openerOnly && siteAllowed) {
           _addLog(
             '本站已加入信任列表，自动执行敏感操作',
-            detail: '${action.description} · $targetHost',
+            detail: '${_actionLogDescription(action)} · $targetHost',
           );
-        } else if (isSensitive) {
+        } else if (isSensitive && !openerOnly) {
           // Keep an audit trail even in fully autonomous mode.
           _addLog(
             '完全自主模式：直接执行敏感操作',
             detail: riskReason != null
-                ? '目标：$riskReason · ${action.description}'
-                : action.description,
+                ? '目标：$riskReason · ${_actionLogDescription(action)}'
+                : _actionLogDescription(action),
           );
         }
 
@@ -541,18 +680,64 @@ class AgentRunner {
           return;
         }
 
-        final elementText = (elementRisk?['text'] ?? '').toString();
-        final submitLike = isSensitive && _looksLikeSubmit(action, elementText);
         final submitKey = submitLike
-            ? _sideEffectKey(action, elementText, snapshot.url)
+            ? _sideEffectKey(
+                action,
+                elementText,
+                snapshot.url,
+                contextKey: targetContextKey,
+              )
             : null;
+
+        if (submitLike && _batchLimitReached) {
+          _addLog(
+            '已达到本次批量上限',
+            detail: '本任务已处理 $_completedSideEffects 条，请汇总结果并 finish。',
+            isError: true,
+          );
+          _checkProgressNextStep = false;
+          continue;
+        }
+
+        // Generic content dedupe: the same reply/message must never be sent
+        // twice in one task, even if the model ignores the prompt.
+        if (submitLike &&
+            (_policy?.uniqueContent ?? false) &&
+            submittedContent != null) {
+          final normalized = _normalizeContent(submittedContent);
+          if (normalized.isNotEmpty && _sentContents.contains(normalized)) {
+            _addLog(
+              '重复内容已拦截',
+              detail: '本次任务已经发送过相同内容，已阻止重复发送。'
+                  '请为当前条目生成不同的内容。',
+              isError: true,
+            );
+            _checkProgressNextStep = false;
+            continue;
+          }
+        }
+
+        // Generic target dedupe for batch templates. Without a policy this is
+        // left to the at-most-once ledger so normal single-item tasks keep
+        // working as before.
+        if (submitKey != null &&
+            (_policy?.uniqueTarget ?? false) &&
+            _processedSideEffectKeys.contains(submitKey)) {
+          _addLog(
+            '重复目标已拦截',
+            detail: '本次任务已经处理过这个目标，已跳过。请处理下一个不同的条目。',
+            isError: true,
+          );
+          _checkProgressNextStep = false;
+          continue;
+        }
 
         // At-most-once: an unverified submit blocks further attempts on the
         // same target instead of risking a duplicate post/payment.
         if (submitKey != null && !_sideEffects.canAttempt(submitKey)) {
           _addLog(
             '重复提交已拦截',
-            detail: '「${action.description}」刚刚执行过，尚未确认完成。'
+            detail: '「${_actionLogDescription(action)}」刚刚执行过，尚未确认完成。'
                 '为避免重复发送，本次已阻止；请先检查页面结果。',
             isError: true,
           );
@@ -571,7 +756,7 @@ class AgentRunner {
           continue;
         }
         if (action.action == ActionType.extractData) {
-          _lastActionDescription = action.description;
+          _lastActionDescription = _actionLogDescription(action);
           _checkProgressNextStep = false;
           await webView.waitForDomStable(timeoutMs: 1200);
           continue;
@@ -595,19 +780,72 @@ class AgentRunner {
           targetText: elementText.isEmpty ? null : elementText,
         );
         final actionSucceeded = result.success;
-        final needsVerification = _shouldCheckProgress(action) || submitLike;
+        final needsVerification =
+            (_shouldCheckProgress(action) && !focusOnlyClick) || submitLike;
+
+        if (actionSucceeded) {
+          if (action.action == ActionType.type &&
+              action.text != null &&
+              action.text!.trim().isNotEmpty) {
+            _lastTypedText = action.text;
+            _lastTypedStep = step;
+            _lastTypedSecret = secretTyping;
+          }
+          if (submitLike) {
+            if (submittedContent != null) {
+              final normalized = _normalizeContent(submittedContent);
+              if (normalized.isNotEmpty) {
+                _sentContents.add(normalized);
+              }
+              if (!_lastTypedSecret) {
+                final preview = submittedContent.trim();
+                if (preview.isNotEmpty) {
+                  _sentContentPreviews.add(
+                    preview.length > 80
+                        ? '${preview.substring(0, 80)}…'
+                        : preview,
+                  );
+                  if (_sentContentPreviews.length > 20) {
+                    _sentContentPreviews.removeAt(0);
+                  }
+                }
+              }
+              _completedSideEffects++;
+              if (submitKey != null) {
+                _processedSideEffectKeys.add(submitKey);
+              }
+              final policy = _policy;
+              if (policy != null &&
+                  policy.isBatch &&
+                  policy.maxItems > 0 &&
+                  _completedSideEffects >= policy.maxItems) {
+                _batchLimitReached = true;
+                _addLog(
+                  '已达到本次批量上限',
+                  detail: '已完成 $_completedSideEffects 条，请汇总结果并 finish。',
+                );
+              }
+            }
+            // Do not reuse this text for the next target.
+            _lastTypedText = null;
+            _lastTypedStep = -10;
+            _lastTypedSecret = false;
+            _pendingItemContextKey = null;
+            _pendingItemUrl = null;
+          }
+        }
 
         // 6.1 Record Macro Step if successful
         if (actionSucceeded && action.action != ActionType.wait) {
           macroSteps.add(MacroStep(
             action: action.action.name,
             selector: execResult['macroSelector'] as String?,
-            text: action.text,
+            text: secretTyping ? null : action.text,
             key: action.key,
             direction: action.direction,
             selectValue: action.selectValue,
             url: action.url,
-            description: action.description,
+            description: _actionLogDescription(action),
             targetText: elementText.isEmpty ? null : elementText,
             nonIdempotent: submitLike,
           ));
@@ -618,9 +856,14 @@ class AgentRunner {
             // Failed before dispatch (not found/disabled): no side effect.
             _sideEffects.clear(submitKey);
           }
+          if (openerOnly) {
+            _pendingItemContextKey = null;
+            _pendingItemUrl = null;
+          }
           _addLog(
             '操作未生效',
-            detail: '${result.error ?? '未知原因'}（动作：${action.description}）',
+            detail:
+                '${result.error ?? '未知原因'}（动作：${_actionLogDescription(action)}）',
             isError: true,
           );
           if (action.action == ActionType.scroll) {
@@ -642,7 +885,7 @@ class AgentRunner {
           _failedScrollCount = 0;
         }
 
-        _lastActionDescription = action.description;
+        _lastActionDescription = _actionLogDescription(action);
         _checkProgressNextStep = actionSucceeded && needsVerification;
 
         if (actionSucceeded && needsVerification) {
@@ -661,7 +904,11 @@ class AgentRunner {
         if (submitLike && actionSucceeded) {
           // Let the server answer before reading the modal again; otherwise
           // the reply button still looks clickable and gets pressed twice.
-          await Future.delayed(const Duration(milliseconds: 1200));
+          // Batch templates can add a larger pacing gap between items.
+          final pacing = _policy?.pacingMs ?? 0;
+          await Future.delayed(
+            Duration(milliseconds: pacing > 1200 ? pacing : 1200),
+          );
         }
 
         // 7. Dynamic DOM Settle (Ghost cursor animation + MutationObserver)
@@ -681,10 +928,10 @@ class AgentRunner {
       // Max steps exceeded: keep a visible terminal state instead of silently
       // returning to idle, so the user knows the goal was not reached.
       if (generation != _generation) return;
-      _addLog('已达到最大执行步数限制 ($maxSteps 步)，自动停止', isError: true);
+      _addLog('已达到最大执行步数限制 ($stepLimit 步)，自动停止', isError: true);
       _emit(_state.copyWith(
         status: AgentStatus.maxStepsReached,
-        errorMessage: '已达到 $maxSteps 步上限，任务未完成。可调高步数后重试。',
+        errorMessage: '已达到 $stepLimit 步上限，任务未完成。可调高步数后重试。',
         recordedMacroSteps: List.unmodifiable(macroSteps),
       ));
       await webView.clearHighlights();
@@ -706,13 +953,125 @@ class AgentRunner {
 
   /// Stable key for the at-most-once ledger. Uses page URL + action + target
   /// text so a different button/tweet is not blocked by the previous one.
-  String _sideEffectKey(AgentAction action, String targetText, String url) {
+  /// Hide a credential value if the model echoed it in its reasoning.
+  String _safeThought(AgentAction action) {
+    if (action.action != ActionType.type) return action.thought;
+    final looksSecret = RegExp(
+      r'password|passwd|密码|验证码|credit card|card number|信用卡|卡号|'
+      r'cvv|cvc|安全码|身份证|social security',
+    ).hasMatch(
+      '${action.thought} ${action.text ?? ''}'.toLowerCase(),
+    );
+    return looksSecret ? '正在填写敏感信息…' : action.thought;
+  }
+
+  /// Log/macro label that never embeds typed text (passwords, drafts).
+  String _actionLogDescription(AgentAction action) {
+    if (action.action == ActionType.type) {
+      return '在 [${action.elementId}] 输入内容';
+    }
+    return action.description;
+  }
+
+  String _sideEffectKey(
+    AgentAction action,
+    String targetText,
+    String url, {
+    String contextKey = '',
+  }) {
     final normalizedTarget = targetText.trim().toLowerCase();
     final target = normalizedTarget.isEmpty
         ? action.description.trim().toLowerCase()
         : normalizedTarget;
     final trigger = action.key?.toLowerCase() ?? action.action.name;
-    return '$url|$trigger|$target';
+    return '$url|$trigger|$target|$contextKey';
+  }
+
+  /// Content that the current submit-like action is about to send.
+  ///
+  /// The typed text is only considered when it was entered in the last two
+  /// steps; otherwise a stale draft could be mis-attributed to a later
+  /// "reply" button that merely opens a composer.
+  String? _contentForSubmit(AgentAction action) {
+    // Never treat a password/card value as reply content.
+    if (_lastTypedSecret) return null;
+    // A click does not carry content; it submits whatever was typed just
+    // before it. Only keyboard actions may carry text in the action itself.
+    if (action.action != ActionType.click &&
+        action.text != null &&
+        action.text!.trim().isNotEmpty) {
+      return action.text;
+    }
+    if (_lastTypedText != null &&
+        _lastTypedText!.trim().isNotEmpty &&
+        _state.currentStep - _lastTypedStep <= 2) {
+      return _lastTypedText;
+    }
+    return null;
+  }
+
+  String _normalizeContent(String text) {
+    return text
+        .toLowerCase()
+        .replaceAll(RegExp(r'\s+'), '')
+        .replaceAll(RegExp(r'[^\w\u4e00-\u9fa5]'), '');
+  }
+
+  String? _confirmationPayload(
+    AgentAction action,
+    Map<String, dynamic>? risk, {
+    bool secret = false,
+  }) {
+    final reason = (risk?['reason'] ?? '').toString();
+    final isSecret = secret ||
+        _lastTypedSecret ||
+        reason.contains('密码') ||
+        reason.contains('凭证') ||
+        reason.contains('支付');
+    String? raw;
+    if (action.action == ActionType.type) {
+      raw = action.text;
+    } else if (action.action != ActionType.click &&
+        action.text != null &&
+        action.text!.trim().isNotEmpty) {
+      raw = action.text;
+    } else if (_lastTypedText != null &&
+        _state.currentStep - _lastTypedStep <= 2 &&
+        _lastTypedText!.trim().isNotEmpty) {
+      raw = _lastTypedText;
+    } else if (action.url != null && action.url!.trim().isNotEmpty) {
+      raw = action.url;
+    } else {
+      raw = (risk?['text'] ?? '').toString();
+    }
+    if (raw == null || raw.trim().isEmpty) return null;
+    final shown = isSecret ? '••••••（已隐藏敏感内容）' : raw.trim();
+    return shown.length > 300 ? '${shown.substring(0, 300)}…' : shown;
+  }
+
+  /// Conservative generic rate-limit detector. It only scans the title and
+  /// the first part of the visible tree, so an article *about* rate limits
+  /// further down the page will not stop the task.
+  bool _isRateLimited(DOMSnapshot snapshot) {
+    const phrases = [
+      'rate limit',
+      'too many requests',
+      'temporarily blocked',
+      'unusual activity',
+      '操作过于频繁',
+      '操作频繁',
+      '请求过于频繁',
+      '访问过于频繁',
+      '稍后再试',
+    ];
+    final title = snapshot.title.toLowerCase();
+    if (phrases.any(title.contains)) return true;
+    // Long articles usually mention these words as part of their content.
+    // Only inspect the first part of short/error-like pages.
+    final tree = snapshot.textTree.toLowerCase();
+    if (tree.length > 4000) return false;
+    final head = tree.length > 1500 ? tree.substring(0, 1500) : tree;
+    return phrases.any(head.contains);
   }
 
   /// Detects actions that can create a post/message, so duplicate submissions
@@ -725,6 +1084,7 @@ class AgentRunner {
         action.action != ActionType.pressKey) {
       return false;
     }
+    if (_isSearchOnly(action, targetText)) return false;
     final haystack =
         '${action.thought} $targetText ${action.description}'.toLowerCase();
     const words = [
@@ -735,6 +1095,11 @@ class AgentRunner {
       'submit',
       'publish',
       'comment',
+      'confirm',
+      'delete',
+      'remove',
+      'unfollow',
+      'logout',
       '回复',
       '发布',
       '发送',
@@ -745,10 +1110,55 @@ class AgentRunner {
       '付款',
       '购买',
       '下单',
+      '确认',
+      '删除',
+      '注销',
+      '解绑',
+      '退出登录',
     ];
     // Enter is also used for search. The keyword check below keeps plain
     // "按回车搜索" from being treated as a side effect.
     return words.any(haystack.contains);
+  }
+
+  /// A search/filter submission must not trigger publishing safeguards.
+  bool _isSearchOnly(AgentAction action, String targetText) {
+    final haystack =
+        '${action.thought} $targetText ${action.description}'.toLowerCase();
+    final hasSearch = RegExp(r'搜索|搜一下|查找|筛选|search|filter').hasMatch(haystack);
+    if (!hasSearch) return false;
+    final hasPublish = RegExp(
+      r'回复|评论|发布|发帖|支付|付款|购买|下单|订单|转账|删除|注销|解绑|消息|'
+      r'reply|comment|publish|pay|buy|order|delete|unfollow|logout',
+    ).hasMatch(haystack);
+    return !hasPublish;
+  }
+
+  /// A click that only opens a reply/comment composer, without send wording
+  /// and without freshly typed content, should not be treated as a side
+  /// effect. This avoids two confirmations per reply (open + send).
+  bool _isComposerOpener(AgentAction action, String targetText) {
+    if (action.action != ActionType.click) return false;
+    final haystack =
+        '${action.thought} $targetText ${action.description}'.toLowerCase();
+    final hasReply = RegExp(r'回复|评论|reply|comment').hasMatch(haystack);
+    final hasSend = RegExp(
+      r'发送|发布|发帖|提交|send|post|publish|submit',
+    ).hasMatch(haystack);
+    final exactTarget = targetText.trim().toLowerCase();
+    if (hasReply) {
+      // A target whose whole label is "Reply"/"Comment" is almost always the
+      // opener, even when the model's thought says "准备发布回复".
+      if (RegExp(r'^(回复|评论|reply|comment)$').hasMatch(exactTarget)) {
+        return true;
+      }
+      if (!hasSend) return true;
+    }
+    // "Open post/tweet/帖子" is navigation, not publishing.
+    final navigates =
+        RegExp(r'打开|查看|进入|浏览|open|view|go to|navigate').hasMatch(haystack);
+    final postTarget = RegExp(r'^(post|tweet|帖子|推文|动态)$').hasMatch(exactTarget);
+    return navigates && postTarget && !hasSend;
   }
 
   /// Verifying progress only makes sense for actions that should change the

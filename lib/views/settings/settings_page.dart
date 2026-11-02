@@ -11,6 +11,7 @@ import 'browsing_settings_page.dart';
 import 'ai_engine_settings_page.dart';
 import 'ai_policy_settings_page.dart';
 import 'agent_history_page.dart';
+import 'quick_commands_page.dart';
 import 'user_scripts_page.dart';
 import 'about_settings_page.dart';
 
@@ -203,6 +204,16 @@ class _SettingsPageState extends State<SettingsPage> {
                   onSafeModeChanged: widget.onSafeModeChanged,
                 ),
               ),
+            ),
+          ),
+          _buildSettingTile(
+            icon: Icons.bolt_rounded,
+            iconColor: Colors.amber,
+            title: '快捷指令',
+            subtitle: '管理 AI 任务模板、参数与执行策略',
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const QuickCommandsPage()),
             ),
           ),
           _buildSettingTile(

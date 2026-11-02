@@ -41,6 +41,7 @@ class AgentState {
   final String? errorMessage;
   final String? confirmationReason; // Why the action needs authorization
   final String? targetUrl; // Page URL where the pending action will run
+  final String? confirmationPayload; // Exact text/url that will be sent
   final List<AgentLogItem> logs;
   final List<MacroStep>
       recordedMacroSteps; // Steps accumulated during execution for Macro export
@@ -57,6 +58,7 @@ class AgentState {
     this.errorMessage,
     this.confirmationReason,
     this.targetUrl,
+    this.confirmationPayload,
     this.logs = const [],
     this.recordedMacroSteps = const [],
   });
@@ -80,6 +82,7 @@ class AgentState {
     String? errorMessage,
     String? confirmationReason,
     String? targetUrl,
+    String? confirmationPayload,
     List<AgentLogItem>? logs,
     List<MacroStep>? recordedMacroSteps,
     bool clearCurrentAction = false,
@@ -106,6 +109,9 @@ class AgentState {
           : (confirmationReason ?? this.confirmationReason),
       targetUrl:
           clearConfirmationContext ? null : (targetUrl ?? this.targetUrl),
+      confirmationPayload: clearConfirmationContext
+          ? null
+          : (confirmationPayload ?? this.confirmationPayload),
       logs: logs ?? this.logs,
       recordedMacroSteps: recordedMacroSteps ?? this.recordedMacroSteps,
     );
