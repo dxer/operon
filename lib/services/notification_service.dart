@@ -74,15 +74,15 @@ class NotificationService {
   Future<void> notifyTaskCompleted(String summary) async {
     await showNotification(
       id: 1001,
-      title: '🎉 Operon 任务已完成',
-      body: summary.isNotEmpty ? summary : '您下达的网页自动化任务已成功达成！',
+      title: 'Operon 任务执行完成',
+      body: summary.isNotEmpty ? summary : '您下达的网页自动化任务已成功达成。',
     );
   }
 
   Future<void> notifyConfirmationNeeded(String action) async {
     await showNotification(
       id: 1002,
-      title: '⚠️ Operon 等待安全授权',
+      title: 'Operon 等待安全授权',
       body: 'AI 准备执行敏感操作: $action，请点击返回 App 授权',
     );
   }
@@ -90,8 +90,8 @@ class NotificationService {
   Future<void> notifyCaptchaDetected(String captchaType) async {
     await showNotification(
       id: 1003,
-      title: '🛡️ 检测到人机验证码',
-      body: '页面弹出了 $captchaType，请手动滑动通过后 AI 将继续运行',
+      title: '检测到人机验证码',
+      body: '页面弹出了 $captchaType，请手动完成验证后继续运行',
     );
   }
 }

@@ -13,6 +13,7 @@ class WebTab {
   bool canGoForward;
   bool isDesktopMode;
   bool isCleanMode;
+  String? errorMessage;
 
   WebTab({
     required this.id,
@@ -26,6 +27,7 @@ class WebTab {
     this.canGoForward = false,
     this.isDesktopMode = false,
     this.isCleanMode = false,
+    this.errorMessage,
   });
 
   WebTab copyWith({
@@ -40,6 +42,7 @@ class WebTab {
     bool? canGoForward,
     bool? isDesktopMode,
     bool? isCleanMode,
+    String? errorMessage,
   }) {
     return WebTab(
       id: id ?? this.id,
@@ -53,6 +56,7 @@ class WebTab {
       canGoForward: canGoForward ?? this.canGoForward,
       isDesktopMode: isDesktopMode ?? this.isDesktopMode,
       isCleanMode: isCleanMode ?? this.isCleanMode,
+      errorMessage: errorMessage ?? this.errorMessage,
     );
   }
 }

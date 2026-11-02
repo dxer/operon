@@ -8,6 +8,8 @@ import '../models/agent_state.dart';
 import '../models/llm_config.dart';
 import '../models/macro_workflow.dart';
 import '../models/web_tab.dart';
+import '../models/bookmark_item.dart';
+import '../models/history_item.dart';
 import '../services/agent_runner.dart';
 import '../services/macro_service.dart';
 import '../services/notification_service.dart';
@@ -18,10 +20,13 @@ import 'settings/settings_page.dart';
 import 'settings/user_scripts_page.dart';
 import 'widgets/agent_bottom_sheet.dart';
 import 'widgets/browser_controls.dart';
-import 'widgets/floating_agent_ball.dart';
+import 'widgets/dynamic_agent_capsule.dart';
 import 'widgets/selection_action_dialog.dart';
 import 'widgets/summary_bottom_sheet.dart';
 import 'widgets/tabs_overview_sheet.dart';
+import 'widgets/history_bookmarks_sheet.dart';
+import 'widgets/start_page_view.dart';
+import 'widgets/bottom_toolbar.dart';
 
 class BrowserPage extends StatefulWidget {
   const BrowserPage({Key? key}) : super(key: key);
@@ -166,9 +171,18 @@ class _BrowserPageState extends State<BrowserPage> {
         title: '新标签页',
       ));
       _currentTabIndex = 0;
-      _urlController.text = homepage;
+      _urlController.text = homepage.startsWith('operon://') ? '' : homepage;
     });
     Navigator.of(context).pop();
+  }
+
+  void _goHome() {
+    setState(() {
+      _currentTab.url = 'operon://newtab';
+      _currentTab.title = '新标签页';
+      _currentTab.errorMessage = null;
+      _urlController.text = '';
+    });
   }
 
   void _openTabOverview() {
@@ -194,14 +208,18 @@ class _BrowserPageState extends State<BrowserPage> {
     String trimmed = input.trim();
     if (trimmed.isEmpty) return;
 
-    final isUrl = trimmed.contains('.') &&
-        !trimmed.contains(' ') &&
-        (trimmed.startsWith('http://') ||
-            trimmed.startsWith('https://') ||
-            !trimmed.startsWith(' '));
+    if (trimmed == 'operon://newtab' || trimmed == 'about:blank') {
+      _goHome();
+      return;
+    }
+
+    final bool hasScheme = trimmed.startsWith('http://') || trimmed.startsWith('https://');
+    final bool looksLikeDomain = !trimmed.contains(' ') &&
+        (trimmed.contains('.') || trimmed.startsWith('localhost'));
+    final bool isUrl = hasScheme || looksLikeDomain;
 
     if (isUrl) {
-      if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
+      if (!hasScheme) {
         trimmed = 'https://$trimmed';
       }
     } else {
@@ -213,6 +231,8 @@ class _BrowserPageState extends State<BrowserPage> {
     }
 
     _currentTab.url = trimmed;
+    _currentTab.title = '加载中...';
+    _currentTab.errorMessage = null;
     _urlController.text = trimmed;
     _currentTab.controller?.loadUrl(urlRequest: URLRequest(url: WebUri(trimmed)));
     setState(() {});
@@ -268,7 +288,7 @@ class _BrowserPageState extends State<BrowserPage> {
           SnackBar(
             content: Text(
               _currentTab.isCleanMode
-                  ? '🍃 纯净模式已开启：清理了 $count 处弹窗/遮罩，展开 $expCount 处折叠正文'
+                  ? '纯净模式已开启：清理了 $count 处遮罩，展开 $expCount 处折叠正文'
                   : '已关闭纯净模式',
             ),
             backgroundColor: AppTheme.accent,
@@ -293,10 +313,10 @@ class _BrowserPageState extends State<BrowserPage> {
         }
       }
       if (count > 0) {
-        debugPrint('🚀 [UserScript] Injected $count active user scripts into $currentUrl');
+        debugPrint('[UserScript] Injected $count active user scripts into $currentUrl');
       }
     } catch (e) {
-      debugPrint('⚠️ [UserScript] Injection error: $e');
+      debugPrint('[UserScript] Injection error: $e');
     }
   }
 
@@ -313,6 +333,159 @@ class _BrowserPageState extends State<BrowserPage> {
         ),
       );
     }
+  }
+
+  void _toggleBookmarkCurrentPage() async {
+    final url = _currentTab.url;
+    final title = _currentTab.title;
+    if (url.isEmpty || url.startsWith('about:')) return;
+
+    final isBookmarked = _storage?.isBookmarked(url) ?? false;
+    if (isBookmarked) {
+      await _storage?.removeBookmark(url);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('已从书签中移除'),
+            duration: Duration(seconds: 1),
+          ),
+        );
+        setState(() {});
+      }
+    } else {
+      final item = BookmarkItem(
+        id: '${DateTime.now().millisecondsSinceEpoch}',
+        url: url,
+        title: title.isNotEmpty ? title : url,
+        createdAt: DateTime.now(),
+      );
+      await _storage?.addBookmark(item);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('已添加到书签收藏'),
+            duration: Duration(seconds: 1),
+          ),
+        );
+        setState(() {});
+      }
+    }
+  }
+
+  void _openHistoryBookmarksSheet({int initialTab = 0}) {
+    if (_storage == null) return;
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => HistoryBookmarksSheet(
+        storageService: _storage!,
+        initialTabIndex: initialTab,
+        onOpenUrl: (url) {
+          _loadUrl(url);
+        },
+      ),
+    );
+  }
+
+  void _showLinkContextMenu(String linkUrl) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Text(
+                linkUrl,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+            ),
+            const Divider(height: 1),
+            ListTile(
+              leading: const Icon(Icons.open_in_new_rounded),
+              title: const Text('在新标签页中打开'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _createNewTab(url: linkUrl, switchToTab: true);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.tab_unselected_rounded),
+              title: const Text('在后台打开新标签页'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _createNewTab(url: linkUrl, switchToTab: false);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.copy_rounded),
+              title: const Text('复制链接地址'),
+              onTap: () {
+                Navigator.pop(ctx);
+                Clipboard.setData(ClipboardData(text: linkUrl));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('已复制链接地址')),
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showImageContextMenu(String imageUrl) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Text(
+                imageUrl,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+            ),
+            const Divider(height: 1),
+            ListTile(
+              leading: const Icon(Icons.image_search_rounded),
+              title: const Text('在新标签页中打开图片'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _createNewTab(url: imageUrl, switchToTab: true);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.copy_rounded),
+              title: const Text('复制图片链接'),
+              onTap: () {
+                Navigator.pop(ctx);
+                Clipboard.setData(ClipboardData(text: imageUrl));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('已复制图片链接')),
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   void _quickSummarize() async {
@@ -336,7 +509,7 @@ class _BrowserPageState extends State<BrowserPage> {
 
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('⚡ 正在提取网页正文...'),
+        content: Text('正在提取网页正文...'),
         duration: Duration(milliseconds: 900),
       ),
     );
@@ -498,7 +671,72 @@ class _BrowserPageState extends State<BrowserPage> {
     );
   }
 
+  Widget _buildErrorOverlay(WebTab tab) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bg = isDark ? const Color(0xFF15191E) : Colors.white;
+
+    return Container(
+      color: bg,
+      padding: const EdgeInsets.symmetric(horizontal: 32),
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: isDark ? const Color(0xFF1E242B) : const Color(0xFFEFF3F4),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.wifi_off_rounded,
+                size: 48,
+                color: Colors.redAccent,
+              ),
+            ),
+            const SizedBox(height: 20),
+            const Text(
+              '无法访问此页面',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              tab.errorMessage ?? '网络连接失败，请检查网络连接或网址',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 12,
+                color: isDark ? Colors.white54 : Colors.black54,
+              ),
+            ),
+            const SizedBox(height: 24),
+            ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.primary,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              icon: const Icon(Icons.refresh, size: 18),
+              label: const Text('重新加载'),
+              onPressed: () {
+                setState(() {
+                  tab.errorMessage = null;
+                  tab.isLoading = true;
+                });
+                tab.controller?.reload();
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildTabWebView(WebTab tab, int tabIndex) {
+    final isStartPage = tab.url == 'operon://newtab' ||
+        tab.url == 'about:blank' ||
+        tab.url.isEmpty;
+
     final userAgent = tab.isDesktopMode
         ? AppConstants.uaDesktopChrome
         : (_storage?.getUserAgent() ?? AppConstants.uaAndroidChrome);
@@ -507,99 +745,221 @@ class _BrowserPageState extends State<BrowserPage> {
     final jsEnabled = _storage?.getJavaScriptEnabled() ?? true;
     final textZoom = _storage?.getTextZoom() ?? 100;
 
-    return InAppWebView(
-      key: ValueKey(tab.id),
-      initialUrlRequest: URLRequest(url: WebUri(tab.url)),
-      initialSettings: InAppWebViewSettings(
-        userAgent: userAgent,
-        javaScriptEnabled: jsEnabled,
-        domStorageEnabled: true,
-        databaseEnabled: true,
-        cacheEnabled: true,
-        transparentBackground: false,
-        useWideViewPort: true,
-        loadWithOverviewMode: true,
-        supportZoom: true,
-        builtInZoomControls: false,
-        displayZoomControls: false,
-        allowsInlineMediaPlayback: true,
-        forceDark: webDarkMode ? ForceDark.ON : ForceDark.OFF,
-        algorithmicDarkeningAllowed: webDarkMode,
-        blockNetworkImage: blockImages,
-        textZoom: textZoom,
-      ),
-      onWebViewCreated: (controller) {
-        tab.controller = controller;
-        tab.wrapper = WebViewControllerWrapper(controller);
-        if (tabIndex == _currentTabIndex && mounted) {
-          setState(() {});
-        }
-      },
-      onLoadStart: (controller, url) {
-        setState(() {
-          tab.isLoading = true;
-          tab.progress = 0.1;
-        });
-      },
-      onLoadStop: (controller, url) async {
-        final title = await controller.getTitle() ?? tab.title;
-        final urlStr = url?.toString() ?? tab.url;
-        final canBack = await controller.canGoBack();
-        final canFwd = await controller.canGoForward();
+    return Stack(
+      children: [
+        InAppWebView(
+          key: ValueKey(tab.id),
+          initialUrlRequest: URLRequest(
+            url: WebUri(tab.url.startsWith('http') ? tab.url : 'about:blank'),
+          ),
+          initialSettings: InAppWebViewSettings(
+            userAgent: userAgent,
+            javaScriptEnabled: jsEnabled,
+            domStorageEnabled: true,
+            databaseEnabled: true,
+            cacheEnabled: true,
+            transparentBackground: false,
+            useWideViewPort: true,
+            loadWithOverviewMode: true,
+            supportZoom: true,
+            builtInZoomControls: false,
+            displayZoomControls: false,
+            allowsInlineMediaPlayback: true,
+            forceDark: webDarkMode ? ForceDark.ON : ForceDark.OFF,
+            algorithmicDarkeningAllowed: webDarkMode,
+            blockNetworkImage: blockImages,
+            textZoom: textZoom,
+            supportMultipleWindows: true,
+            javaScriptCanOpenWindowsAutomatically: true,
+            useOnDownloadStart: true,
+          ),
+          onWebViewCreated: (controller) {
+            tab.controller = controller;
+            tab.wrapper = WebViewControllerWrapper(controller);
+            if (tabIndex == _currentTabIndex && mounted) {
+              setState(() {});
+            }
+          },
+          onCreateWindow: (controller, createWindowAction) async {
+            final url = createWindowAction.request.url?.toString();
+            if (url != null && url.isNotEmpty) {
+              _createNewTab(url: url, switchToTab: true);
+              return true;
+            }
+            return false;
+          },
+          onDownloadStartRequest: (controller, downloadStartRequest) async {
+            final filename = downloadStartRequest.suggestedFilename ?? 'download';
+            final url = downloadStartRequest.url.toString();
+            final len = downloadStartRequest.contentLength;
+            final sizeMb = len > 0 ? ' (${(len / (1024 * 1024)).toStringAsFixed(1)} MB)' : '';
 
-        setState(() {
-          tab.isLoading = false;
-          tab.progress = 1.0;
-          tab.title = title.isNotEmpty ? title : '新标签页';
-          tab.url = urlStr;
-          tab.canGoBack = canBack;
-          tab.canGoForward = canFwd;
-          if (tabIndex == _currentTabIndex) {
-            _urlController.text = urlStr;
-          }
-        });
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('检测到文件下载: $filename$sizeMb'),
+                  action: SnackBarAction(
+                    label: '复制链接',
+                    onPressed: () {
+                      Clipboard.setData(ClipboardData(text: url));
+                    },
+                  ),
+                  duration: const Duration(seconds: 4),
+                ),
+              );
+            }
+          },
+          onLoadStart: (controller, url) {
+            setState(() {
+              tab.isLoading = true;
+              tab.progress = 0.1;
+              tab.errorMessage = null;
+            });
+          },
+          onLoadStop: (controller, url) async {
+            final title = await controller.getTitle() ?? tab.title;
+            final urlStr = url?.toString() ?? tab.url;
+            final canBack = await controller.canGoBack();
+            final canFwd = await controller.canGoForward();
 
-        // Auto-inject agent script when page finishes loading
-        if (tab.wrapper != null) {
-          await tab.wrapper!.ensureScriptInjected();
-          if (tab.isCleanMode) {
-            await tab.wrapper!.cleanPageMode();
-          }
-          _injectMatchedUserScripts(urlStr);
-        }
-      },
-      onProgressChanged: (controller, progress) {
-        setState(() {
-          tab.progress = progress / 100.0;
-          tab.isLoading = progress < 100;
-        });
-      },
-      onTitleChanged: (controller, title) {
-        if (title != null && title.isNotEmpty) {
-          setState(() {
-            tab.title = title;
-          });
-        }
-      },
-      onLongPressHitTestResult: (controller, hitTestResult) {
-        Future.delayed(const Duration(milliseconds: 300), () {
-          _checkSelectionAndTrigger();
-        });
-      },
-      onConsoleMessage: (controller, consoleMessage) {
-        debugPrint('[WebView Console] ${consoleMessage.message}');
-      },
+            setState(() {
+              tab.isLoading = false;
+              tab.progress = 1.0;
+              tab.title = title.isNotEmpty ? title : '新标签页';
+              tab.url = urlStr;
+              tab.canGoBack = canBack;
+              tab.canGoForward = canFwd;
+              if (tabIndex == _currentTabIndex) {
+                _urlController.text = urlStr;
+              }
+            });
+
+            // Auto-record history for valid web URLs
+            if (urlStr.startsWith('http')) {
+              _storage?.addHistoryItem(HistoryItem(
+                id: '${DateTime.now().millisecondsSinceEpoch}',
+                url: urlStr,
+                title: title.isNotEmpty ? title : urlStr,
+                visitedAt: DateTime.now(),
+              ));
+            }
+
+            // Auto-inject agent script when page finishes loading
+            if (tab.wrapper != null) {
+              await tab.wrapper!.ensureScriptInjected();
+              if (tab.isCleanMode) {
+                await tab.wrapper!.cleanPageMode();
+              }
+              _injectMatchedUserScripts(urlStr);
+            }
+          },
+          onProgressChanged: (controller, progress) {
+            setState(() {
+              tab.progress = progress / 100.0;
+              tab.isLoading = progress < 100;
+            });
+          },
+          onTitleChanged: (controller, title) {
+            if (title != null && title.isNotEmpty) {
+              setState(() {
+                tab.title = title;
+              });
+            }
+          },
+          onLongPressHitTestResult: (controller, hitTestResult) {
+            final type = hitTestResult.type;
+            final extra = hitTestResult.extra;
+
+            if ((type == InAppWebViewHitTestResultType.SRC_ANCHOR_TYPE ||
+                 type == InAppWebViewHitTestResultType.SRC_IMAGE_ANCHOR_TYPE) &&
+                extra != null &&
+                extra.isNotEmpty) {
+              _showLinkContextMenu(extra);
+              return;
+            }
+
+            if (type == InAppWebViewHitTestResultType.IMAGE_TYPE &&
+                extra != null &&
+                extra.isNotEmpty) {
+              _showImageContextMenu(extra);
+              return;
+            }
+
+            Future.delayed(const Duration(milliseconds: 300), () {
+              _checkSelectionAndTrigger();
+            });
+          },
+          onReceivedError: (controller, request, error) {
+            if (request.isForMainFrame == true) {
+              setState(() {
+                tab.errorMessage = error.description;
+                tab.isLoading = false;
+              });
+            }
+          },
+          onPermissionRequest: (controller, permissionRequest) async {
+            return PermissionResponse(
+              resources: permissionRequest.resources,
+              action: PermissionResponseAction.GRANT,
+            );
+          },
+          onGeolocationPermissionsShowPrompt: (controller, origin) async {
+            return GeolocationPermissionShowPromptResponse(
+              origin: origin,
+              allow: true,
+              retain: true,
+            );
+          },
+          onConsoleMessage: (controller, consoleMessage) {
+            debugPrint('[WebView Console] ${consoleMessage.message}');
+          },
+        ),
+        // Minimalist Native Start Page Overlay when tab is on operon://newtab
+        if (isStartPage && _storage != null)
+          StartPageView(
+            storageService: _storage!,
+            onOpenUrl: _loadUrl,
+          ),
+        if (!isStartPage && tab.errorMessage != null)
+          _buildErrorOverlay(tab),
+      ],
     );
+  }
+
+  void _onUserTouchedWebView(PointerDownEvent event) {
+    if (_agentState.isRunning &&
+        (_agentState.status == AgentStatus.executing ||
+         _agentState.status == AgentStatus.observing ||
+         _agentState.status == AgentStatus.thinking)) {
+      _agentRunner.pause();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('检测到触屏操作，已暂停自动化任务'),
+          duration: Duration(milliseconds: 1400),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final isStartPage = _currentTab.url == 'operon://newtab' ||
+        _currentTab.url == 'about:blank' ||
+        _currentTab.url.isEmpty;
+
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, result) async {
         if (didPop) return;
-        if (_webViewController != null && await _webViewController!.canGoBack()) {
-          await _webViewController!.goBack();
+        if (!isStartPage) {
+          if (_webViewController != null && await _webViewController!.canGoBack()) {
+            await _webViewController!.goBack();
+            return;
+          } else {
+            _goHome();
+            return;
+          }
         } else if (_tabs.length > 1) {
           _closeTab(_currentTabIndex);
         } else {
@@ -609,48 +969,94 @@ class _BrowserPageState extends State<BrowserPage> {
       child: Scaffold(
         body: Column(
           children: [
-            // Top Navigation & Wide Address Bar with Tab Counter
-            BrowserControls(
-              urlController: _urlController,
-              canGoBack: _canGoBack,
-              canGoForward: _canGoForward,
-              isLoading: _isLoading,
-              progress: _progress,
-              isDesktopMode: _isDesktopMode,
-              isCleanMode: _isCleanMode,
-              tabCount: _tabs.length,
-              onBack: () => _webViewController?.goBack(),
-              onForward: () => _webViewController?.goForward(),
-              onReload: () => _webViewController?.reload(),
-              onSubmitUrl: _loadUrl,
-              onOpenSettings: _openSettings,
-              onToggleDesktopMode: _toggleDesktopMode,
-              onSummarize: _quickSummarize,
-              onCleanPage: _toggleCleanMode,
-              onOpenUserScripts: _openUserScripts,
-              onOpenTabOverview: _openTabOverview,
-              onNewTab: () => _createNewTab(),
-            ),
+            // Top Navigation & Wide Address Bar (shown on web pages)
+            if (!isStartPage)
+              BrowserControls(
+                urlController: _urlController,
+                canGoBack: _canGoBack,
+                canGoForward: _canGoForward,
+                isLoading: _isLoading,
+                progress: _progress,
+                isDesktopMode: _isDesktopMode,
+                isCleanMode: _isCleanMode,
+                tabCount: _tabs.length,
+                onBack: () => _webViewController?.goBack(),
+                onForward: () => _webViewController?.goForward(),
+                onReload: () => _webViewController?.reload(),
+                onSubmitUrl: _loadUrl,
+                onOpenSettings: _openSettings,
+                onToggleDesktopMode: _toggleDesktopMode,
+                onSummarize: _quickSummarize,
+                onCleanPage: _toggleCleanMode,
+                onOpenUserScripts: _openUserScripts,
+                onOpenTabOverview: _openTabOverview,
+                onNewTab: () => _createNewTab(),
+                onOpenHistory: () => _openHistoryBookmarksSheet(initialTab: 0),
+                onOpenBookmarks: () => _openHistoryBookmarksSheet(initialTab: 1),
+                onToggleBookmark: _toggleBookmarkCurrentPage,
+                isBookmarked: _storage?.isBookmarked(_currentTab.url) ?? false,
+              ),
 
-            // Full-screen IndexedStack Multi-Tab WebView Canvas + Draggable Edge-Snapping Floating Agent Ball
+            // Full-screen IndexedStack Multi-Tab WebView Canvas with Touch-To-Interrupt & Dynamic Capsule
             Expanded(
               child: Stack(
                 children: [
-                  IndexedStack(
-                    index: _currentTabIndex,
-                    children: _tabs.asMap().entries.map((entry) {
-                      return _buildTabWebView(entry.value, entry.key);
-                    }).toList(),
+                  Listener(
+                    behavior: HitTestBehavior.translucent,
+                    onPointerDown: _onUserTouchedWebView,
+                    child: IndexedStack(
+                      index: _currentTabIndex,
+                      children: _tabs.asMap().entries.map((entry) {
+                        return _buildTabWebView(entry.value, entry.key);
+                      }).toList(),
+                    ),
                   ),
 
-                  // Draggable & Magnetic Edge-Snapping Floating Agent Button
-                  FloatingAgentBall(
-                    state: _agentState,
-                    onTap: _openAgentBottomSheet,
-                    onQuickSummarize: _quickSummarize,
+                  // Bottom-Centered Lightweight Dynamic Agent Capsule (Hovering above bottom toolbar)
+                  Positioned(
+                    bottom: 12,
+                    left: 0,
+                    right: 0,
+                    child: Center(
+                      child: DynamicAgentCapsule(
+                        state: _agentState,
+                        onTap: _openAgentBottomSheet,
+                        onPause: () => _agentRunner.pause(),
+                        onResume: () => _agentRunner.resume(),
+                        onStop: () => _agentRunner.cancel(),
+                        onQuickSummarize: _quickSummarize,
+                        onConfirmCaptcha: () => _agentRunner.confirmCaptcha(true),
+                      ),
+                    ),
                   ),
                 ],
               ),
+            ),
+
+            // Via-Style One-Handed Bottom Toolbar
+            BottomToolbar(
+              canGoBack: _canGoBack && !isStartPage,
+              canGoForward: _canGoForward && !isStartPage,
+              isLoading: _isLoading,
+              tabCount: _tabs.length,
+              isBookmarked: _storage?.isBookmarked(_currentTab.url) ?? false,
+              isDesktopMode: _isDesktopMode,
+              isCleanMode: _isCleanMode,
+              onBack: () => _webViewController?.goBack(),
+              onForward: () => _webViewController?.goForward(),
+              onHome: _goHome,
+              onOpenTabs: _openTabOverview,
+              onReload: () => _webViewController?.reload(),
+              onNewTab: () => _createNewTab(),
+              onSummarize: _quickSummarize,
+              onCleanPage: _toggleCleanMode,
+              onOpenUserScripts: _openUserScripts,
+              onToggleBookmark: _toggleBookmarkCurrentPage,
+              onOpenHistory: () => _openHistoryBookmarksSheet(initialTab: 0),
+              onOpenBookmarks: () => _openHistoryBookmarksSheet(initialTab: 1),
+              onToggleDesktopMode: _toggleDesktopMode,
+              onOpenSettings: _openSettings,
+              currentUrl: _currentTab.url,
             ),
           ],
         ),

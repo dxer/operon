@@ -728,7 +728,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 contentPadding: EdgeInsets.zero,
                 leading: Icon(Icons.smartphone, color: AppTheme.primary),
                 title: Text('Operon Browser', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
-                subtitle: Text('版本: v0.1.0 (构建版本 0.1.0+1)\n开源驱动的高性能自主 AI 移动浏览器',
+                subtitle: Text('版本: v0.2.0 (构建版本 0.2.0+2)\n开源驱动的高性能自主 AI 移动浏览器',
                     style: TextStyle(fontSize: 12, color: Colors.grey)),
               ),
             ],

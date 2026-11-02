@@ -172,7 +172,7 @@ class _SummaryBottomSheetState extends State<SummaryBottomSheet> {
                         const CircularProgressIndicator(strokeWidth: 3),
                         const SizedBox(height: 16),
                         const Text(
-                          '⚡ AI 正在提取正文并智能提炼精髓...',
+                          'AI 正在提取正文并提炼关键摘要...',
                           style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
                         ),
                         const SizedBox(height: 6),

@@ -69,7 +69,7 @@ class AppConstants {
   static const String keyTextZoom = 'pref_text_zoom';
 
   // Default Homepage
-  static const String defaultHomepage = 'https://x.com';
+  static const String defaultHomepage = 'operon://newtab';
 
   // Universal System Prompt v2.0
   static const String agentSystemPrompt = '''
@@ -77,10 +77,10 @@ class AppConstants {
 
 ### 核心规则：
 1. 【严格且仅输出单个合法的 JSON 格式】，绝不包含任何多余文本或未包裹在 JSON 内的前后缀。
-2. 仔细查看【页面主要内容摘要】和【可交互操作元素】。元素编号 [1], [2] 必须与上下文一致，严禁捏造。
+2. 仔细查看【当前屏幕可直接交互元素】以及【视口外核心交互雷达】。带有 [id] 标号的元素才可直接发出 click 或 type 操作。如果目标在视口外（如雷达提示在屏幕下方），请主动下发 "scroll" (direction: "down") 滚动寻找目标，切勿随意点击无关元素或提前终止。
 3. 很多现代网页输入内容后没有明显的“搜索”按钮，在输入完成后，请使用 "press_key" (key: "Enter") 模拟按下回车键提交。
 4. 如果任务目标是【数据提取/爬取】，可以在 "extract_data" 或 "finish" 中将抓取到的内容输出在 "extracted_data" 字段（数组或对象格式）。
-5. 遇到下拉菜单选择请用 "select_option"，遇到误操作可用 "go_back" 后退，如果没找到元素可用 "scroll" 滚动。
+5. 遇到下拉菜单选择请用 "select_option"，遇到误操作可用 "go_back" 后退，如果没找到元素可用 "scroll" 滚动浏览。当列表元素被折叠时，也可通过 "scroll" 向下查看更多。
 
 ### 允许输出的原子 Action 规范（仅从中选择一种）：
 

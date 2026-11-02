@@ -514,13 +514,20 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
               ),
               child: Column(
                 children: [
-                  const Text(
-                    '⚠️ 敏感操作拦截提醒',
-                    style: TextStyle(
-                      color: Colors.redAccent,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 13,
-                    ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: const [
+                      Icon(Icons.shield_outlined, size: 16, color: Colors.redAccent),
+                      SizedBox(width: 6),
+                      Text(
+                        '敏感操作拦截提醒',
+                        style: TextStyle(
+                          color: Colors.redAccent,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 4),
                   Text(

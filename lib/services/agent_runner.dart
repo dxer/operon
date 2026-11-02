@@ -95,7 +95,7 @@ class AgentRunner {
         // 1. Observe (Extract Pruned DOM & Check CAPTCHA)
         DOMSnapshot snapshot;
         try {
-          snapshot = await webView.extractPrunedDOM(showBadges: true, includeContent: true);
+          snapshot = await webView.extractPrunedDOM(showBadges: false, includeContent: true);
         } catch (e) {
           _addLog('获取页面元素失败', detail: e.toString(), isError: true);
           await Future.delayed(const Duration(seconds: 1));
@@ -108,7 +108,7 @@ class AgentRunner {
             status: AgentStatus.waitingCaptcha,
             captchaType: snapshot.captchaType,
           ));
-          _addLog('🛡️ 拦截到人机验证码', detail: snapshot.captchaType);
+          _addLog('检测到人机验证码', detail: snapshot.captchaType);
           await _notificationService.notifyCaptchaDetected(snapshot.captchaType!);
 
           _captchaCompleter = Completer<bool>();
@@ -190,7 +190,7 @@ class AgentRunner {
             extractedData: action.extractedData ?? _state.extractedData,
             recordedMacroSteps: List.unmodifiable(macroSteps),
           ));
-          _addLog('任务顺利完成 🎉', detail: action.summary);
+          _addLog('任务顺利完成', detail: action.summary);
           await _notificationService.notifyTaskCompleted(action.summary ?? '任务完成');
           await webView.clearHighlights();
           return;

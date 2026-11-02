@@ -124,7 +124,7 @@ class _UserScriptsPageState extends State<UserScriptsPage> {
                       const Icon(Icons.auto_awesome, color: Colors.amber, size: 22),
                       const SizedBox(width: 8),
                       const Text(
-                        '🤖 AI 编写网页用户脚本',
+                        'AI 生成用户脚本',
                         style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                       ),
                       const Spacer(),

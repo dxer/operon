@@ -1,6 +1,9 @@
+import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../config/app_constants.dart';
 import '../models/llm_config.dart';
+import '../models/history_item.dart';
+import '../models/bookmark_item.dart';
 
 class StorageService {
   static StorageService? _instance;
@@ -135,5 +138,114 @@ class StorageService {
 
   Future<void> saveTextZoom(int zoom) async {
     await _prefs.setInt(AppConstants.keyTextZoom, zoom);
+  }
+
+  // --- History Management ---
+  static const String _keyHistory = 'browser_history_list';
+  static const int _maxHistoryCount = 300;
+
+  List<HistoryItem> getHistory() {
+    final raw = _prefs.getStringList(_keyHistory) ?? [];
+    final list = <HistoryItem>[];
+    for (final s in raw) {
+      try {
+        final map = jsonDecode(s) as Map<String, dynamic>;
+        list.add(HistoryItem.fromJson(map));
+      } catch (_) {}
+    }
+    return list;
+  }
+
+  Future<void> addHistoryItem(HistoryItem item) async {
+    final list = getHistory();
+    // Remove existing with same URL to bump to top
+    list.removeWhere((h) => h.url == item.url);
+    list.insert(0, item);
+    if (list.length > _maxHistoryCount) {
+      list.removeRange(_maxHistoryCount, list.length);
+    }
+    final raw = list.map((h) => jsonEncode(h.toJson())).toList();
+    await _prefs.setStringList(_keyHistory, raw);
+  }
+
+  Future<void> removeHistoryItem(String id) async {
+    final list = getHistory();
+    list.removeWhere((h) => h.id == id);
+    final raw = list.map((h) => jsonEncode(h.toJson())).toList();
+    await _prefs.setStringList(_keyHistory, raw);
+  }
+
+  Future<void> clearHistory() async {
+    await _prefs.remove(_keyHistory);
+  }
+
+  // --- Bookmarks Management ---
+  static const String _keyBookmarks = 'browser_bookmarks_list';
+
+  List<BookmarkItem> getBookmarks() {
+    final raw = _prefs.getStringList(_keyBookmarks) ?? [];
+    final list = <BookmarkItem>[];
+    for (final s in raw) {
+      try {
+        final map = jsonDecode(s) as Map<String, dynamic>;
+        list.add(BookmarkItem.fromJson(map));
+      } catch (_) {}
+    }
+    return list;
+  }
+
+  Future<void> addBookmark(BookmarkItem item) async {
+    final list = getBookmarks();
+    list.removeWhere((b) => b.url == item.url);
+    list.insert(0, item);
+    final raw = list.map((b) => jsonEncode(b.toJson())).toList();
+    await _prefs.setStringList(_keyBookmarks, raw);
+  }
+
+  Future<void> removeBookmark(String urlOrId) async {
+    final list = getBookmarks();
+    list.removeWhere((b) => b.id == urlOrId || b.url == urlOrId);
+    final raw = list.map((b) => jsonEncode(b.toJson())).toList();
+    await _prefs.setStringList(_keyBookmarks, raw);
+  }
+
+  bool isBookmarked(String url) {
+    if (url.isEmpty || url == 'about:blank') return false;
+    final list = getBookmarks();
+    return list.any((b) => b.url == url);
+  }
+
+  // --- Shortcuts Management (Via-Style Start Page) ---
+  static const String _keyShortcuts = 'browser_custom_shortcuts';
+
+  static final List<Map<String, String>> _defaultShortcuts = [
+    {'title': 'X', 'url': 'https://x.com'},
+    {'title': 'Google', 'url': 'https://www.google.com'},
+    {'title': 'GitHub', 'url': 'https://github.com'},
+    {'title': 'Bilibili', 'url': 'https://www.bilibili.com'},
+    {'title': 'Wikipedia', 'url': 'https://wikipedia.org'},
+    {'title': 'Reddit', 'url': 'https://reddit.com'},
+    {'title': 'Bing', 'url': 'https://www.bing.com'},
+  ];
+
+  List<Map<String, String>> getShortcuts() {
+    final raw = _prefs.getStringList(_keyShortcuts);
+    if (raw == null || raw.isEmpty) return List.from(_defaultShortcuts);
+    final list = <Map<String, String>>[];
+    for (final s in raw) {
+      try {
+        final map = jsonDecode(s) as Map<String, dynamic>;
+        list.add({
+          'title': map['title']?.toString() ?? '',
+          'url': map['url']?.toString() ?? '',
+        });
+      } catch (_) {}
+    }
+    return list.isEmpty ? List.from(_defaultShortcuts) : list;
+  }
+
+  Future<void> saveShortcuts(List<Map<String, String>> list) async {
+    final raw = list.map((m) => jsonEncode(m)).toList();
+    await _prefs.setStringList(_keyShortcuts, raw);
   }
 }

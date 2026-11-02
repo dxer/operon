@@ -92,6 +92,33 @@
           z-index: 2147483646;
           animation: __operon_ripple_anim__ 0.45s ease-out forwards;
         }
+        .__operon_spotlight__ {
+          position: absolute;
+          border-radius: 8px;
+          border: 2px solid rgba(255, 255, 255, 0.95);
+          box-shadow: 0 0 0 3px rgba(29, 155, 240, 0.5), 0 0 24px rgba(29, 155, 240, 0.7);
+          background: rgba(29, 155, 240, 0.12);
+          pointer-events: none;
+          z-index: 2147483645;
+          animation: __operon_spotlight_anim__ 0.85s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+        @keyframes __operon_spotlight_anim__ {
+          0% {
+            opacity: 0;
+            transform: scale(0.96);
+          }
+          25% {
+            opacity: 1;
+            transform: scale(1);
+          }
+          75% {
+            opacity: 0.9;
+          }
+          100% {
+            opacity: 0;
+            transform: scale(1.03);
+          }
+        }
         @keyframes __operon_ripple_anim__ {
           0% {
             width: 8px;
@@ -120,6 +147,30 @@
     const cursor = ensureGhostCursor();
     cursor.style.opacity = '1';
     cursor.style.transform = `translate3d(${clientX - 11}px, ${clientY - 11}px, 0)`;
+  }
+
+  function triggerSpotlight(el) {
+    if (!el || typeof el.getBoundingClientRect !== 'function') return;
+    ensureGhostCursor();
+
+    const rect = el.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+
+    const spotlight = document.createElement('div');
+    spotlight.className = '__operon_spotlight__';
+    const scrollX = window.scrollX || window.pageXOffset || 0;
+    const scrollY = window.scrollY || window.pageYOffset || 0;
+    const pad = 4;
+
+    spotlight.style.left = `${Math.max(0, rect.left + scrollX - pad)}px`;
+    spotlight.style.top = `${Math.max(0, rect.top + scrollY - pad)}px`;
+    spotlight.style.width = `${Math.max(24, rect.width + pad * 2)}px`;
+    spotlight.style.height = `${Math.max(24, rect.height + pad * 2)}px`;
+
+    document.body.appendChild(spotlight);
+    setTimeout(() => {
+      spotlight.remove();
+    }, 850);
   }
 
   function playTouchRipple(clientX, clientY) {
@@ -236,7 +287,7 @@
     return results;
   }
 
-  function isVisible(el) {
+  function isRendered(el) {
     if (!el || el.nodeType !== 1) return false;
     if (typeof window.getComputedStyle !== 'function') return true;
 
@@ -253,15 +304,109 @@
     const rect = el.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return false;
 
+    // Filter out off-screen hidden containers (e.g. left: -9999px)
+    if (rect.right < -400 || rect.bottom < -400) return false;
+
+    return true;
+  }
+
+  function isInViewport(el, margin = 45) {
+    if (!isRendered(el)) return false;
+    const rect = el.getBoundingClientRect();
     const viewportHeight = window.innerHeight || (document.documentElement ? document.documentElement.clientHeight : 800);
     const viewportWidth = window.innerWidth || (document.documentElement ? document.documentElement.clientWidth : 400);
 
     return (
-      rect.bottom >= -50 &&
-      rect.top <= viewportHeight + 50 &&
+      rect.bottom >= -margin &&
+      rect.top <= viewportHeight + margin &&
       rect.right >= 0 &&
       rect.left <= viewportWidth
     );
+  }
+
+  function isVisible(el) {
+    return isInViewport(el);
+  }
+
+  function getMacroPageState() {
+    const scrollY = window.scrollY || window.pageYOffset || 0;
+    const vh = window.innerHeight || (document.documentElement ? document.documentElement.clientHeight : 800);
+    const docHeight = Math.max(
+      document.body ? document.body.scrollHeight : 0,
+      document.documentElement ? document.documentElement.scrollHeight : 0,
+      vh
+    );
+    const maxScroll = Math.max(0, docHeight - vh);
+    const scrollPercent = maxScroll > 0 ? Math.min(100, Math.round((scrollY / maxScroll) * 100)) : 100;
+    const totalScreens = Math.max(1.0, parseFloat((docHeight / vh).toFixed(1)));
+    const currentScreen = Math.max(1.0, parseFloat(((scrollY / vh) + 1.0).toFixed(1)));
+
+    const canScrollDown = maxScroll > 60 && scrollPercent < 92;
+    const canScrollUp = scrollY > 60;
+
+    return {
+      scrollY: Math.round(scrollY),
+      docHeight: Math.round(docHeight),
+      vh: Math.round(vh),
+      scrollPercent: scrollPercent,
+      totalScreens: totalScreens,
+      currentScreen: currentScreen,
+      canScrollDown: canScrollDown,
+      canScrollUp: canScrollUp
+    };
+  }
+
+  const KEY_ACTION_REGEX = /(提交|下一步|确定|确认|支付|付款|发布|发送|回复|发推|购买|下单|加入购物车|结算|立即购买|登录|注册|保存|搜索|同意|查收|结账|submit|next|confirm|ok|pay|buy|post|send|reply|checkout|login|signup|register|save|search|agree)/i;
+
+  function isKeyActionElement(el, type, label) {
+    if (type === 'BUTTON' || type === 'CHECKBOX' || type === 'RADIO' || type === 'EDITABLE' || type.startsWith('INPUT') || type === 'SELECT' || type === 'TEXTAREA') {
+      return true;
+    }
+    const role = el.getAttribute ? el.getAttribute('role') : null;
+    if (role === 'button' || role === 'checkbox') return true;
+
+    const testId = el.getAttribute ? (el.getAttribute('data-testid') || '') : '';
+    if (KEY_ACTION_REGEX.test(testId)) return true;
+
+    if (label && KEY_ACTION_REGEX.test(label)) return true;
+
+    return false;
+  }
+
+  function extractOutsideActions(candidates, maxRadar = 6) {
+    const vh = window.innerHeight || (document.documentElement ? document.documentElement.clientHeight : 800);
+    const outsideLines = [];
+    const seenLabels = new Set();
+
+    for (let i = 0; i < candidates.length; i++) {
+      const el = candidates[i];
+      if (!isRendered(el) || isInViewport(el)) continue;
+
+      const type = determineElementType(el);
+      const label = getElementLabel(el);
+      if (!isKeyActionElement(el, type, label)) continue;
+      if (!label && type !== 'BUTTON' && !type.startsWith('INPUT')) continue;
+
+      const cleanLbl = label || '(按钮)';
+      if (seenLabels.has(cleanLbl)) continue;
+      seenLabels.add(cleanLbl);
+
+      const rect = el.getBoundingClientRect();
+      let locationHint = '';
+      if (rect.top > vh) {
+        const screensBelow = Math.max(0.1, ((rect.top - vh) / vh)).toFixed(1);
+        locationHint = `视口下方约 ${screensBelow} 屏`;
+      } else if (rect.bottom < 0) {
+        locationHint = '视口上方';
+      } else {
+        continue;
+      }
+
+      outsideLines.push(`• [${locationHint}] ${type}: "${cleanLbl}"`);
+      if (outsideLines.length >= maxRadar) break;
+    }
+
+    return outsideLines;
   }
 
   function cleanText(text, maxLen = 70) {
@@ -378,13 +523,16 @@
 
     detectCaptcha: detectCaptchaChallenge,
 
-    extractPrunedDOM: function (showVisualBadges = true, includeContent = true) {
+    extractPrunedDOM: function (showVisualBadges = false, includeContent = true) {
       removeBadges();
       elementsMap.clear();
       nextElementId = 1;
 
       // Check for CAPTCHA first
       const captchaInfo = detectCaptchaChallenge();
+
+      // Macro page state
+      const macroState = getMacroPageState();
 
       let badgeContainer = null;
       if (showVisualBadges && document.body) {
@@ -419,53 +567,190 @@
       ].join(',');
 
       const candidates = querySelectorAllDeep(document, selector);
-      const interactiveLines = [];
 
+      // Radar for key action elements located outside the active viewport (e.g. below the fold)
+      const outsideRadarLines = extractOutsideActions(candidates, 6);
+
+      // 1. Separate candidates into in-viewport vs outside
+      const inViewportCandidates = [];
       candidates.forEach((el) => {
-        if (!isVisible(el)) return;
+        if (!isInViewport(el)) return;
 
+        // Skip duplicate child if parent has same text and already has id
         const parent = el.parentElement;
         if (
           parent &&
           elementsMap.has(parent.getAttribute('data-operon-id')) &&
-          el.innerText === parent.innerText
+          (el.innerText || '').trim() === (parent.innerText || '').trim()
         ) {
           return;
         }
 
+        const type = determineElementType(el);
+        const label = getElementLabel(el);
+        const isDisabled = el.disabled === true || (el.getAttribute && el.getAttribute('aria-disabled') === 'true');
+        const isKey = isKeyActionElement(el, type, label);
+
+        // Priority classification:
+        // Priority 1 (Crucial/Immune): Buttons, inputs, forms, key actions (NEVER DROPPED)
+        // Priority 2 (High): Links with meaningful text, tabs, menu items
+        // Priority 3 (Low): Minor links, single icon/symbol, empty labels
+        let priority = 3;
+        if (isKey || type === 'BUTTON' || type === 'EDITABLE' || type.startsWith('INPUT') || type === 'SELECT' || type === 'TEXTAREA' || type === 'CHECKBOX' || type === 'RADIO') {
+          priority = 1;
+        } else if ((type === 'LINK' || type === 'CLICKABLE') && label && label.length > 2 && !/^\d+$/.test(label)) {
+          priority = 2;
+        } else if (type === 'TAB' || type === 'MENUITEM') {
+          priority = 2;
+        }
+
+        inViewportCandidates.push({
+          el: el,
+          type: type,
+          label: label,
+          isDisabled: isDisabled,
+          priority: priority,
+          parent: el.parentElement,
+          className: (el.className && typeof el.className === 'string') ? el.className.split(' ')[0] : ''
+        });
+      });
+
+      // 2. Repetition Folding (detect and fold repetitive lists/feed cards)
+      const foldedCandidates = [];
+      let streak = [];
+
+      function flushStreak() {
+        if (streak.length === 0) return;
+        if (streak.length > 4) {
+          // Keep first 2 items
+          foldedCandidates.push(streak[0]);
+          foldedCandidates.push(streak[1]);
+          // Insert collapse marker
+          foldedCandidates.push({
+            isCollapseMarker: true,
+            count: streak.length - 3,
+            hint: `• [...折叠 ${streak.length - 3} 项相似列表项目，可向下滚动浏览...]`
+          });
+          // Keep the last item
+          foldedCandidates.push(streak[streak.length - 1]);
+        } else {
+          for (let k = 0; k < streak.length; k++) {
+            foldedCandidates.push(streak[k]);
+          }
+        }
+        streak = [];
+      }
+
+      for (let i = 0; i < inViewportCandidates.length; i++) {
+        const item = inViewportCandidates[i];
+        // Priority 1 elements (Buttons, inputs, form controls) are NEVER folded!
+        if (item.priority === 1) {
+          flushStreak();
+          foldedCandidates.push(item);
+          continue;
+        }
+
+        if (streak.length === 0) {
+          streak.push(item);
+        } else {
+          const prev = streak[streak.length - 1];
+          const isSimilar = (prev.parent === item.parent) || (prev.className && prev.className === item.className && prev.type === item.type);
+          if (isSimilar) {
+            streak.push(item);
+          } else {
+            flushStreak();
+            streak.push(item);
+          }
+        }
+      }
+      flushStreak();
+
+      // 3. Token Budget Guard (Target budget: ~65 interactive items max)
+      // Priority 1 is NEVER dropped! Only Priority 3 and lowest Priority 2 are trimmed.
+      const TARGET_BUDGET = 65;
+      let finalCandidates = [];
+      if (foldedCandidates.length <= TARGET_BUDGET) {
+        finalCandidates = foldedCandidates;
+      } else {
+        const p1Items = [];
+        const otherItems = [];
+        foldedCandidates.forEach((it) => {
+          if (it.isCollapseMarker || it.priority === 1) {
+            p1Items.push(it);
+          } else {
+            otherItems.push(it);
+          }
+        });
+
+        const remainingSlots = Math.max(10, TARGET_BUDGET - p1Items.length);
+        const keptOthers = otherItems.slice(0, remainingSlots);
+        finalCandidates = foldedCandidates.filter((it) => p1Items.includes(it) || keptOthers.includes(it));
+      }
+
+      // 4. Register Elements, Allocate Operon IDs, and Render Visual Badges
+      const interactiveLines = [];
+      finalCandidates.forEach((item) => {
+        if (item.isCollapseMarker) {
+          interactiveLines.push(item.hint);
+          return;
+        }
+
+        const el = item.el;
         const id = nextElementId++;
         el.setAttribute('data-operon-id', id.toString());
         el.setAttribute('data-bbx-id', id.toString());
         elementsMap.set(id.toString(), el);
 
-        const type = determineElementType(el);
-        const label = getElementLabel(el);
-        const isDisabled = el.disabled === true || (el.getAttribute && el.getAttribute('aria-disabled') === 'true');
-        const typeWithState = isDisabled ? `${type} [DISABLED]` : type;
+        const typeWithState = item.isDisabled ? `${item.type} [DISABLED]` : item.type;
+        const label = item.label;
 
         if (badgeContainer) {
           const rect = el.getBoundingClientRect();
           badgeContainer.appendChild(createBadge(id, rect));
         }
 
-        if (label || type === 'BUTTON' || type === 'EDITABLE' || type.startsWith('INPUT') || type === 'SELECT') {
+        if (label || item.type === 'BUTTON' || item.type === 'EDITABLE' || item.type.startsWith('INPUT') || item.type === 'SELECT') {
           interactiveLines.push(`[${id}] ${typeWithState}: ${label || '(empty)'}`);
         }
       });
 
-      const contentLines = includeContent ? extractContentBlocks(10) : [];
+      // 5. Page Main Content Summary (Articles, Headings)
+      const contentLines = includeContent ? extractContentBlocks(8) : [];
 
       let combinedTree = '';
+
+      // 5.1 Macro page state & navigation guidance
+      combinedTree += '【页面宏观状态】:\n';
+      combinedTree += `• 页面总长度: 约 ${macroState.totalScreens} 屏 (当前处于第 ${macroState.currentScreen} 屏, 滚动进度: ${macroState.scrollPercent}%)\n`;
+      if (macroState.canScrollDown) {
+        const remainingScreens = Math.max(0.1, (macroState.totalScreens - macroState.currentScreen)).toFixed(1);
+        combinedTree += `• 滚动寻路指引: 页面下方还有约 ${remainingScreens} 屏内容。若当前可视区无目标，可下发 scroll(direction: "down") 向下滚动寻路。\n`;
+      } else if (macroState.canScrollUp && macroState.scrollPercent > 85) {
+        combinedTree += '• 滚动寻路指引: 当前已接近页面最底部。若目标不在底部，可下发 scroll(direction: "up") 向上返回。\n';
+      }
+      combinedTree += '\n';
+
+      // 5.2 Below/Above the fold Critical Action Radar
+      if (outsideRadarLines.length > 0) {
+        combinedTree += '【视口外核心交互雷达 (在屏幕下方/上方，需滚动后方可交互)】:\n';
+        combinedTree += outsideRadarLines.join('\n') + '\n\n';
+      }
+
+      // 5.3 Page content blocks
       if (contentLines.length > 0) {
         combinedTree += '【页面主要内容摘要】:\n' + contentLines.join('\n') + '\n\n';
       }
-      combinedTree += '【可交互操作元素】:\n' + (interactiveLines.join('\n') || '(无明显交互元素，可尝试滚动)');
+
+      // 5.4 Viewport interactive elements
+      combinedTree += '【当前屏幕可直接交互元素 (带 Operon ID，可直接点击/输入)】:\n';
+      combinedTree += (interactiveLines.join('\n') || '(当前视口内无直接交互元素，可尝试滚动浏览)');
 
       return JSON.stringify({
         url: (window.location && window.location.href) ? window.location.href : '',
         title: document.title || '',
         captcha: captchaInfo,
         elementCount: elementsMap.size,
+        macro: macroState,
         text_tree: combinedTree,
       });
     },
@@ -496,7 +781,8 @@
           const clientX = rect.left + rect.width / 2;
           const clientY = rect.top + rect.height / 2;
 
-          // Ghost Cursor visual animation
+          // Non-Intrusive Spotlight & Touch Ripple
+          triggerSpotlight(el);
           moveGhostCursor(clientX, clientY);
           playTouchRipple(clientX, clientY);
 
@@ -586,6 +872,7 @@
           }
 
           const rect = target.getBoundingClientRect ? target.getBoundingClientRect() : { left: 0, top: 0, width: 0, height: 0 };
+          triggerSpotlight(target);
           moveGhostCursor(rect.left + rect.width / 2, rect.top + rect.height / 2);
 
           const isEditable = (target.getAttribute && target.getAttribute('contenteditable') === 'true') ||

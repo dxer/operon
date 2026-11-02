@@ -12,6 +12,11 @@ class DOMSnapshot {
   final String textTree;
   final bool hasCaptcha;
   final String? captchaType;
+  final int scrollPercent;
+  final double totalScreens;
+  final double currentScreen;
+  final bool canScrollDown;
+  final bool canScrollUp;
 
   DOMSnapshot({
     required this.url,
@@ -20,10 +25,16 @@ class DOMSnapshot {
     required this.textTree,
     this.hasCaptcha = false,
     this.captchaType,
+    this.scrollPercent = 0,
+    this.totalScreens = 1.0,
+    this.currentScreen = 1.0,
+    this.canScrollDown = false,
+    this.canScrollUp = false,
   });
 
   factory DOMSnapshot.fromJson(Map<String, dynamic> json) {
     final captcha = json['captcha'] as Map<String, dynamic>?;
+    final macro = json['macro'] as Map<String, dynamic>?;
     return DOMSnapshot(
       url: json['url'] ?? '',
       title: json['title'] ?? '',
@@ -31,6 +42,11 @@ class DOMSnapshot {
       textTree: json['text_tree'] ?? '',
       hasCaptcha: captcha?['hasCaptcha'] == true,
       captchaType: captcha?['type'] as String?,
+      scrollPercent: (macro?['scrollPercent'] as num?)?.toInt() ?? 0,
+      totalScreens: (macro?['totalScreens'] as num?)?.toDouble() ?? 1.0,
+      currentScreen: (macro?['currentScreen'] as num?)?.toDouble() ?? 1.0,
+      canScrollDown: macro?['canScrollDown'] == true,
+      canScrollUp: macro?['canScrollUp'] == true,
     );
   }
 }

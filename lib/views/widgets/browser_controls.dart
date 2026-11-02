@@ -22,6 +22,10 @@ class BrowserControls extends StatefulWidget {
   final VoidCallback onOpenUserScripts;
   final VoidCallback onOpenTabOverview;
   final VoidCallback onNewTab;
+  final VoidCallback? onOpenHistory;
+  final VoidCallback? onOpenBookmarks;
+  final VoidCallback? onToggleBookmark;
+  final bool isBookmarked;
 
   const BrowserControls({
     Key? key,
@@ -44,6 +48,10 @@ class BrowserControls extends StatefulWidget {
     required this.onOpenUserScripts,
     required this.onOpenTabOverview,
     required this.onNewTab,
+    this.onOpenHistory,
+    this.onOpenBookmarks,
+    this.onToggleBookmark,
+    this.isBookmarked = false,
   }) : super(key: key);
 
   @override
@@ -175,10 +183,10 @@ class _BrowserControlsState extends State<BrowserControls> {
                               ),
                             ),
 
-                          // Quick ⚡ AI Summarize Button inside input
+                          // Quick AI Summarize Button inside input
                           IconButton(
-                            icon: const Icon(Icons.bolt, size: 20, color: Colors.amber),
-                            tooltip: '⚡ AI 网页速读',
+                            icon: const Icon(Icons.auto_awesome, size: 18, color: AppTheme.accent),
+                            tooltip: 'AI 网页速读',
                             padding: const EdgeInsets.symmetric(horizontal: 6),
                             constraints: const BoxConstraints(),
                             onPressed: widget.onSummarize,
@@ -254,6 +262,15 @@ class _BrowserControlsState extends State<BrowserControls> {
                         case 'desktop':
                           widget.onToggleDesktopMode();
                           break;
+                        case 'toggle_bookmark':
+                          widget.onToggleBookmark?.call();
+                          break;
+                        case 'history':
+                          widget.onOpenHistory?.call();
+                          break;
+                        case 'bookmarks':
+                          widget.onOpenBookmarks?.call();
+                          break;
                         case 'settings':
                           widget.onOpenSettings();
                           break;
@@ -315,9 +332,9 @@ class _BrowserControlsState extends State<BrowserControls> {
                         value: 'summarize',
                         child: Row(
                           children: const [
-                            Icon(Icons.bolt, size: 18, color: Colors.amber),
+                            Icon(Icons.auto_awesome, size: 18, color: AppTheme.accent),
                             SizedBox(width: 10),
-                            Text('⚡ AI 网页速读', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                            Text('AI 网页速读', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
                           ],
                         ),
                       ),
@@ -326,13 +343,13 @@ class _BrowserControlsState extends State<BrowserControls> {
                         child: Row(
                           children: [
                             Icon(
-                              widget.isCleanMode ? Icons.cleaning_services : Icons.cleaning_services_outlined,
+                              widget.isCleanMode ? Icons.article : Icons.article_outlined,
                               size: 18,
                               color: AppTheme.accent,
                             ),
                             const SizedBox(width: 10),
                             Text(
-                              widget.isCleanMode ? '🍃 纯净模式已开启' : '🍃 纯净阅读 / 去跳App',
+                              widget.isCleanMode ? '纯净阅读模式已开启' : '纯净阅读模式',
                               style: const TextStyle(fontSize: 13),
                             ),
                           ],
@@ -342,9 +359,9 @@ class _BrowserControlsState extends State<BrowserControls> {
                         value: 'scripts',
                         child: Row(
                           children: const [
-                            Icon(Icons.code, size: 18, color: AppTheme.primary),
+                            Icon(Icons.code_rounded, size: 18, color: AppTheme.primary),
                             SizedBox(width: 10),
-                            Text('🧪 AI 脚本工坊', style: TextStyle(fontSize: 13)),
+                            Text('用户脚本工坊', style: TextStyle(fontSize: 13)),
                           ],
                         ),
                       ),
@@ -353,7 +370,7 @@ class _BrowserControlsState extends State<BrowserControls> {
                         value: 'copy',
                         child: Row(
                           children: const [
-                            Icon(Icons.content_copy, size: 18),
+                            Icon(Icons.content_copy_rounded, size: 18),
                             SizedBox(width: 10),
                             Text('复制链接', style: TextStyle(fontSize: 13)),
                           ],
@@ -364,7 +381,7 @@ class _BrowserControlsState extends State<BrowserControls> {
                         child: Row(
                           children: [
                             Icon(
-                              widget.isDesktopMode ? Icons.phone_android : Icons.desktop_windows,
+                              widget.isDesktopMode ? Icons.phone_android_rounded : Icons.desktop_windows_rounded,
                               size: 18,
                             ),
                             const SizedBox(width: 10),
@@ -375,6 +392,45 @@ class _BrowserControlsState extends State<BrowserControls> {
                           ],
                         ),
                       ),
+                      const PopupMenuDivider(),
+                      PopupMenuItem(
+                        value: 'toggle_bookmark',
+                        child: Row(
+                          children: [
+                            Icon(
+                              widget.isBookmarked ? Icons.star_rounded : Icons.star_border_rounded,
+                              size: 18,
+                              color: widget.isBookmarked ? Colors.amber : null,
+                            ),
+                            const SizedBox(width: 10),
+                            Text(
+                              widget.isBookmarked ? '移除书签收藏' : '添加书签收藏',
+                              style: const TextStyle(fontSize: 13),
+                            ),
+                          ],
+                        ),
+                      ),
+                      PopupMenuItem(
+                        value: 'history',
+                        child: Row(
+                          children: const [
+                            Icon(Icons.history_rounded, size: 18),
+                            SizedBox(width: 10),
+                            Text('浏览历史', style: TextStyle(fontSize: 13)),
+                          ],
+                        ),
+                      ),
+                      PopupMenuItem(
+                        value: 'bookmarks',
+                        child: Row(
+                          children: const [
+                            Icon(Icons.bookmarks_outlined, size: 18),
+                            SizedBox(width: 10),
+                            Text('我的书签', style: TextStyle(fontSize: 13)),
+                          ],
+                        ),
+                      ),
+                      const PopupMenuDivider(),
                       PopupMenuItem(
                         value: 'settings',
                         child: Row(

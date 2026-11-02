@@ -43,7 +43,6 @@ $historyText
 - URL: $currentUrl
 - 标题: $pageTitle
 
-【当前屏幕可交互元素列表】:
 $currentDomTree
 
 请根据上述信息，判断当前执行进度，并严格输出下一步操作的 JSON。如果目标已达成，输出 finish。
