@@ -1,5 +1,5 @@
 /**
- * Operon Universal Agent DOM Engine (v0.1.7)
+ * Operon Universal Agent DOM Engine (v0.2.1)
  * - Stealth Anti-Bot Fingerprint Masking
  * - Ghost Cursor & Human-like Touch Ripple Animation
  * - Deep Shadow DOM & IFrame Traversal
@@ -8,7 +8,7 @@
  * - Dynamic MutationObserver DOM Settle Detection
  */
 (function () {
-  if (window.OPERON && window.OPERON.version === '0.1.7') {
+  if (window.OPERON && window.OPERON.version === '0.2.1') {
     return;
   }
 
@@ -537,6 +537,537 @@
     };
   }
 
+  // ==========================================
+  // 5.5 Skill Locator Engine
+  // Skills use a candidate chain instead of one brittle CSS selector. The
+  // resolver returns a temporary Operon element id that the existing action
+  // executor can click/type immediately.
+  // ==========================================
+  function normalizeBlock(text, maxLen = 12000) {
+    const value = (text || '')
+      .replace(/\r/g, '')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+    return value.length > maxLen ? value.slice(0, maxLen) : value;
+  }
+
+  function elementFingerprint(el) {
+    if (!el) return '';
+    const ctx = getElementContext(el);
+    return simpleHash([
+      (el.tagName || '').toUpperCase(),
+      getElementLabel(el),
+      ctx.contextText || ''
+    ].join('|'));
+  }
+
+  function registerElement(el) {
+    if (!el) return null;
+    try {
+      let id = el.getAttribute('data-operon-id');
+      if (!id) {
+        id = String(nextElementId++);
+        el.setAttribute('data-operon-id', id);
+      }
+      elementsMap.set(String(id), el);
+      return id;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function roleMatches(el, role) {
+    const wanted = (role || '').toLowerCase();
+    if (!wanted) return true;
+    const explicit = (el.getAttribute && (el.getAttribute('role') || ''))
+      .toLowerCase();
+    if (explicit === wanted) return true;
+    const tag = (el.tagName || '').toUpperCase();
+    const type = ((el.getAttribute && el.getAttribute('type')) || '').toLowerCase();
+    if (wanted === 'button') {
+      return tag === 'BUTTON' || (tag === 'INPUT' && (type === 'button' || type === 'submit'));
+    }
+    if (wanted === 'link') return tag === 'A' && !!el.href;
+    if (wanted === 'textbox') {
+      return tag === 'INPUT' || tag === 'TEXTAREA' ||
+        (el.getAttribute && el.getAttribute('contenteditable') === 'true');
+    }
+    if (wanted === 'checkbox') return tag === 'INPUT' && type === 'checkbox';
+    if (wanted === 'radio') return tag === 'INPUT' && type === 'radio';
+    if (wanted === 'combobox') return tag === 'SELECT';
+    if (wanted === 'tab') return tag === 'BUTTON' || tag === 'A';
+    if (wanted === 'menuitem') return tag === 'BUTTON' || tag === 'A';
+    return false;
+  }
+
+  function elementName(el) {
+    if (!el) return '';
+    return (
+      (el.getAttribute && el.getAttribute('aria-label')) ||
+      (el.getAttribute && el.getAttribute('title')) ||
+      (el.getAttribute && el.getAttribute('placeholder')) ||
+      el.innerText ||
+      el.textContent ||
+      ''
+    ).replace(/\s+/g, ' ').trim();
+  }
+
+  function textMatches(el, value, exact) {
+    const wanted = (value || '').replace(/\s+/g, ' ').trim();
+    if (!wanted) return false;
+    const actual = (el.innerText || el.textContent || '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!actual) return false;
+    return exact ? actual === wanted : actual.includes(wanted);
+  }
+
+  function xpathElements(expression, root) {
+    const result = [];
+    try {
+      const doc = (root.ownerDocument || root);
+      const snapshot = doc.evaluate(
+        expression,
+        root,
+        null,
+        XPathResult.ORDERED_NODE_SNAPSHOT_TYPE,
+        null
+      );
+      for (let i = 0; i < snapshot.snapshotLength; i++) {
+        const node = snapshot.snapshotItem(i);
+        if (node && node.nodeType === 1) result.push(node);
+      }
+    } catch (_) {}
+    return result;
+  }
+
+  function cssEscapeValue(value) {
+    if (window.CSS && typeof window.CSS.escape === 'function') {
+      return window.CSS.escape(String(value));
+    }
+    return String(value).replace(/([^\w-])/g, '\\$1');
+  }
+
+  function stableClasses(el) {
+    const raw = (typeof el.className === 'string' ? el.className : '')
+      .split(/\s+/)
+      .filter(Boolean);
+    return raw.filter(cls =>
+      cls.length <= 40 &&
+      !/\d{4,}/.test(cls) &&
+      !/^[a-z]{1,3}\d{3,}/i.test(cls) &&
+      !/^(active|hover|focus|focused|selected|open|show|visible|hidden|dark|light)$/i.test(cls)
+    ).slice(0, 2);
+  }
+
+  function cssPathForElement(el) {
+    if (!el || el.nodeType !== 1) return '';
+    const parts = [];
+    let node = el;
+    let depth = 0;
+    while (node && node.nodeType === 1 &&
+           node !== document.body && node !== document.documentElement &&
+           depth < 6) {
+      const tag = (node.tagName || '').toLowerCase();
+      let part = tag;
+      const testId = node.getAttribute
+        ? (node.getAttribute('data-testid') || node.getAttribute('data-test'))
+        : '';
+      if (testId) {
+        const attr = node.getAttribute('data-testid') ? 'data-testid' : 'data-test';
+        parts.unshift(
+          `${tag}[${attr}="${String(testId).replace(/"/g, '\\"')}"]`
+        );
+        break;
+      }
+      const id = node.getAttribute ? (node.getAttribute('id') || '') : '';
+      if (id && id.indexOf('operon') === -1) {
+        parts.unshift(`${tag}#${cssEscapeValue(id)}`);
+        break;
+      }
+      const classes = stableClasses(node);
+      if (classes.length) {
+        part += '.' + classes.map(cssEscapeValue).join('.');
+      } else {
+        const parent = node.parentElement;
+        if (parent) {
+          const siblings = Array.from(parent.children)
+            .filter(sib => sib.tagName === node.tagName);
+          if (siblings.length > 1) {
+            part += `:nth-of-type(${siblings.indexOf(node) + 1})`;
+          }
+        }
+      }
+      parts.unshift(part);
+      node = node.parentElement;
+      depth++;
+    }
+    return parts.join(' > ');
+  }
+
+  function roleForElement(el) {
+    if (!el) return '';
+    const explicit = (el.getAttribute && (el.getAttribute('role') || ''))
+      .toLowerCase();
+    if (explicit) return explicit;
+    const tag = (el.tagName || '').toUpperCase();
+    const type = ((el.getAttribute && el.getAttribute('type')) || '')
+      .toLowerCase();
+    if (tag === 'BUTTON') return 'button';
+    if (tag === 'A' && el.href) return 'link';
+    if (tag === 'SELECT') return 'combobox';
+    if (tag === 'TEXTAREA') return 'textbox';
+    if (tag === 'INPUT') {
+      if (type === 'checkbox') return 'checkbox';
+      if (type === 'radio') return 'radio';
+      if (type === 'button' || type === 'submit') return 'button';
+      return 'textbox';
+    }
+    if (el.getAttribute &&
+        el.getAttribute('contenteditable') === 'true') {
+      return 'textbox';
+    }
+    return '';
+  }
+
+  /**
+   * Builds an ordered candidate chain. The first candidates are the most
+   * stable identifiers, the last is a bounded CSS path.
+   */
+  function buildLocatorForElement(el) {
+    const candidates = [];
+    const tag = (el.tagName || '').toLowerCase();
+    const push = (candidate) => {
+      if (!candidate || !candidate.value) return;
+      const key = `${candidate.type}|${candidate.value}|${candidate.role || ''}|${candidate.name || ''}|${candidate.tag || ''}`;
+      if (candidates.some(item =>
+        `${item.type}|${item.value}|${item.role || ''}|${item.name || ''}|${item.tag || ''}` === key
+      )) return;
+      candidates.push(candidate);
+    };
+
+    const id = el.getAttribute ? (el.getAttribute('id') || '') : '';
+    if (id && id.indexOf('operon') === -1) {
+      push({ type: 'css', value: `#${cssEscapeValue(id)}` });
+    }
+    const testId = el.getAttribute
+      ? (el.getAttribute('data-testid') || el.getAttribute('data-test'))
+      : '';
+    if (testId) {
+      const attr = el.getAttribute('data-testid') ? 'data-testid' : 'data-test';
+      push({
+        type: 'css',
+        value: `${tag}[${attr}="${String(testId).replace(/"/g, '\\"')}"]`
+      });
+    }
+    const fieldName = el.getAttribute ? (el.getAttribute('name') || '') : '';
+    if (fieldName && (tag === 'input' || tag === 'textarea' ||
+        tag === 'select' || tag === 'form')) {
+      push({
+        type: 'css',
+        value: `${tag}[name="${String(fieldName).replace(/"/g, '\\"')}"]`
+      });
+    }
+
+    const role = roleForElement(el);
+    const name = (
+      (el.getAttribute && el.getAttribute('aria-label')) ||
+      (el.getAttribute && el.getAttribute('placeholder')) ||
+      (el.getAttribute && el.getAttribute('title')) ||
+      safeTargetText(el, 60) ||
+      ''
+    ).replace(/\s+/g, ' ').trim();
+    if (role && name) {
+      push({ type: 'role', role: role, name: name, exact: false });
+    }
+
+    const text = safeTargetText(el, 60);
+    if (text && text.length <= 60 && (tag === 'button' || tag === 'a' ||
+        tag === 'li' || tag === 'h1' || tag === 'h2' || tag === 'h3' ||
+        tag === 'span' || tag === 'div' || tag === 'p' ||
+        (el.getAttribute && el.getAttribute('role')))) {
+      push({ type: 'text', value: text, tag: tag });
+    }
+
+    const path = cssPathForElement(el);
+    if (path) push({ type: 'css', value: path });
+
+    return {
+      candidates: candidates,
+      requireUnique: false,
+      fingerprint: elementFingerprint(el)
+    };
+  }
+
+  function candidateElements(candidate, root) {
+    const type = (candidate.type || '').toLowerCase();
+    if (type === 'css') {
+      try {
+        return querySelectorAllDeep(root, candidate.value || '');
+      } catch (_) {
+        return [];
+      }
+    }
+    if (type === 'xpath') {
+      return xpathElements(candidate.value || '', root);
+    }
+    if (type === 'operonId') {
+      const id = String(candidate.value || candidate.id || '');
+      const el = elementsMap.get(id) ||
+        (document.querySelector && document.querySelector(`[data-operon-id="${id}"]`));
+      return el ? [el] : [];
+    }
+    if (type === 'role') {
+      const all = querySelectorAllDeep(
+        root,
+        'button,a,input,textarea,select,[role],[contenteditable="true"],[tabindex]'
+      );
+      return all.filter(el =>
+        roleMatches(el, candidate.role || '') &&
+        (!candidate.name || elementName(el).includes(candidate.name))
+      );
+    }
+    if (type === 'text') {
+      const selector = candidate.tag ||
+        'button,a,[role="button"],[role="link"],[role="tab"],[role="menuitem"],li,article,div,span,p,h1,h2,h3';
+      let all = [];
+      try {
+        all = querySelectorAllDeep(root, selector);
+      } catch (_) {}
+      return all
+        .filter(el => textMatches(el, candidate.value || '', candidate.exact === true))
+        .sort((a, b) =>
+          ((a.innerText || '').length) - ((b.innerText || '').length)
+        )
+        .slice(0, 200);
+    }
+    // Semantic locators need an agent/vision fallback; they never guess.
+    return [];
+  }
+
+  function findLocatorElements(locator, root) {
+    const candidates = (locator && locator.candidates) || [];
+    const collected = new Map();
+    let needsAgent = false;
+    candidates.forEach((candidate, rank) => {
+      const type = (candidate.type || '').toLowerCase();
+      if (type === 'semantic') {
+        needsAgent = true;
+        return;
+      }
+      const elements = candidateElements(candidate, root);
+      elements.forEach(el => {
+        if (!el || el.isConnected === false) return;
+        if (!collected.has(el)) {
+          collected.set(el, { el: el, rank: rank });
+        } else if (rank < collected.get(el).rank) {
+          collected.get(el).rank = rank;
+        }
+      });
+    });
+    return { entries: Array.from(collected.values()), needsAgent: needsAgent };
+  }
+
+  function locatorRoots(scope) {
+    if (!scope) return [document];
+    const roots = [];
+    const scopeCandidates = (scope.candidates || [scope]);
+    scopeCandidates.forEach(candidate => {
+      candidateElements(candidate, document).forEach(el => {
+        if (el && el.isConnected !== false) roots.push(el);
+      });
+    });
+    return roots;
+  }
+
+  function locatorDescription(el, rank) {
+    if (!el) return {};
+    let rect = { left: 0, top: 0, width: 0, height: 0 };
+    try {
+      rect = el.getBoundingClientRect ? el.getBoundingClientRect() : rect;
+    } catch (_) {}
+    return {
+      label: getElementLabel(el),
+      text: safeTargetText(el, 120),
+      tag: (el.tagName || '').toUpperCase(),
+      role: (el.getAttribute && (el.getAttribute('role') || '')) || '',
+      fingerprint: elementFingerprint(el),
+      rank: rank == null ? 0 : rank,
+      rect: {
+        left: Math.round(rect.left),
+        top: Math.round(rect.top),
+        width: Math.round(rect.width),
+        height: Math.round(rect.height)
+      }
+    };
+  }
+
+  function resolveLocatorInternal(locator, register) {
+    const roots = locatorRoots(locator.scope);
+    if (!roots.length) {
+      return { found: false, ambiguous: false, needsAgent: false, count: 0 };
+    }
+
+    const collected = new Map();
+    let needsAgent = false;
+    roots.forEach(root => {
+      const result = findLocatorElements(locator, root);
+      needsAgent = needsAgent || result.needsAgent;
+      result.entries.forEach(entry => {
+        if (!collected.has(entry.el)) {
+          collected.set(entry.el, { el: entry.el, rank: entry.rank });
+        } else if (entry.rank < collected.get(entry.el).rank) {
+          collected.get(entry.el).rank = entry.rank;
+        }
+      });
+    });
+
+    let entries = Array.from(collected.values()).filter(entry =>
+      entry.el &&
+      entry.el.isConnected !== false &&
+      isRendered(entry.el) &&
+      isVisible(entry.el)
+    );
+
+    if (locator.fingerprint) {
+      const wanted = String(locator.fingerprint);
+      const exact = entries.filter(entry => elementFingerprint(entry.el) === wanted);
+      if (exact.length) entries = exact;
+    }
+
+    entries.sort((a, b) => {
+      if (a.rank !== b.rank) return a.rank - b.rank;
+      return ((a.el.innerText || '').length) - ((b.el.innerText || '').length);
+    });
+
+    if (locator.nth != null && entries.length) {
+      let index = parseInt(locator.nth, 10);
+      if (!Number.isNaN(index)) {
+        if (index < 0) index = entries.length + index;
+        if (index >= 0 && index < entries.length) {
+          entries = [entries[index]];
+        }
+      }
+    }
+
+    if (!entries.length) {
+      return {
+        found: false,
+        ambiguous: false,
+        needsAgent: needsAgent,
+        count: 0
+      };
+    }
+
+    if (locator.requireUnique === true && entries.length > 1) {
+      return {
+        found: false,
+        ambiguous: true,
+        needsAgent: needsAgent,
+        count: entries.length,
+        candidates: entries.slice(0, 5).map(entry => locatorDescription(entry.el, entry.rank))
+      };
+    }
+
+    const chosen = entries[0];
+    const description = locatorDescription(chosen.el, chosen.rank);
+    const elementId = register ? registerElement(chosen.el) : null;
+    return {
+      found: true,
+      ambiguous: false,
+      needsAgent: needsAgent,
+      count: entries.length,
+      elementId: elementId,
+      element: chosen.el,
+      confidence: chosen.rank === 0 ? 'high' : 'medium',
+      candidates: entries.slice(0, 5).map(entry => locatorDescription(entry.el, entry.rank)),
+      label: description.label,
+      text: description.text,
+      tag: description.tag,
+      role: description.role,
+      fingerprint: description.fingerprint,
+      rect: description.rect
+    };
+  }
+
+  function stripElement(result) {
+    if (!result) return result;
+    const copy = {};
+    Object.keys(result).forEach(key => {
+      if (key !== 'element') copy[key] = result[key];
+    });
+    return copy;
+  }
+
+  // ==========================================
+  // 5.6 Region Reader
+  // ==========================================
+  function autoDetectItems(container) {
+    const children = Array.from(container.children || []);
+    const groups = new Map();
+    children.forEach(el => {
+      const cls = typeof el.className === 'string'
+        ? el.className.split(/\s+/).filter(Boolean).slice(0, 2).join('.')
+        : '';
+      const key = `${el.tagName || ''}|${cls}`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(el);
+    });
+    let best = [];
+    groups.forEach(group => {
+      if (group.length > best.length &&
+          group.some(el => normalizeBlock(el.innerText || '', 200).length > 10)) {
+        best = group;
+      }
+    });
+    if (best.length < 2) {
+      best = children.filter(el => normalizeBlock(el.innerText || '', 120).length > 0);
+    }
+    return best.slice(0, 300);
+  }
+
+  function extractItemFields(item, fields) {
+    const result = {};
+    if (!fields || typeof fields !== 'object') return result;
+    Object.keys(fields).forEach(name => {
+      const spec = fields[name];
+      if (!spec) return;
+      const found = findLocatorElements(spec, item).entries
+        .map(entry => entry.el)
+        .filter(isVisible);
+      if (!found.length) return;
+      const el = found[0];
+      const attribute = spec.attribute || spec.attr;
+      if (attribute) {
+        result[name] = el.getAttribute(attribute) || el[attribute] || '';
+      } else {
+        result[name] = normalizeBlock(el.innerText || el.textContent || '', 500);
+      }
+    });
+    return result;
+  }
+
+  function collectItem(item, fields) {
+    const text = normalizeBlock(item.innerText || item.textContent || '', 4000);
+    if (!text) return null;
+    const links = [];
+    try {
+      item.querySelectorAll('a[href]').forEach(link => {
+        const href = link.href || link.getAttribute('href') || '';
+        if (href && !href.startsWith('javascript:') && !links.includes(href)) {
+          links.push(href);
+        }
+      });
+    } catch (_) {}
+    return {
+      text: text,
+      links: links.slice(0, 30),
+      fields: extractItemFields(item, fields),
+      fingerprint: simpleHash(text.slice(0, 500) + '|' + links.join('|')),
+      label: getElementLabel(item)
+    };
+  }
+
   // Describe an element without ever leaking a password/card value. Macro
   // recording stores this label, so secrets must never reach it.
   function safeTargetText(el, maxLen = 60) {
@@ -668,7 +1199,7 @@
   // 6. Main Operon Engine Definition
   // ==========================================
   const engine = {
-    version: '0.1.7',
+    version: '0.2.1',
 
     detectCaptcha: detectCaptchaChallenge,
 
@@ -1367,6 +1898,463 @@
       }
     },
 
+    // ==========================================
+    // 6.1 Skill Locator & Region APIs
+    // ==========================================
+    resolveLocator: function (locatorJson) {
+      try {
+        const locator = typeof locatorJson === 'string'
+          ? JSON.parse(locatorJson)
+          : locatorJson;
+        const result = resolveLocatorInternal(locator, true);
+        return JSON.stringify(stripElement(result));
+      } catch (e) {
+        return JSON.stringify({
+          found: false,
+          ambiguous: false,
+          needsAgent: false,
+          count: 0,
+          error: String(e)
+        });
+      }
+    },
+
+    readRegion: function (locatorJson, optionsJson) {
+      try {
+        const locator = typeof locatorJson === 'string'
+          ? JSON.parse(locatorJson)
+          : locatorJson;
+        const options = typeof optionsJson === 'string'
+          ? JSON.parse(optionsJson)
+          : (optionsJson || {});
+        const resolved = resolveLocatorInternal(locator, false);
+        if (!resolved.found) {
+          return JSON.stringify({
+            ok: false,
+            error: resolved.ambiguous ? 'LOCATOR_AMBIGUOUS' : 'LOCATOR_NOT_FOUND',
+            ...stripElement(resolved)
+          });
+        }
+
+        const container = resolved.element;
+        const mode = options.mode || 'text';
+        const maxChars = Math.max(200, parseInt(options.maxChars, 10) || 12000);
+        const limit = Math.max(1, parseInt(options.limit, 10) || 20);
+        const containerInfo = {
+          label: resolved.label,
+          text: resolved.text,
+          tag: resolved.tag,
+          fingerprint: resolved.fingerprint
+        };
+
+        if (mode === 'items') {
+          let elements = [];
+          if (options.itemLocator) {
+            elements = findLocatorElements(options.itemLocator, container).entries
+              .map(entry => entry.el)
+              .filter(el => isRendered(el) && isVisible(el));
+          } else {
+            elements = autoDetectItems(container)
+              .filter(el => isRendered(el) && isVisible(el));
+          }
+
+          const items = [];
+          const seen = new Set();
+          let chars = 0;
+          let truncated = false;
+          for (const el of elements) {
+            if (items.length >= limit) {
+              truncated = true;
+              break;
+            }
+            const item = collectItem(el, options.fields);
+            if (!item || seen.has(item.fingerprint)) continue;
+            seen.add(item.fingerprint);
+            chars += item.text.length;
+            if (chars > maxChars) {
+              truncated = true;
+              break;
+            }
+            item.index = items.length;
+            items.push(item);
+          }
+
+          return JSON.stringify({
+            ok: true,
+            mode: 'items',
+            items: items,
+            count: items.length,
+            truncated: truncated,
+            container: containerInfo
+          });
+        }
+
+        let text = normalizeBlock(
+          container.innerText || container.textContent || '',
+          maxChars + 1
+        );
+        const truncated = text.length > maxChars;
+        if (truncated) text = text.slice(0, maxChars);
+        return JSON.stringify({
+          ok: true,
+          mode: 'text',
+          text: text,
+          length: text.length,
+          truncated: truncated,
+          container: containerInfo
+        });
+      } catch (e) {
+        return JSON.stringify({
+          ok: false,
+          error: 'READ_REGION_FAILED',
+          message: String(e)
+        });
+      }
+    },
+
+    waitForLocator: function (locatorJson, timeoutMs, state) {
+      return new Promise((resolve) => {
+        let locator;
+        try {
+          locator = typeof locatorJson === 'string'
+            ? JSON.parse(locatorJson)
+            : locatorJson;
+        } catch (e) {
+          resolve(JSON.stringify({ ok: false, error: 'LOCATOR_INVALID' }));
+          return;
+        }
+
+        const startedAt = Date.now();
+        const wantedState = state || 'visible';
+        const timeout = Math.max(500, parseInt(timeoutMs, 10) || 10000);
+
+        const check = () => {
+          const result = resolveLocatorInternal(locator, false);
+          const present = !!result.found;
+          const ok = wantedState === 'hidden' ? !present : present;
+          if (ok) {
+            resolve(JSON.stringify({
+              ok: true,
+              state: wantedState,
+              ...stripElement(result)
+            }));
+            return;
+          }
+          if (Date.now() - startedAt >= timeout) {
+            resolve(JSON.stringify({
+              ok: false,
+              state: wantedState,
+              error: 'TIMEOUT',
+              ...stripElement(result)
+            }));
+            return;
+          }
+          setTimeout(check, 250);
+        };
+        check();
+      });
+    },
+
+    scrollToLocator: function (locatorJson, align) {
+      try {
+        const locator = typeof locatorJson === 'string'
+          ? JSON.parse(locatorJson)
+          : locatorJson;
+        const result = resolveLocatorInternal(locator, true);
+        if (!result.found) {
+          return JSON.stringify({
+            ok: false,
+            error: result.ambiguous ? 'LOCATOR_AMBIGUOUS' : 'LOCATOR_NOT_FOUND',
+            ...stripElement(result)
+          });
+        }
+        try {
+          result.element.scrollIntoView({
+            block: align || 'center',
+            behavior: 'smooth'
+          });
+        } catch (_) {}
+        return JSON.stringify({
+          ok: true,
+          elementId: result.elementId,
+          ...stripElement(result)
+        });
+      } catch (e) {
+        return JSON.stringify({ ok: false, error: String(e) });
+      }
+    },
+
+    /**
+     * Interactive locator picker. Resolves with a candidate chain for the
+     * element the user taps. The overlay never dispatches page actions.
+     */
+    pickLocator: function (timeoutMs = 60000) {
+      return new Promise((resolve) => {
+        try {
+          if (window.__operonPickerCleanup) {
+            window.__operonPickerCleanup();
+          }
+        } catch (_) {}
+
+        const overlay = document.createElement('div');
+        overlay.setAttribute('data-operon-picker', '1');
+        overlay.style.cssText = [
+          'position:fixed',
+          'left:0',
+          'top:0',
+          'width:0',
+          'height:0',
+          'border:2px solid #1d9bf0',
+          'background:rgba(29,155,240,0.12)',
+          'border-radius:4px',
+          'pointer-events:none',
+          'z-index:2147483646',
+          'transition:all 60ms linear'
+        ].join(';');
+
+        const tip = document.createElement('div');
+        tip.textContent = '点击要定位的元素 · 按 Esc 取消';
+        tip.style.cssText = [
+          'position:fixed',
+          'left:50%',
+          'top:12px',
+          'transform:translateX(-50%)',
+          'padding:7px 14px',
+          'border-radius:18px',
+          'background:rgba(17,20,24,0.92)',
+          'color:#fff',
+          'font-size:12px',
+          'font-family:-apple-system,sans-serif',
+          'pointer-events:none',
+          'z-index:2147483647',
+          'box-shadow:0 2px 10px rgba(0,0,0,0.35)'
+        ].join(';');
+
+        let labelBox = null;
+        let finished = false;
+        let timer = null;
+
+        function moveOverlay(el) {
+          if (!el || el === overlay || el === tip) return;
+          if (el.closest && el.closest('[data-operon-picker]')) return;
+          let rect;
+          try {
+            rect = el.getBoundingClientRect();
+          } catch (_) {
+            return;
+          }
+          if (!rect || rect.width <= 0 || rect.height <= 0) return;
+          overlay.style.left = `${Math.max(0, rect.left)}px`;
+          overlay.style.top = `${Math.max(0, rect.top)}px`;
+          overlay.style.width = `${rect.width}px`;
+          overlay.style.height = `${rect.height}px`;
+          const label = getElementLabel(el).slice(0, 40);
+          if (label) {
+            if (!labelBox) {
+              labelBox = document.createElement('div');
+              labelBox.style.cssText = [
+                'position:fixed',
+                'padding:3px 7px',
+                'border-radius:5px',
+                'background:#1d9bf0',
+                'color:#fff',
+                'font-size:10px',
+                'font-family:monospace',
+                'pointer-events:none',
+                'z-index:2147483647',
+                'max-width:240px',
+                'overflow:hidden',
+                'white-space:nowrap',
+                'text-overflow:ellipsis'
+              ].join(';');
+              document.body.appendChild(labelBox);
+            }
+            labelBox.textContent = label;
+            labelBox.style.left = `${Math.max(0, rect.left)}px`;
+            labelBox.style.top = `${Math.max(0, rect.top - 20)}px`;
+          } else if (labelBox) {
+            labelBox.style.display = 'none';
+          }
+        }
+
+        function cleanup() {
+          if (finished) return;
+          finished = true;
+          if (timer) clearTimeout(timer);
+          try {
+            document.removeEventListener('pointermove', onMove, true);
+            document.removeEventListener('mousemove', onMove, true);
+            document.removeEventListener('touchmove', onMove, true);
+            document.removeEventListener('pointerdown', onDown, true);
+            document.removeEventListener('click', onClick, true);
+            document.removeEventListener('keydown', onKey, true);
+          } catch (_) {}
+          try { overlay.remove(); } catch (_) {}
+          try { if (labelBox) labelBox.remove(); } catch (_) {}
+          try { tip.remove(); } catch (_) {}
+          window.__operonPickerCleanup = null;
+        }
+
+        function finish(result) {
+          cleanup();
+          resolve(JSON.stringify(result));
+        }
+
+        function onMove(event) {
+          moveOverlay(event.target);
+        }
+
+        function onDown(event) {
+          if (event.target === tip || (event.target.closest &&
+              event.target.closest('[data-operon-picker]'))) {
+            return;
+          }
+          moveOverlay(event.target);
+        }
+
+        function onKey(event) {
+          if (event.key === 'Escape') {
+            event.preventDefault();
+            finish({ ok: false, error: 'PICK_CANCELLED' });
+          }
+        }
+
+        function onClick(event) {
+          const el = event.target;
+          if (!el || el === tip || (el.closest &&
+              el.closest('[data-operon-picker]'))) {
+            return;
+          }
+          try {
+            event.preventDefault();
+            event.stopPropagation();
+            event.stopImmediatePropagation();
+          } catch (_) {}
+          try {
+            finish(buildPickedLocator(el));
+          } catch (e) {
+            finish({ ok: false, error: 'PICK_FAILED', message: String(e) });
+          }
+        }
+
+        function buildPickedLocator(el) {
+          const locator = buildLocatorForElement(el);
+          const resolved = resolveLocatorInternal(
+            Object.assign({}, locator, { requireUnique: false }),
+            false
+          );
+          if (resolved.found && resolved.count > 1) {
+            const selected = resolved.element;
+            const matches = [];
+            const roots = locatorRoots(locator.scope);
+            roots.forEach(root => {
+              findLocatorElements(locator, root).entries.forEach(entry => {
+                if (entry.el && entry.el.isConnected !== false &&
+                    isRendered(entry.el) && isVisible(entry.el)) {
+                  matches.push(entry);
+                }
+              });
+            });
+            matches.sort((a, b) => {
+              if (a.rank !== b.rank) return a.rank - b.rank;
+              return ((a.el.innerText || '').length) -
+                ((b.el.innerText || '').length);
+            });
+            const index = matches.findIndex(item => item.el === selected);
+            if (index > 0) locator.nth = index;
+          }
+          locator.requireUnique = resolved.count <= 1;
+          return {
+            ok: true,
+            locator: locator,
+            count: resolved.count,
+            label: resolved.label || getElementLabel(el),
+            tag: (el.tagName || '').toUpperCase(),
+            fingerprint: elementFingerprint(el)
+          };
+        }
+
+        document.addEventListener('pointermove', onMove, true);
+        document.addEventListener('mousemove', onMove, true);
+        document.addEventListener('touchmove', onMove, true);
+        document.addEventListener('pointerdown', onDown, true);
+        document.addEventListener('click', onClick, true);
+        document.addEventListener('keydown', onKey, true);
+        try {
+          document.body.appendChild(overlay);
+          document.body.appendChild(tip);
+        } catch (_) {
+          finish({ ok: false, error: 'PICKER_UNAVAILABLE' });
+          return;
+        }
+        window.__operonPickerCleanup = () => {
+          finish({ ok: false, error: 'PICK_CANCELLED' });
+        };
+        timer = setTimeout(() => {
+          finish({ ok: false, error: 'PICK_TIMEOUT' });
+        }, Math.max(5000, parseInt(timeoutMs, 10) || 60000));
+      });
+    },
+
+    interactiveSummary: function (maxItems = 60) {
+      try {
+        const selector = 'button,a[href],input,textarea,select,' +
+          '[role="button"],[role="link"],[role="tab"],' +
+          '[role="menuitem"],[contenteditable="true"]';
+        const nodes = querySelectorAllDeep(document, selector);
+        const result = [];
+        const seen = new Set();
+        for (let i = 0; i < nodes.length; i++) {
+          const el = nodes[i];
+          if (!isRendered(el)) continue;
+          const type = (el.tagName || '').toUpperCase();
+          const role = (el.getAttribute && (el.getAttribute('role') || '')) ||
+            '';
+          const inputType = ((el.getAttribute &&
+            el.getAttribute('type')) || '').toLowerCase();
+          const valueLabelAllowed = type === 'BUTTON' ||
+            (type === 'INPUT' &&
+              (inputType === 'button' || inputType === 'submit' ||
+               inputType === 'reset'));
+          const label = (
+            (el.getAttribute && el.getAttribute('aria-label')) ||
+            (el.getAttribute && el.getAttribute('placeholder')) ||
+            (el.getAttribute && el.getAttribute('title')) ||
+            (el.getAttribute && el.getAttribute('name')) ||
+            (valueLabelAllowed && el.value) ||
+            (type !== 'INPUT' && type !== 'TEXTAREA' &&
+              type !== 'SELECT' ? safeTargetText(el, 60) : '') ||
+            ''
+          ).replace(/\s+/g, ' ').trim().slice(0, 60);
+          if (!label) continue;
+          const key = `${type}|${role}|${label}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          result.push({
+            type: type.toLowerCase(),
+            role: role.toLowerCase(),
+            label: label
+          });
+          if (result.length >= Math.max(1, parseInt(maxItems, 10) || 60)) {
+            break;
+          }
+        }
+        return JSON.stringify(result);
+      } catch (e) {
+        return JSON.stringify({ error: String(e) });
+      }
+    },
+
+    cancelLocatorPicker: function () {
+      try {
+        if (window.__operonPickerCleanup) {
+          window.__operonPickerCleanup();
+          return true;
+        }
+      } catch (_) {}
+      return false;
+    },
+
     waitForDomStable: function (timeoutMs = 2500) {
       return new Promise((resolve) => {
         if (typeof MutationObserver === 'undefined' || !document.body) {
@@ -1658,5 +2646,5 @@
   };
 
   window.OPERON = window.BBX_AGENT = engine;
-  console.log('[Operon] Universal Agent Engine v0.1.7 Injected.');
+  console.log('[Operon] Universal Agent Engine v0.2.1 Injected.');
 })();

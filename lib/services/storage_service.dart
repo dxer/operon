@@ -5,6 +5,7 @@ import '../models/llm_config.dart';
 import '../models/history_item.dart';
 import '../models/bookmark_item.dart';
 import '../models/agent_task_record.dart';
+import '../models/skill_run.dart';
 
 class StorageService {
   static StorageService? _instance;
@@ -329,5 +330,42 @@ class StorageService {
 
   Future<void> clearAgentAllowedSites() async {
     await _prefs.remove(_keyAgentAllowedSites);
+  }
+
+  // --- Skill Run History ---
+  static const String _keySkillRuns = 'skill_run_history';
+  static const int _maxSkillRuns = 50;
+
+  List<SkillRunRecord> getSkillRuns() {
+    final raw = _prefs.getStringList(_keySkillRuns) ?? [];
+    final list = <SkillRunRecord>[];
+    for (final entry in raw) {
+      try {
+        final map = jsonDecode(entry) as Map<String, dynamic>;
+        list.add(SkillRunRecord.fromJson(map));
+      } catch (_) {}
+    }
+    return list;
+  }
+
+  Future<void> addSkillRun(SkillRunRecord record) async {
+    final list = getSkillRuns();
+    list.removeWhere((item) => item.id == record.id);
+    list.insert(0, record);
+    if (list.length > _maxSkillRuns) {
+      list.removeRange(_maxSkillRuns, list.length);
+    }
+    final raw = list.map((item) => jsonEncode(item.toJson())).toList();
+    await _prefs.setStringList(_keySkillRuns, raw);
+  }
+
+  Future<void> removeSkillRun(String id) async {
+    final list = getSkillRuns()..removeWhere((item) => item.id == id);
+    final raw = list.map((item) => jsonEncode(item.toJson())).toList();
+    await _prefs.setStringList(_keySkillRuns, raw);
+  }
+
+  Future<void> clearSkillRuns() async {
+    await _prefs.remove(_keySkillRuns);
   }
 }

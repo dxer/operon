@@ -195,6 +195,11 @@ class WebViewControllerWrapper {
     } catch (_) {}
   }
 
+  /// Reloads the current document.
+  Future<void> reload() async {
+    await controller.reload();
+  }
+
   /// Gets current URL
   Future<String> getUrl() async {
     final uri = await controller.getUrl();
@@ -255,6 +260,157 @@ class WebViewControllerWrapper {
       debugPrint('[WebView] evaluateJavascript error: $e');
       return null;
     }
+  }
+
+  /// Resolves a skill locator candidate chain to a temporary element id.
+  Future<Map<String, dynamic>> resolveLocator(
+    Map<String, dynamic> locator,
+  ) async {
+    try {
+      await ensureScriptInjected();
+      final result = await controller
+          .evaluateJavascript(
+            source: 'window.OPERON.resolveLocator(${jsonEncode(locator)});',
+          )
+          .timeout(const Duration(seconds: 5));
+      return _decodeMap(result) ??
+          {'found': false, 'error': 'EMPTY_LOCATOR_RESULT'};
+    } catch (e) {
+      return {'found': false, 'error': e.toString()};
+    }
+  }
+
+  /// Lets the user tap an element and returns a locator candidate chain.
+  Future<Map<String, dynamic>> pickLocator({
+    int timeoutMs = 60000,
+  }) async {
+    try {
+      await ensureScriptInjected();
+      final result = await controller.callAsyncJavaScript(
+        functionBody: 'return await window.OPERON.pickLocator(timeoutMs);',
+        arguments: {'timeoutMs': timeoutMs},
+      ).timeout(Duration(milliseconds: timeoutMs + 3000));
+      return _decodeMap(result?.value) ??
+          {'ok': false, 'error': 'EMPTY_PICKER_RESULT'};
+    } catch (e) {
+      return {'ok': false, 'error': e.toString()};
+    }
+  }
+
+  /// Returns labels of visible interactive elements, never their values.
+  Future<List<Map<String, dynamic>>> getInteractiveSummary({
+    int maxItems = 60,
+  }) async {
+    try {
+      await ensureScriptInjected();
+      final result = await controller
+          .evaluateJavascript(
+            source: 'window.OPERON.interactiveSummary($maxItems);',
+          )
+          .timeout(const Duration(seconds: 5));
+      final decoded = result is String ? jsonDecode(result) : result;
+      if (decoded is List) {
+        return decoded
+            .whereType<Map>()
+            .map((item) => Map<String, dynamic>.from(item))
+            .toList();
+      }
+    } catch (_) {}
+    return const [];
+  }
+
+  /// Cancels an in-flight locator picker overlay.
+  Future<void> cancelLocatorPicker() async {
+    try {
+      await ensureScriptInjected();
+      await controller.evaluateJavascript(
+        source: 'window.OPERON.cancelLocatorPicker();',
+      );
+    } catch (_) {}
+  }
+
+  /// Reads a page region using a skill locator.
+  Future<Map<String, dynamic>> readRegion(
+    Map<String, dynamic> locator, {
+    String mode = 'text',
+    int limit = 20,
+    int maxChars = 12000,
+    Map<String, dynamic>? itemLocator,
+    Map<String, dynamic>? fields,
+  }) async {
+    try {
+      await ensureScriptInjected();
+      final options = <String, dynamic>{
+        'mode': mode,
+        'limit': limit,
+        'maxChars': maxChars,
+        if (itemLocator != null) 'itemLocator': itemLocator,
+        if (fields != null) 'fields': fields,
+      };
+      final result = await controller
+          .evaluateJavascript(
+            source:
+                'window.OPERON.readRegion(${jsonEncode(locator)}, ${jsonEncode(options)});',
+          )
+          .timeout(const Duration(seconds: 15));
+      return _decodeMap(result) ?? {'ok': false, 'error': 'EMPTY_READ_RESULT'};
+    } catch (e) {
+      return {'ok': false, 'error': e.toString()};
+    }
+  }
+
+  /// Waits until a locator is visible/hidden.
+  Future<Map<String, dynamic>> waitForLocator(
+    Map<String, dynamic> locator, {
+    int timeoutMs = 10000,
+    String state = 'visible',
+  }) async {
+    try {
+      await ensureScriptInjected();
+      final result = await controller.callAsyncJavaScript(
+        functionBody:
+            'return await window.OPERON.waitForLocator(locatorJson, timeoutMs, state);',
+        arguments: {
+          'locatorJson': jsonEncode(locator),
+          'timeoutMs': timeoutMs,
+          'state': state,
+        },
+      ).timeout(Duration(milliseconds: timeoutMs + 2000));
+      return _decodeMap(result?.value) ??
+          {'ok': false, 'error': 'EMPTY_WAIT_RESULT'};
+    } catch (e) {
+      return {'ok': false, 'error': e.toString()};
+    }
+  }
+
+  /// Scrolls a resolved locator into view.
+  Future<Map<String, dynamic>> scrollToLocator(
+    Map<String, dynamic> locator, {
+    String align = 'center',
+  }) async {
+    try {
+      await ensureScriptInjected();
+      final result = await controller
+          .evaluateJavascript(
+            source:
+                'window.OPERON.scrollToLocator(${jsonEncode(locator)}, ${jsonEncode(align)});',
+          )
+          .timeout(const Duration(seconds: 5));
+      return _decodeMap(result) ??
+          {'ok': false, 'error': 'EMPTY_SCROLL_RESULT'};
+    } catch (e) {
+      return {'ok': false, 'error': e.toString()};
+    }
+  }
+
+  dynamic _decodeMap(dynamic result) {
+    if (result == null) return null;
+    if (result is String) {
+      final decoded = jsonDecode(result);
+      return decoded is Map ? Map<String, dynamic>.from(decoded) : null;
+    }
+    if (result is Map) return Map<String, dynamic>.from(result);
+    return null;
   }
 
   /// Gets currently selected text info on the page

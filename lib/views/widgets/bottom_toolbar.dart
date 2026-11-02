@@ -26,6 +26,7 @@ class BottomToolbar extends StatelessWidget {
   final VoidCallback onOpenBookmarks;
   final VoidCallback onToggleDesktopMode;
   final VoidCallback onOpenSettings;
+  final VoidCallback onPickLocator;
   final String currentUrl;
 
   const BottomToolbar({
@@ -53,6 +54,7 @@ class BottomToolbar extends StatelessWidget {
     required this.onOpenBookmarks,
     required this.onToggleDesktopMode,
     required this.onOpenSettings,
+    required this.onPickLocator,
     required this.currentUrl,
   });
 
@@ -94,6 +96,7 @@ class BottomToolbar extends StatelessWidget {
           onOpenBookmarks: onOpenBookmarks,
           onToggleDesktopMode: onToggleDesktopMode,
           onOpenSettings: onOpenSettings,
+          onPickLocator: onPickLocator,
         );
       },
     );
@@ -251,6 +254,7 @@ class _ActionMenuSheet extends StatelessWidget {
   final VoidCallback onOpenBookmarks;
   final VoidCallback onToggleDesktopMode;
   final VoidCallback onOpenSettings;
+  final VoidCallback onPickLocator;
 
   const _ActionMenuSheet({
     required this.isDark,
@@ -270,6 +274,7 @@ class _ActionMenuSheet extends StatelessWidget {
     required this.onOpenBookmarks,
     required this.onToggleDesktopMode,
     required this.onOpenSettings,
+    required this.onPickLocator,
   });
 
   void _run(BuildContext context, VoidCallback action) {
@@ -314,6 +319,8 @@ class _ActionMenuSheet extends StatelessWidget {
         null,
         onToggleDesktopMode,
       ),
+      _MenuAction(Icons.center_focus_strong_outlined, '拾取定位器', AppTheme.primary,
+          onPickLocator),
       _MenuAction(Icons.settings_outlined, '设置', null, onOpenSettings),
     ];
 

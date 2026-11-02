@@ -48,10 +48,15 @@
     * 依赖 Android 原生 `CookieManager` 与 `LocalStorage`，登录一次，重启 App 不丢失登录态。
 14. **通用大模型自由配置**：
     * 支持接入 DeepSeek、OpenAI、通义千问、智谱 GLM、Moonshot、本地 Ollama 等任何 OpenAI 兼容协议。
-15. **可编辑快捷指令与通用批量策略**：
-    * 快捷指令是站点无关的任务模板，支持新增、编辑、排序和恢复默认。
-    * 支持参数化提示词、批量/分页模式、条数/间隔/步数上限。
-    * Agent 侧通用兜底：重复目标拦截、重复内容拦截，授权时展示准备发送的正文。
+15. **可编辑技能（Skills）与 AI 创建**：
+    * 技能分为“指令型”（交给 Agent 自主执行）与“流程型”（按原子工具步骤执行）。
+    * 支持 AI 用自然语言创建技能草案、本地校验、自动修复、预览与手动编辑。
+    * 流程型技能支持参数、数据流、定位器候选链、失败重试、Agent 兜底和逐步骤运行时间线。
+    * 写入步骤统一确认；支持重复目标/重复内容拦截，授权时展示准备发送的正文。
+    * 内置“只读试运行”，执行到第一个写入步骤前停止，方便检查定位器与数据流。
+    * 浏览器菜单提供定位器拾取器：点选页面元素即可得到候选链并复制到技能编辑器。
+    * 支持回放宏片段（`macro.run`）与本地通知（`notify`）工具。
+    * 旧快捷指令会自动迁移为指令型技能，可导入/导出 JSON，并从录制宏或任务历史生成可编辑技能。
 
 ---
 
@@ -71,6 +76,9 @@ operon/
 │   ├── models/                       # AgentAction / AgentState / WebTab / 宏 / 书签 / 历史
 │   ├── services/
 │   │   ├── agent_runner.dart         # ReAct 循环、DOM 防抖、验证码与敏感操作接管
+│   │   ├── skill_runner.dart         # 流程型技能线性执行、预算与失败策略
+│   │   ├── tool_registry.dart        # 原子工具注册与执行（页面/读写/AI/子 Agent）
+│   │   ├── skill_authoring_service.dart # AI 生成技能草案、校验与自动修复
 │   │   ├── llm_service.dart          # OpenAI 兼容客户端（含 response_format 降级）
 │   │   ├── webview_controller_wrapper.dart # JS 注入、异步 DOM 等待、页面能力封装
 │   │   ├── macro_service.dart        # 宏持久化与零 Token 重放

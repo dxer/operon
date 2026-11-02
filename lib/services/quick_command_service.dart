@@ -77,4 +77,9 @@ class QuickCommandService {
     final raw = commands.map((item) => jsonEncode(item.toJson())).toList();
     await _prefs.setStringList(_key, raw);
   }
+
+  /// Test helper. Resets the cached singleton between test cases.
+  static void resetForTest() {
+    _instance = null;
+  }
 }

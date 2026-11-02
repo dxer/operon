@@ -47,6 +47,7 @@ class AgentRunner {
   String? _lastActionDescription;
   String? _lastConfirmedCaptchaKey;
   QuickCommandPolicy? _policy;
+  Set<String>? _allowedTools;
   final Set<String> _sentContents = {};
   final List<String> _sentContentPreviews = [];
   final Set<String> _processedSideEffectKeys = {};
@@ -91,6 +92,7 @@ class AgentRunner {
     bool safeMode = true,
     bool Function(String host)? isSiteAllowed,
     QuickCommandPolicy? policy,
+    Set<String>? allowedTools,
   }) async {
     _isCancelled = false;
     _isPaused = false;
@@ -113,6 +115,7 @@ class AgentRunner {
     _lastActionDescription = null;
     _lastConfirmedCaptchaKey = null;
     _policy = policy;
+    _allowedTools = allowedTools;
     _sentContents.clear();
     _sentContentPreviews.clear();
     _processedSideEffectKeys.clear();
@@ -440,6 +443,22 @@ class AgentRunner {
           continue;
         }
         _invalidActionCount = 0;
+        final requestedTool = _toolIdForAction(action.action);
+        if (_allowedTools != null &&
+            requestedTool != null &&
+            !_allowedTools!.contains(requestedTool)) {
+          _addLog(
+            '子任务调用了未授权的工具，已停止',
+            detail: '工具：$requestedTool · 允许：${_allowedTools!.join(', ')}',
+            isError: true,
+          );
+          _emit(_state.copyWith(
+            status: AgentStatus.error,
+            errorMessage: '子任务尝试使用未授权的工具：$requestedTool',
+          ));
+          await webView.clearHighlights();
+          return;
+        }
         if (action.action == ActionType.navigate) {
           _navigateCount++;
         }
@@ -954,6 +973,33 @@ class AgentRunner {
   /// Stable key for the at-most-once ledger. Uses page URL + action + target
   /// text so a different button/tweet is not blocked by the previous one.
   /// Hide a credential value if the model echoed it in its reasoning.
+  String? _toolIdForAction(ActionType action) {
+    switch (action) {
+      case ActionType.click:
+        return 'page.click';
+      case ActionType.type:
+        return 'page.type';
+      case ActionType.pressKey:
+        return 'page.press_key';
+      case ActionType.selectOption:
+        return 'page.select';
+      case ActionType.hover:
+        return 'page.hover';
+      case ActionType.scroll:
+        return 'page.scroll';
+      case ActionType.navigate:
+        return 'page.open';
+      case ActionType.goBack:
+        return 'page.back';
+      case ActionType.wait:
+        return 'page.wait';
+      case ActionType.extractData:
+      case ActionType.finish:
+      case ActionType.unknown:
+        return null;
+    }
+  }
+
   String _safeThought(AgentAction action) {
     if (action.action != ActionType.type) return action.thought;
     final looksSecret = RegExp(

@@ -221,9 +221,14 @@ class LlmService {
     required LlmConfig config,
     required List<Map<String, String>> messages,
     double? temperature,
+    bool jsonMode = false,
+    CancellationToken? cancelToken,
   }) async {
     if (!config.isValid) {
       throw Exception('请先在设置中配置有效的 API Key 与大模型服务地址。');
+    }
+    if (cancelToken?.isCancelled == true) {
+      throw const LlmCancelledException();
     }
 
     String endpoint = config.baseUrl.trim();
@@ -245,13 +250,35 @@ class LlmService {
       'model': config.model.trim(),
       'messages': messages,
       'temperature': temperature ?? config.temperature,
+      if (jsonMode) 'response_format': {'type': 'json_object'},
     });
 
-    final response = await _postJson(
+    var response = await _postJson(
       uri: uri,
       headers: headers,
       body: body,
+      cancelToken: cancelToken,
     );
+
+    // Some OpenAI-compatible providers reject response_format. Retry once
+    // without it so JSON authoring still works on those endpoints.
+    if (response.statusCode == 400 &&
+        jsonMode &&
+        (response.body.contains('response_format') ||
+            response.body.contains('json_object'))) {
+      final fallbackBody = jsonEncode({
+        'model': config.model.trim(),
+        'messages': messages,
+        'temperature': temperature ?? config.temperature,
+      });
+      response = await _postJson(
+        uri: uri,
+        headers: headers,
+        body: fallbackBody,
+        cancelToken: cancelToken,
+        retry: false,
+      );
+    }
 
     if (response.statusCode != 200) {
       throw Exception('大模型响应错误 (${response.statusCode}): ${response.body}');

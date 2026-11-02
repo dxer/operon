@@ -1,3 +1,5 @@
+import 'macro_workflow.dart';
+
 /// A persisted record of one agent task, used for the audit history page.
 class AgentTaskRecord {
   final String id;
@@ -13,6 +15,10 @@ class AgentTaskRecord {
   final List<String> logs;
   final List<String> sensitiveActions;
 
+  /// Deterministic actions captured during the run. They let the user turn a
+  /// successful task into an editable flow skill without another model call.
+  final List<MacroStep> recordedMacroSteps;
+
   const AgentTaskRecord({
     required this.id,
     required this.goal,
@@ -26,6 +32,7 @@ class AgentTaskRecord {
     this.targetUrl,
     this.logs = const [],
     this.sensitiveActions = const [],
+    this.recordedMacroSteps = const [],
   });
 
   Duration get duration => endedAt.difference(startedAt);
@@ -45,6 +52,8 @@ class AgentTaskRecord {
         'targetUrl': targetUrl,
         'logs': logs,
         'sensitiveActions': sensitiveActions,
+        'recordedMacroSteps':
+            recordedMacroSteps.map((step) => step.toJson()).toList(),
       };
 
   factory AgentTaskRecord.fromJson(Map<String, dynamic> json) {
@@ -75,6 +84,14 @@ class AgentTaskRecord {
       targetUrl: json['targetUrl']?.toString(),
       logs: parseList(json['logs']),
       sensitiveActions: parseList(json['sensitiveActions']),
+      recordedMacroSteps: json['recordedMacroSteps'] is List
+          ? (json['recordedMacroSteps'] as List)
+              .whereType<Map>()
+              .map((item) => MacroStep.fromJson(
+                    Map<String, dynamic>.from(item),
+                  ))
+              .toList()
+          : const [],
     );
   }
 }

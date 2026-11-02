@@ -6,10 +6,16 @@ import '../../models/agent_action.dart';
 import '../../models/agent_state.dart';
 import '../../models/macro_workflow.dart';
 import '../../models/quick_command.dart';
+import '../../models/skill.dart';
 import '../../services/macro_service.dart';
-import '../../services/quick_command_service.dart';
+import '../../services/skill_agent_adapter.dart';
+import '../../services/skill_from_macro.dart';
+import '../../services/skill_service.dart';
+import '../../services/webview_controller_wrapper.dart';
+import '../../services/skill_validator.dart';
+import '../../utils/skill_template.dart';
 import 'macro_dialog.dart';
-import 'quick_command_run_sheet.dart';
+import 'skill_run_sheet.dart';
 import 'step_log_view.dart';
 
 typedef AgentStartHandler = void Function(
@@ -20,8 +26,10 @@ typedef AgentStartHandler = void Function(
 class AgentBottomSheet extends StatefulWidget {
   final AgentState state;
   final AgentStartHandler onStart;
-  final List<QuickCommand> quickCommands;
-  final Future<void> Function()? onManageQuickCommands;
+  final List<Skill> skills;
+  final Future<void> Function()? onManageSkills;
+  final Future<void> Function(SkillRunRequest request)? onRunSkill;
+  final WebViewControllerWrapper? webView;
   final VoidCallback onPause;
   final VoidCallback onResume;
   final VoidCallback onStop;
@@ -45,8 +53,10 @@ class AgentBottomSheet extends StatefulWidget {
     required this.safeMode,
     required this.onSafeModeChanged,
     this.onAllowSite,
-    this.quickCommands = const [],
-    this.onManageQuickCommands,
+    this.skills = const [],
+    this.onManageSkills,
+    this.onRunSkill,
+    this.webView,
   });
 
   @override
@@ -56,8 +66,8 @@ class AgentBottomSheet extends StatefulWidget {
 class _AgentBottomSheetState extends State<AgentBottomSheet> {
   late TextEditingController _goalController;
   late bool _safeMode;
-  late List<QuickCommand> _quickCommands;
-  QuickCommand? _activeCommand;
+  late List<Skill> _skills;
+  Skill? _activeSkill;
   QuickCommandPolicy? _activePolicy;
   bool _showLogs = false;
   final bool _showExtractedData = true;
@@ -67,7 +77,7 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
     super.initState();
     _goalController = TextEditingController(text: widget.state.goal);
     _safeMode = widget.safeMode;
-    _quickCommands = List<QuickCommand>.from(widget.quickCommands);
+    _skills = List<Skill>.from(widget.skills);
   }
 
   @override
@@ -79,12 +89,12 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
     if (widget.safeMode != oldWidget.safeMode) {
       _safeMode = widget.safeMode;
     }
-    if (widget.quickCommands != oldWidget.quickCommands) {
-      _quickCommands = List<QuickCommand>.from(widget.quickCommands);
+    if (widget.skills != oldWidget.skills) {
+      _skills = List<Skill>.from(widget.skills);
     }
-    if (_activeCommand != null &&
-        !_quickCommands.any((item) => item.id == _activeCommand!.id)) {
-      _activeCommand = null;
+    if (_activeSkill != null &&
+        !_skills.any((item) => item.id == _activeSkill!.id)) {
+      _activeSkill = null;
       _activePolicy = null;
     }
   }
@@ -101,48 +111,69 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
     widget.onStart(text, _activePolicy);
   }
 
-  Future<void> _applyQuickCommand(QuickCommand command) async {
-    if (command.inputs.isEmpty) {
-      setState(() {
-        _activeCommand = command;
-        _activePolicy = command.policy;
-        _goalController.text = command.render();
-      });
+  Future<void> _applySkill(Skill skill) async {
+    SkillRunRequest? request;
+    if (skill.inputs.isNotEmpty || skill.isFlow) {
+      request = await showModalBottomSheet<SkillRunRequest>(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (_) => SkillRunSheet(
+          skill: skill,
+          webView: widget.webView,
+        ),
+      );
+      if (!mounted || request == null) return;
+    }
+
+    if (skill.isFlow) {
+      final run = widget.onRunSkill;
+      if (run == null) return;
+      final flowRequest = request ??
+          SkillRunRequest(
+            skill: skill,
+            values: {
+              for (final input in skill.inputs) input.key: input.defaultValue,
+            },
+            execute: true,
+          );
+      Navigator.of(context).pop();
+      await run(flowRequest);
       return;
     }
 
-    final result = await showModalBottomSheet<QuickCommandRunResult>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => QuickCommandRunSheet(command: command),
+    final values = request?.values ??
+        {for (final input in skill.inputs) input.key: input.defaultValue};
+    final prompt = SkillTemplate.renderString(
+      skill.instructions,
+      {'inputs': values},
+      strict: false,
     );
-    if (!mounted || result == null) return;
     setState(() {
-      _activeCommand = command;
-      _activePolicy = result.policy;
-      _goalController.text = result.prompt;
+      _activeSkill = skill;
+      _activePolicy = skillPolicyToAgentPolicy(skill.policy);
+      _goalController.text = prompt;
     });
   }
 
-  Future<void> _manageQuickCommands() async {
-    final manage = widget.onManageQuickCommands;
+  Future<void> _manageSkills() async {
+    final manage = widget.onManageSkills;
     if (manage == null) return;
     await manage();
     if (!mounted) return;
-    final service = await QuickCommandService.getInstance();
+    final service = await SkillService.getInstance();
     if (!mounted) return;
-    final commands = service.getCommands();
+    final skills = service.getSkills();
     setState(() {
-      _quickCommands = commands;
-      final activeId = _activeCommand?.id;
-      _activeCommand = null;
+      _skills = skills;
+      final activeId = _activeSkill?.id;
+      _activeSkill = null;
       _activePolicy = null;
       if (activeId != null) {
-        for (final command in commands) {
-          if (command.id == activeId) {
-            _activeCommand = command;
-            _activePolicy = command.policy;
+        for (final skill in skills) {
+          if (skill.id == activeId) {
+            _activeSkill = skill;
+            _activePolicy = skillPolicyToAgentPolicy(skill.policy);
             break;
           }
         }
@@ -179,7 +210,7 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
           : '${widget.state.goal} 宏',
     );
 
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
@@ -213,35 +244,92 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
+            onPressed: () => Navigator.of(ctx).pop(),
             child: const Text('取消'),
           ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop('skill'),
+            child: const Text('存为技能'),
+          ),
           ElevatedButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
+            onPressed: () => Navigator.of(ctx).pop('macro'),
             style: ElevatedButton.styleFrom(backgroundColor: AppTheme.accent),
-            child: const Text('保存', style: TextStyle(color: Colors.black)),
+            child: const Text('存为宏', style: TextStyle(color: Colors.black)),
           ),
         ],
       ),
     );
 
-    if (confirmed == true && titleController.text.trim().isNotEmpty) {
-      final macro = MacroWorkflow(
-        id: DateTime.now().millisecondsSinceEpoch.toString(),
-        title: titleController.text.trim(),
-        initialUrl: '',
-        createdAt: DateTime.now(),
-        steps: steps,
-      );
-      final macroService = await MacroService.getInstance();
-      await macroService.saveMacro(macro);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('已成功保存为快捷宏！随时可以在宏库中执行'),
-            backgroundColor: AppTheme.accent,
-          ),
+    if (confirmed != null && titleController.text.trim().isNotEmpty) {
+      final title = titleController.text.trim();
+      if (confirmed == 'macro') {
+        final macro = MacroWorkflow(
+          id: DateTime.now().millisecondsSinceEpoch.toString(),
+          title: title,
+          initialUrl: '',
+          createdAt: DateTime.now(),
+          steps: steps,
         );
+        final macroService = await MacroService.getInstance();
+        await macroService.saveMacro(macro);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('已成功保存为快捷宏！随时可以在宏库中执行'),
+              backgroundColor: AppTheme.accent,
+            ),
+          );
+        }
+      } else {
+        final macro = MacroWorkflow(
+          id: DateTime.now().millisecondsSinceEpoch.toString(),
+          title: title,
+          initialUrl: '',
+          createdAt: DateTime.now(),
+          steps: steps,
+        );
+        final draft = SkillFromMacro.fromMacro(macro);
+        if (draft == null) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('录制步骤无法转换为技能，请先检查宏步骤'),
+                backgroundColor: Colors.redAccent,
+              ),
+            );
+          }
+        } else {
+          final validation = SkillValidator().validateDraft(
+            draft,
+            allowWrites: true,
+            currentHost: _hostOf(widget.state.targetUrl ?? ''),
+          );
+          if (validation.hasErrors) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('无法保存技能：${validation.errors.first.message}'),
+                  backgroundColor: Colors.redAccent,
+                ),
+              );
+            }
+          } else {
+            final skill = draft.toSkill(
+              id: 'skill_${DateTime.now().millisecondsSinceEpoch}',
+              origin: SkillOrigin.recorded,
+            );
+            final skillService = await SkillService.getInstance();
+            await skillService.saveSkill(skill);
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('已保存为可编辑技能，可在“技能”页继续调整'),
+                  backgroundColor: AppTheme.accent,
+                ),
+              );
+            }
+          }
+        }
       }
     }
     titleController.dispose();
@@ -853,15 +941,16 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
             ),
           ),
 
-          // Site-agnostic quick command templates.
+          // Skill templates (instruction or flow).
           if (!isRunning) ...[
             const SizedBox(height: 10),
             Row(
               children: [
-                const Icon(Icons.bolt_rounded, size: 14, color: Colors.amber),
+                const Icon(Icons.auto_awesome,
+                    size: 14, color: AppTheme.primary),
                 const SizedBox(width: 4),
                 Text(
-                  '快捷指令',
+                  '技能',
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
@@ -869,9 +958,9 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
                   ),
                 ),
                 const Spacer(),
-                if (widget.onManageQuickCommands != null)
+                if (widget.onManageSkills != null)
                   TextButton.icon(
-                    onPressed: _manageQuickCommands,
+                    onPressed: _manageSkills,
                     icon: const Icon(Icons.tune_rounded, size: 14),
                     label: const Text('管理', style: TextStyle(fontSize: 11.5)),
                     style: TextButton.styleFrom(
@@ -883,37 +972,39 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
               ],
             ),
             const SizedBox(height: 4),
-            if (_quickCommands.isEmpty)
+            if (_skills.isEmpty)
               Text(
-                '暂无快捷指令，点击“管理”添加',
+                '暂无技能，点击“管理”用 AI 创建',
                 style: TextStyle(fontSize: 11.5, color: subtle),
               )
             else
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: Row(
-                  children: _quickCommands.map((command) {
+                  children: _skills.map((skill) {
                     return Padding(
                       padding: const EdgeInsets.only(right: 6.0),
                       child: ActionChip(
-                        avatar: const Icon(
-                          Icons.auto_awesome,
+                        avatar: Icon(
+                          skill.isFlow
+                              ? Icons.account_tree_outlined
+                              : Icons.auto_awesome,
                           size: 14,
                           color: AppTheme.primary,
                         ),
                         label: Text(
-                          command.title,
+                          skill.name,
                           style: TextStyle(fontSize: 11, color: muted),
                         ),
                         backgroundColor: surface,
                         side: BorderSide(color: hairline),
-                        onPressed: () => _applyQuickCommand(command),
+                        onPressed: () => _applySkill(skill),
                       ),
                     );
                   }).toList(),
                 ),
               ),
-            if (_activeCommand != null) ...[
+            if (_activeSkill != null) ...[
               const SizedBox(height: 2),
               Row(
                 children: [
@@ -925,7 +1016,7 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
                   const SizedBox(width: 4),
                   Expanded(
                     child: Text(
-                      '已套用：${_activeCommand!.title}'
+                      '已套用：${_activeSkill!.name}'
                       '${_activePolicy == null ? '' : ' · ${_activePolicy!.mode.label}'}',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -937,7 +1028,7 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
                   ),
                   TextButton(
                     onPressed: () => setState(() {
-                      _activeCommand = null;
+                      _activeSkill = null;
                       _activePolicy = null;
                     }),
                     style: TextButton.styleFrom(

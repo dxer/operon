@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
@@ -9,25 +10,34 @@ import '../models/agent_task_record.dart';
 import '../models/llm_config.dart';
 import '../models/macro_workflow.dart';
 import '../models/quick_command.dart';
+import '../models/skill.dart';
+import '../models/skill_run.dart';
 import '../models/web_tab.dart';
 import '../models/bookmark_item.dart';
 import '../models/history_item.dart';
 import '../services/agent_runner.dart';
+import '../services/execution_guard.dart';
 import '../services/macro_service.dart';
 import '../services/notification_service.dart';
-import '../services/quick_command_service.dart';
+import '../services/skill_agent_adapter.dart';
+import '../services/skill_runner.dart';
+import '../services/skill_service.dart';
 import '../services/storage_service.dart';
 import '../services/theme_service.dart';
 import '../services/user_script_service.dart';
 import '../services/webview_controller_wrapper.dart';
-import 'settings/quick_commands_page.dart';
+import '../utils/cancellation.dart';
+import '../utils/skill_template.dart';
 import 'settings/settings_page.dart';
+import 'settings/skills_page.dart';
 import 'settings/user_scripts_page.dart';
 import 'widgets/agent_bottom_sheet.dart';
 import 'widgets/agent_status_bar.dart';
 import 'widgets/browser_controls.dart';
 import 'widgets/floating_agent_ball.dart';
 import 'widgets/selection_action_dialog.dart';
+import 'widgets/skill_run_sheet.dart';
+import 'widgets/skill_run_timeline.dart';
 import 'widgets/summary_bottom_sheet.dart';
 import 'widgets/tabs_overview_sheet.dart';
 import 'widgets/history_bookmarks_sheet.dart';
@@ -70,7 +80,7 @@ class _BrowserPageState extends State<BrowserPage> {
   bool get _isCleanMode => _currentTab.isCleanMode;
 
   AgentState _agentState = const AgentState();
-  List<QuickCommand> _quickCommands = const [];
+  List<Skill> _skills = const [];
   bool _statusBarDismissed = false;
   String? _agentTabId;
   DateTime? _taskStartedAt;
@@ -139,25 +149,34 @@ class _BrowserPageState extends State<BrowserPage> {
     _initStorage();
   }
 
-  Future<void> _loadQuickCommands() async {
-    final service = await QuickCommandService.getInstance();
+  Future<void> _loadSkills() async {
+    final service = await SkillService.getInstance();
     if (!mounted) return;
-    setState(() => _quickCommands = service.getCommands());
+    setState(() => _skills = service.getSkills());
   }
 
-  Future<void> _openQuickCommands() async {
+  Future<void> _openSkills() async {
     if (!mounted) return;
     await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const QuickCommandsPage()),
+      MaterialPageRoute(
+        builder: (_) => SkillsPage(
+          config: _storage?.getLlmConfig() ?? LlmConfig.defaultConfig(),
+          webView: _wrapper,
+          onRun: (request) async {
+            Navigator.of(context).pop();
+            await _runSkill(request);
+          },
+        ),
+      ),
     );
     if (!mounted) return;
-    await _loadQuickCommands();
+    await _loadSkills();
   }
 
   Future<void> _initStorage() async {
     _storage = await StorageService.getInstance();
     _themeService = await ThemeService.getInstance();
-    await _loadQuickCommands();
+    await _loadSkills();
     // Keep the runner aligned with the persisted policy from the very first run.
     _agentRunner.setSafeMode(_storage?.getSafeMode() ?? true);
     final homepage = _storage?.getHomepage() ?? AppConstants.defaultHomepage;
@@ -774,6 +793,122 @@ class _BrowserPageState extends State<BrowserPage> {
     );
   }
 
+  Future<void> _runSkill(SkillRunRequest request) async {
+    final wrapper = _wrapper;
+    if (wrapper == null) return;
+    if (!request.execute) {
+      final prompt = SkillTemplate.renderString(
+        request.skill.instructions,
+        {'inputs': request.values},
+        strict: false,
+      );
+      _startAgentTask(
+        prompt,
+        policy: skillPolicyToAgentPolicy(request.skill.policy),
+      );
+      return;
+    }
+    final config = _storage?.getLlmConfig() ?? LlmConfig.defaultConfig();
+    if (!config.isValid) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('请先在设置中配置有效的大模型 API Key'),
+          backgroundColor: Colors.redAccent,
+          action: SnackBarAction(
+            label: '去设置',
+            textColor: Colors.white,
+            onPressed: _openSettings,
+          ),
+        ),
+      );
+      return;
+    }
+    if (!mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _SkillRunHost(
+        request: request,
+        webView: wrapper,
+        config: config,
+        safeMode: _storage?.getSafeMode() ?? true,
+        onConfirm: _confirmSkillAction,
+      ),
+    );
+    if (mounted) await _loadSkills();
+  }
+
+  Future<bool> _confirmSkillAction(ConfirmationRequest request) async {
+    if (!mounted) return false;
+    final result = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: Text(request.title),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(request.reason, style: const TextStyle(height: 1.45)),
+              const SizedBox(height: 10),
+              Text(
+                '目标：${request.target}',
+                style: const TextStyle(fontSize: 12, height: 1.4),
+              ),
+              if (request.payload != null &&
+                  request.payload!.trim().isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Theme.of(ctx)
+                        .colorScheme
+                        .onSurface
+                        .withValues(alpha: 0.06),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    request.payload!,
+                    style: const TextStyle(fontSize: 12, height: 1.45),
+                  ),
+                ),
+              ],
+              if (request.url != null && request.url!.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(
+                  request.url!,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 10.5,
+                    color: Theme.of(ctx)
+                        .colorScheme
+                        .onSurface
+                        .withValues(alpha: 0.55),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('拒绝'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('允许执行'),
+          ),
+        ],
+      ),
+    );
+    return result == true;
+  }
+
   Future<void> _setSafeMode(bool enabled) async {
     await _storage?.saveSafeMode(enabled);
     // AgentRunner also releases a pending confirmation immediately when the
@@ -869,6 +1004,7 @@ class _BrowserPageState extends State<BrowserPage> {
       targetUrl: _currentTab.url,
       logs: lines,
       sensitiveActions: sensitive,
+      recordedMacroSteps: state.recordedMacroSteps,
     );
     try {
       await storage.addAgentTaskRecord(record);
@@ -934,6 +1070,97 @@ class _BrowserPageState extends State<BrowserPage> {
     );
   }
 
+  Future<void> _pickLocator() async {
+    final wrapper = _wrapper;
+    if (wrapper == null) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('拾取模式：点击页面元素，按 Esc 取消'),
+        duration: Duration(seconds: 2),
+      ),
+    );
+    final result = await wrapper.pickLocator();
+    if (!mounted) return;
+    if (result['ok'] != true) {
+      final error = result['error']?.toString() ?? '无法拾取定位器';
+      final message = error.contains('TIMEOUT')
+          ? '拾取超时，请重试'
+          : (error.contains('CANCELLED') ? '已取消拾取' : error);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
+      return;
+    }
+    final locator = result['locator'];
+    if (locator is! Map) return;
+    final pretty = const JsonEncoder.withIndent('  ').convert(locator);
+    await Clipboard.setData(ClipboardData(text: pretty));
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('定位器已复制'),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                '目标：${result['label'] ?? result['tag'] ?? ''}',
+                style: const TextStyle(fontSize: 12.5),
+              ),
+              const SizedBox(height: 8),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Theme.of(ctx)
+                      .colorScheme
+                      .onSurface
+                      .withValues(alpha: 0.06),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: SelectableText(
+                  pretty,
+                  style: const TextStyle(
+                    fontSize: 10.5,
+                    height: 1.4,
+                    fontFamily: 'monospace',
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '匹配 ${result['count'] ?? 0} 个元素。打开「技能 → 编辑步骤 → 粘贴定位器」即可填入。',
+                style: TextStyle(
+                  fontSize: 11,
+                  height: 1.45,
+                  color: Theme.of(ctx)
+                      .colorScheme
+                      .onSurface
+                      .withValues(alpha: 0.6),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('关闭'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: pretty));
+              Navigator.of(ctx).pop();
+            },
+            child: const Text('再次复制'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _openSettings() async {
     await Navigator.of(context).push(
       MaterialPageRoute(
@@ -948,11 +1175,12 @@ class _BrowserPageState extends State<BrowserPage> {
     _storage = await StorageService.getInstance();
     _agentRunner.setSafeMode(_storage?.getSafeMode() ?? true);
     await _applyCurrentWebViewSettings();
-    setState(() {});
+    await _loadSkills();
+    if (mounted) setState(() {});
   }
 
   Future<void> _openAgentBottomSheet() async {
-    await _loadQuickCommands();
+    await _loadSkills();
     if (!mounted) return;
     showModalBottomSheet(
       context: context,
@@ -969,8 +1197,10 @@ class _BrowserPageState extends State<BrowserPage> {
               safeMode: _storage?.getSafeMode() ?? true,
               onSafeModeChanged: _setSafeMode,
               onAllowSite: _allowSiteForTask,
-              quickCommands: _quickCommands,
-              onManageQuickCommands: _openQuickCommands,
+              skills: _skills,
+              onManageSkills: _openSkills,
+              onRunSkill: _runSkill,
+              webView: _wrapper,
               onStart: (goal, policy) {
                 _startAgentTask(goal, policy: policy);
                 Navigator.of(ctx).pop();
@@ -1449,6 +1679,7 @@ class _BrowserPageState extends State<BrowserPage> {
                         _openHistoryBookmarksSheet(initialTab: 1),
                     onToggleDesktopMode: _toggleDesktopMode,
                     onOpenSettings: _openSettings,
+                    onPickLocator: _pickLocator,
                     currentUrl: _currentTab.url,
                   ),
                 ),
@@ -1466,6 +1697,103 @@ class _BrowserPageState extends State<BrowserPage> {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _SkillRunHost extends StatefulWidget {
+  final SkillRunRequest request;
+  final WebViewControllerWrapper webView;
+  final LlmConfig config;
+  final bool safeMode;
+  final Future<bool> Function(ConfirmationRequest request) onConfirm;
+
+  const _SkillRunHost({
+    required this.request,
+    required this.webView,
+    required this.config,
+    required this.safeMode,
+    required this.onConfirm,
+  });
+
+  @override
+  State<_SkillRunHost> createState() => _SkillRunHostState();
+}
+
+class _SkillRunHostState extends State<_SkillRunHost> {
+  late SkillRunState _state;
+  CancellationToken _token = CancellationToken();
+  String? _shown;
+  bool _running = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _state = _initialState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _start());
+  }
+
+  SkillRunState _initialState() {
+    return SkillRunState(
+      runId: DateTime.now().millisecondsSinceEpoch.toString(),
+      skillId: widget.request.skill.id,
+      skillName: widget.request.skill.name,
+      status: SkillRunStatus.running,
+      totalSteps:
+          widget.request.skill.steps.where((step) => step.enabled).length,
+    );
+  }
+
+  Future<void> _start() async {
+    if (_running || !mounted) return;
+    final token = CancellationToken();
+    final guard = ExecutionGuard(
+      safeMode: widget.safeMode,
+      onConfirm: widget.onConfirm,
+    );
+    setState(() {
+      _running = true;
+      _token = token;
+      _state = _initialState();
+    });
+
+    final runner = SkillRunner();
+    final record = await runner.run(
+      skill: widget.request.skill,
+      inputs: widget.request.values,
+      webView: widget.webView,
+      config: widget.config,
+      guard: guard,
+      token: token,
+      dryRun: widget.request.dryRun,
+      onState: (state) {
+        if (mounted) setState(() => _state = state);
+      },
+      onShow: (title, markdown) async {
+        if (mounted) setState(() => _shown = markdown);
+      },
+    );
+    if (!mounted) return;
+    setState(() => _running = false);
+    final stored = _shown == null
+        ? record
+        : record.copyWith(output: {...record.output, 'result': _shown!});
+    final storage = await StorageService.getInstance();
+    await storage.addSkillRun(stored);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SkillRunTimeline(
+      state: _state,
+      shownMarkdown: _shown,
+      onCancel: _running ? _token.cancel : null,
+      onClose: _running ? null : () => Navigator.of(context).pop(),
+      onRetry: !_running &&
+              (_state.status == SkillRunStatus.failed ||
+                  _state.status == SkillRunStatus.cancelled)
+          ? _start
+          : null,
     );
   }
 }

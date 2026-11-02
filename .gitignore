@@ -19,3 +19,6 @@ android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java
 # OS / editor noise
 .DS_Store
 *.log
+
+# Local design notes (kept out of git on purpose)
+docs/skills-design.md
