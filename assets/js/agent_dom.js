@@ -1,5 +1,5 @@
 /**
- * Operon Universal Agent DOM Engine (v3.0 Ultra)
+ * Operon Universal Agent DOM Engine (v0.1.0)
  * - Stealth Anti-Bot Fingerprint Masking
  * - Ghost Cursor & Human-like Touch Ripple Animation
  * - Deep Shadow DOM & IFrame Traversal
@@ -8,7 +8,7 @@
  * - Dynamic MutationObserver DOM Settle Detection
  */
 (function () {
-  if (window.OPERON && window.OPERON.version === '3.0') {
+  if (window.OPERON && window.OPERON.version === '0.1.0') {
     return;
   }
 
@@ -374,7 +374,7 @@
   // 6. Main Operon Engine Definition
   // ==========================================
   const engine = {
-    version: '3.0',
+    version: '0.1.0',
 
     detectCaptcha: detectCaptchaChallenge,
 
@@ -773,5 +773,5 @@
   };
 
   window.OPERON = window.BBX_AGENT = engine;
-  console.log('[Operon] Universal Agent Engine v3.0 Ultra Injected.');
+  console.log('[Operon] Universal Agent Engine v0.1.0 Injected.');
 })();

@@ -1,4 +1,4 @@
-# Operon - 轻量级通用 AI 智能体安卓浏览器 (Operon Agentic Browser)
+# Operon v0.1.0 - 轻量级通用 AI 智能体安卓浏览器 (Operon Agentic Browser)
 
 > *"Don't just browse. Operate."* —— 不仅是浏览，更是操控。
 
@@ -7,82 +7,137 @@
 
 ---
 
-## 🌟 Operon v3.0 旗舰进阶能力
+## 🌟 核心特性 (v0.1.0)
 
-1. **“替身”虚拟光标与真实手势动画（Ghost Cursor & Touch Ripple）**：
+1. **轻量级原生内核**：
+   * 基于 Android 系统的原生 Chromium WebView，安装包极小（无需打包冗余浏览器内核），内存占用低。
+   * 支持硬件加速与现代化 HTML5 / WebGL / 单页应用（SPA）渲染。
+2. **“替身”虚拟光标与真实手势动画（Ghost Cursor & Touch Ripple）**：
    * AI 点击网页元素时，屏幕上浮现半透明微光光标，平滑滑动定位到目标坐标，并触发扩散触控波纹。
    * 让用户以第一视角直观目睹 AI 真实操作轨迹，极客科技感拉满！
-2. **深度防反爬指纹（Stealth Mode）与 CAPTCHA 人机盾智能接管**：
+3. **深度防反爬指纹（Stealth Mode）与 CAPTCHA 人机盾智能接管**：
    * 自动抹除 `navigator.webdriver` 自动化标识，伪装 Chrome Runtime 与多语言环境。
    * 实时侦测 Cloudflare Turnstile、极验（Geetest）、Arkose Labs、reCAPTCHA 等验证码弹窗；一旦拦截自动暂停并震动/推送提醒用户手动滑块通过，通过后 AI 自动无缝继续任务。
-3. **宏录制与零 Token 极速重放（Macro Record & Zero-Token Replay）**：
+4. **宏录制与零 Token 极速重放（Macro Record & Zero-Token Replay）**：
    * 任何通过大模型成功执行的任务，都可以一键 **“存为快捷宏”**。
    * 下次遇到高频固定需求（如每日签到、固定发推、定期抓取），直接通过宏在 **1-2 秒内瞬间完成**，**大模型调用费用为 0**！
-4. **后台挂起与系统级推送（Background Runner & Push Notification）**：
+5. **后台挂起与系统级推送（Background Runner & Push Notification）**：
    * 任务在手机后台静默运行时，一旦任务达成、抓取到数据、或需要人工安全授权时，第一时间发送 Android 原生系统通知唤醒。
-
-1. **深度 Shadow DOM 与 IFrame 穿透**：
+6. **深度 Shadow DOM 与 IFrame 穿透**：
    * 采用递归穿透算法，能够识别包含 Web Components、Shadow Root、嵌套 IFrame 的复杂现代前端架构（如 Shopify、YouTube、后台管理系统等）。
-2. **全能键盘模拟与原子动作扩充**：
+7. **全能键盘模拟与原子动作扩充**：
    * **`press_key`**：支持模拟真实按键（`Enter`、`Escape`、`Backspace`、`Tab`）。完美解决很多网站**输入关键词后没有搜索按钮、必须敲回车提交**的顽疾。
    * **`select_option`**：原生支持网页 `<select>` 下拉菜单的值匹配与切换。
    * **`hover`**：支持鼠标悬停动作，触发展开二级折叠菜单。
    * **`go_back`**：智能体若误触链接，具备“浏览器后退一步”的自愈纠错能力。
-3. **双通道感知（交互打标 + 内容语义抽取）**：
+8. **双通道感知（交互打标 + 内容语义抽取）**：
    * 自动分离**【页面主要内容摘要】**与**【可交互操作元素】**。
    * 既能看懂按钮、输入框进行操作，也能看懂标题、正文、推文内容，专为**数据抓取与长文总结**深度优化。
-4. **智能 DOM 稳定度检测（MutationObserver Debounce）**：
+9. **智能 DOM 稳定度检测（MutationObserver Debounce）**：
    * 抛弃死板固定的 `sleep(1500)`。
    * 通过监听页面 DOM 节点增删和属性变化，**350ms 内无新变动即判定渲染平稳**，渲染快时瞬间进入下一步，加载慢时自动等待，兼顾极速与抗卡死。
-5. **一键结构化数据采集与复制（Data Scraper）**：
-   * 支持通过自然语言指令抓取表格、帖子、商品、推文并输出格式化 JSON。
-   * 控制台内置**“一键复制数据”**功能，直接充当移动端无代码爬虫工具。
-6. **通用自动化工作流配方（Universal Recipes）**：
-   * 内置社媒互动、全网搜索、正文总结、列表数据采集等多套通用任务模版，一键即用。
+10. **一键结构化数据采集与复制（Data Scraper）**：
+    * 支持通过自然语言指令抓取表格、帖子、商品、推文并输出格式化 JSON。
+    * 控制台内置**“一键复制数据”**功能，直接充当移动端无代码爬虫工具。
+11. **账号登录态自动持久化**：
+    * 依赖 Android 原生 `CookieManager` 与 `LocalStorage`，用户登录一次推特/X 或其他站点后，Session 永久保存，重启 App 不丢失登录态。
+12. **通用大模型自由配置**：
+    * 支持接入 DeepSeek、OpenAI (GPT-4o / GPT-4o-mini)、SiliconFlow、本地 Ollama 等任何 OpenAI 兼容协议。
 
 ---
 
 ## 📂 项目结构
 
 ```
-bbx/
+operon/
+├── .github/
+│   └── workflows/
+│       └── build-apk.yml             # GitHub Actions 自动化编译打包 CI/CD 脚本
 ├── assets/
+│   ├── icon/
+│   │   ├── app_icon.png              # 1024x1024 旗舰应用高清图标
+│   │   └── app_icon_variant_*.png    # 备选设计变体
 │   └── js/
-│       └── agent_dom.js              # v2.0 通用引擎（Shadow DOM 穿透、键盘仿真、数据提取、DOM 平稳检测）
+│       └── agent_dom.js              # v0.1.0 引擎（Stealth、Ghost Cursor、Shadow DOM、宏选择器）
 ├── lib/
 │   ├── main.dart                     # 应用程序入口
 │   ├── config/
-│   │   ├── app_constants.dart        # 默认 UA、工作流配方（Recipes）、v2.0 系统 Prompt
-│   │   └── app_theme.dart            # 科技暗黑风格主题定义
+│   │   ├── app_constants.dart        # 默认 UA、工作流配方、系统 Prompt
+│   │   └── app_theme.dart            # 暗黑科技风格主题
 │   ├── models/
-│   │   ├── agent_action.dart         # 泛化动作模型（click, type, pressKey, selectOption, hover, extractData, finish）
-│   │   ├── agent_state.dart          # 智能体状态机模型与抓取数据存储
-│   │   └── llm_config.dart           # 大模型连接配置与预设服务商（DeepSeek / OpenAI / Ollama 等）
+│   │   ├── agent_action.dart         # 动作模型（click, type, pressKey, selectOption, hover, etc.）
+│   │   ├── agent_state.dart          # 智能体状态机与宏步骤累积
+│   │   ├── macro_workflow.dart       # 确定性宏工作流模型
+│   │   └── llm_config.dart           # 大模型连接与预设配置
 │   ├── services/
-│   │   ├── agent_runner.dart         # 核心 ReAct 调度、动态平稳等待、敏感确认与数据持久
-│   │   ├── llm_service.dart          # OpenAI 规范的 HTTP 客户端与异常重试
-│   │   ├── storage_service.dart      # SharedPreferences 持久化封装
+│   │   ├── agent_runner.dart         # 核心 ReAct 调度、DOM 动态防抖、验证码接管
+│   │   ├── macro_service.dart        # 宏持久化与零 Token 重放引擎
+│   │   ├── notification_service.dart # Android 系统通知服务
+│   │   ├── llm_service.dart          # 大模型 HTTP 客户端与智能降级容错
+│   │   ├── storage_service.dart      # SharedPreferences 持久化
 │   │   └── webview_controller_wrapper.dart # 原生 WebView 适配与 JS 桥接
 │   ├── utils/
 │   │   ├── json_parser.dart          # 容错提取模型 Markdown 响应中的 JSON
-│   │   └── prompt_builder.dart       # 滑动窗口 Prompt 构造器（省略历史 DOM 防爆 Token）
+│   │   └── prompt_builder.dart       # 滑动窗口 Prompt 构造器
 │   └── views/
-│       ├── browser_page.dart         # 主浏览器视图（集成导航栏、WebView 与 AI 悬浮底栏）
+│       ├── browser_page.dart         # 主浏览器视图（集成导航栏、WebView 与 AI 面板）
 │       ├── settings/
-│       │   └── settings_page.dart    # 模型配置、UA 切换、连通性测试、清除 Cookie
+│       │   └── settings_page.dart    # 模型配置、UA 切换、连通性测试
 │       └── widgets/
-│           ├── agent_bottom_sheet.dart # AI 控制台（指令输入、数据抓取展示、一键复制、配方卡片）
-│           ├── browser_controls.dart   # 地址栏、前进后退、刷新、进度指示条
+│           ├── agent_bottom_sheet.dart # AI 控制台（指令输入、数据抓取展示、宏录制）
+│           ├── macro_dialog.dart       # 快捷宏任务库弹窗
+│           ├── browser_controls.dart   # 地址栏与导航条
 │           └── step_log_view.dart      # 执行步骤历史时间线
-├── android/                          # 原生 Android 权限与 Gradle 配置
-└── pubspec.yaml                      # Flutter 依赖清单
+├── android/                          # 原生 Android 权限、图标资源与 Gradle 配置
+└── pubspec.yaml                      # Flutter 依赖清单与图标配置
+```
+
+---
+
+## 📦 如何在 GitHub 上自动编译与下载 APK (CI/CD)
+
+项目已内置了 GitHub Actions 自动化编译工作流 [`.github/workflows/build-apk.yml`](file:///root/workspace/bbx/.github/workflows/build-apk.yml)。**无需在本地配置繁琐的 Android SDK 或 Flutter 环境，直接让 GitHub 云端免费为你打包！**
+
+### 方式一：发布新版本 Tag 自动生成 Release（最推荐）
+
+当你在本地给代码打上版本号标签并推送到 GitHub：
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+GitHub Actions 会自动触发构建，并在几十秒到几分钟后自动在你的仓库 **Releases** 页面发布新版本，并直接附带可下载的安装包：`app-release.apk`！
+
+### 方式二：在 GitHub 网页上一键手动构建（On-Demand）
+
+1. 打开你的 GitHub 仓库主页；
+2. 点击顶部的 **Actions** 选项卡；
+3. 在左侧选择 **Build & Release Android APK** 工作流；
+4. 点击右侧的 **Run workflow** 下拉按钮，点击绿色的 **Run workflow** 开始运行；
+5. 构建完成后，点击该次运行记录，在底部的 **Artifacts** 区域即可直接下载编译好的 `operon-release-apk.zip`（解压即为 `app-release.apk`）。
+
+---
+
+## 💻 本地编译与运行 (可选)
+
+如果你本地电脑已经安装好了 Flutter 开发环境：
+
+```bash
+# 1. 获取依赖
+flutter pub get
+
+# 2. 连接 Android 手机或模拟器调试
+flutter run
+
+# 3. 本地打包 Release APK
+flutter build apk --release
+# 生成路径：build/app/outputs/flutter-apk/app-release.apk
 ```
 
 ---
 
 ## 🚀 常用通用指令示例
 
-你可以直接在底部输入框输入如下指令，或者点击内置的工作流卡片：
+直接在底栏输入框键入自然语言，或点击内置的快捷配方：
 
 1. **电商/列表数据提取**：
    * *“抓取当前页面前 5 件商品的标题与价格，并输出为结构化数据”*

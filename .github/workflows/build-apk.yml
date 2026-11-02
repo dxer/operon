@@ -1,0 +1,65 @@
+name: Build & Release Android APK
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - 'v*'
+  workflow_dispatch: # Allows manual trigger from GitHub Actions web UI
+
+jobs:
+  build:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write # Needed to create GitHub Releases and upload APK assets
+
+    steps:
+      # 1. Checkout repository
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # 2. Setup Java 17 environment
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      # 3. Setup Flutter SDK
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      # 4. Install project dependencies
+      - name: Install Dependencies
+        run: flutter pub get
+
+      # 5. Build Release APK
+      - name: Build APK
+        run: flutter build apk --release
+
+      # 6. Upload APK as Action Artifact (Downloadable from GitHub UI)
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: operon-release-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 30
+
+      # 7. If triggered by a version tag (e.g. v0.1.0), automatically publish a GitHub Release
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/app/outputs/flutter-apk/app-release.apk
+          name: Operon Release ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
