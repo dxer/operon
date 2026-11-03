@@ -18,6 +18,28 @@ void main() {
     expect(normalizeHost('example.com'), 'example.com');
   });
 
+  test('extractSharedUrl finds the first link in shared text', () {
+    expect(
+      extractSharedUrl('一篇好文章 https://example.com/a?b=1 推荐'),
+      'https://example.com/a?b=1',
+    );
+    expect(
+      extractSharedUrl('https://example.com/a。'),
+      'https://example.com/a',
+    );
+    expect(
+      extractSharedUrl('(see https://example.com/a)'),
+      'https://example.com/a',
+    );
+    expect(extractSharedUrl('HTTPS://EXAMPLE.COM/X'), 'HTTPS://EXAMPLE.COM/X');
+  });
+
+  test('extractSharedUrl ignores text without a usable link', () {
+    expect(extractSharedUrl(''), isNull);
+    expect(extractSharedUrl('只有一段文字，没有链接'), isNull);
+    expect(extractSharedUrl('https://'), isNull);
+  });
+
   test('compactHost shortens long hosts to the registrable domain', () {
     expect(compactHost('example.com'), 'example.com');
     expect(

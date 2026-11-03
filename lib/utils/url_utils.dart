@@ -15,6 +15,33 @@ String normalizeHost(String host) {
 /// Collapses a long host to its registrable domain so compact chips keep the
 /// part that identifies the site (`example.co.uk`). The full host belongs in a
 /// tooltip, never in the chip itself.
+/// Pulls the first `http(s)` link out of text shared into the app.
+///
+/// Share sheets usually send `标题 https://example.com/...`, and some apps
+/// append punctuation right after the link, so trailing sentence marks are
+/// trimmed while punctuation that can be part of a URL is kept.
+String? extractSharedUrl(String raw) {
+  final text = raw.trim();
+  if (text.isEmpty) return null;
+
+  final match = RegExp(
+    r'''https?://[^\s<>"']+''',
+    caseSensitive: false,
+  ).firstMatch(text);
+  if (match == null) return null;
+
+  var url = match.group(0)!;
+  // Trailing sentence punctuation is never part of the link the sender meant.
+  const trailing = '.,;:!?)]}，。；：！？）】」』》';
+  while (url.isNotEmpty && trailing.contains(url[url.length - 1])) {
+    url = url.substring(0, url.length - 1);
+  }
+
+  final uri = Uri.tryParse(url);
+  if (uri == null || uri.host.isEmpty) return null;
+  return url;
+}
+
 String compactHost(String host) {
   if (host.length <= 18) return host;
   if (host.contains(':')) return host; // IPv6 literal; never split on dots.

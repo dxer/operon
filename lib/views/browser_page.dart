@@ -18,6 +18,7 @@ import '../services/agent_runner.dart';
 import '../services/execution_guard.dart';
 import '../services/macro_service.dart';
 import '../services/notification_service.dart';
+import '../services/share_intent_service.dart';
 import '../services/skill_repair_service.dart';
 import '../services/skill_runner.dart';
 import '../services/skill_service.dart';
@@ -27,6 +28,7 @@ import '../services/user_script_service.dart';
 import '../services/webview_controller_wrapper.dart';
 import '../utils/cancellation.dart';
 import '../utils/skill_template.dart';
+import '../utils/url_utils.dart';
 import 'settings/settings_page.dart';
 import 'settings/skill_editor_page.dart';
 import 'settings/skills_page.dart';
@@ -91,6 +93,7 @@ class _BrowserPageState extends State<BrowserPage> {
   bool _agentSheetOpen = false;
   bool _confirmationCardOpen = false;
   String? _confirmationShownFor;
+  StreamSubscription<String>? _shareSub;
 
   bool get _showAgentStatusBar {
     final status = _agentState.status;
@@ -156,7 +159,32 @@ class _BrowserPageState extends State<BrowserPage> {
       }
     });
     NotificationService.getInstance().init();
+
+    // Links shared into the app open as a tab instead of interrupting the
+    // current page, so the note the user was reading stays put.
+    ShareIntentService.instance.init();
+    _shareSub = ShareIntentService.instance.links.listen(_openSharedLink);
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final initial = await ShareIntentService.instance.takeInitialLink();
+      if (initial != null && mounted) _openSharedLink(initial);
+    });
+
     _initStorage();
+  }
+
+  /// Shared text is usually `标题 https://…`; only the first link is opened.
+  void _openSharedLink(String raw) {
+    final url = extractSharedUrl(raw);
+    if (url == null) return;
+    final tab = _currentTab;
+    final onStartPage = tab.url == 'operon://newtab' ||
+        tab.url == 'about:blank' ||
+        tab.url.isEmpty;
+    if (onStartPage) {
+      _loadUrl(url);
+    } else {
+      _createNewTab(url: url);
+    }
   }
 
   Future<void> _loadSkills() async {
@@ -215,6 +243,7 @@ class _BrowserPageState extends State<BrowserPage> {
   @override
   void dispose() {
     _agentSub?.cancel();
+    _shareSub?.cancel();
     _agentRunner.dispose();
     _urlController.dispose();
     super.dispose();
