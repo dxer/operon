@@ -222,7 +222,7 @@ class AgentStatusBar extends StatelessWidget {
         );
       case AgentStatus.paused:
         return const _StatusMeta(
-          '已暂停 · 触屏接管中',
+          '已暂停 · 点击继续',
           Icons.pause_circle_outline_rounded,
           AppTheme.warning,
         );
@@ -263,7 +263,6 @@ class AgentStatusBar extends StatelessWidget {
         );
     }
   }
-
 }
 
 class _StatusMeta {

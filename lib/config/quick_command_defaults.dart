@@ -5,38 +5,30 @@ import '../models/quick_command.dart';
 /// so users can reuse them on any similar page.
 class QuickCommandDefaults {
   static List<QuickCommand> all() => [
-        _batchReply(),
+        _smartReply(),
         _batchExtract(),
         _paginateExtract(),
         _batchForm(),
         _pageSummary(),
       ];
 
-  static QuickCommand _batchReply() => const QuickCommand(
+  // The id is kept as `quick_batch_reply` so existing installs upgrade the
+  // skill in place instead of seeding a duplicate.
+  static QuickCommand _smartReply() => const QuickCommand(
         id: 'quick_batch_reply',
-        title: '批量智能回复',
-        description: '逐个阅读当前列表/评论区的条目并生成不同回复；固定文案模式请在编辑里关闭“阻止重复内容”',
+        title: '智能回复',
+        description: '阅读当前页面的一条条目并生成回复；只回复一条，不会连续处理',
         promptTemplate: '''
-处理当前页面的信息流、评论区或列表，最多 {{count}} 条不同条目。
+处理当前页面信息流、评论区或列表中的一条内容，只回复这一条，不要继续处理其他条目。
 
-对每一条：
-1. 先读取该条目的正文、作者和上下文。如果是广告、抽奖、招聘或与主题无关的内容，跳过并处理下一条。
+1. 先读取目标条目的正文、作者和上下文。如果是广告、抽奖、招聘或与主题无关的内容，停止并说明，不要继续寻找下一条。
 2. 回复方式：{{replyMode}}。选择“AI 生成”时，根据该条目的具体内容生成回复；选择“固定文案”时，使用：{{replyText}}。如果固定文案为空，则改为根据内容生成。
-3. 回复必须回应条目里的某个具体观点或细节，禁止使用“非常有价值的分享”“感谢分享”“学习了”这类通用套话。
-4. 每条回复必须和之前发送过的不同，禁止复用相同或近似的句子。
-5. 长度 20-80 字，语言与条目一致。
-6. 点击回复或评论入口，输入内容并提交；打开输入框本身不算完成，只有发送成功才算一条。确认页面出现结果后，再处理下一条。
-7. 不要连续快速提交；出现验证码、频率限制或错误提示时立即停止并报告。
-
-已处理过的条目不要重复处理，已发送过的内容不要再次发送。''',
+3. 回复语气：{{tone}}。回复必须回应条目里的某个具体观点或细节，禁止使用“非常有价值的分享”“感谢分享”“学习了”这类通用套话。
+4. 长度 20-80 字，语言与条目一致。
+5. 点击回复或评论入口，输入内容，然后只点击真正的“发送 / 回复 / 发布 / 提交”按钮完成提交。严禁点击“保存草稿”“存草稿”“保存”等草稿按钮；保存草稿不算完成，也不能代替提交。
+6. 提交后确认页面出现回复结果，再用 finish 结束。
+7. 出现验证码、频率限制或错误提示时立即停止并报告。''',
         inputs: [
-          QuickCommandInput(
-            key: 'count',
-            label: '处理条数',
-            type: QuickCommandInputType.number,
-            defaultValue: '3',
-            required: true,
-          ),
           QuickCommandInput(
             key: 'tone',
             label: '回复语气',
@@ -61,14 +53,13 @@ class QuickCommandDefaults {
           ),
         ],
         policy: QuickCommandPolicy(
-          mode: QuickCommandMode.batch,
-          maxItems: 5,
+          mode: QuickCommandMode.single,
+          maxItems: 1,
           uniqueTarget: true,
           uniqueContent: true,
-          pacingMs: 6000,
           confirmBeforeSideEffect: true,
           showPayloadInConfirmation: true,
-          maxSteps: 32,
+          maxSteps: 18,
         ),
         builtin: true,
         sortOrder: 0,

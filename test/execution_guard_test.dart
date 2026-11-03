@@ -16,13 +16,22 @@ void main() {
     expect(guard.targetAlreadyProcessed('example.com|ABC|reply'), isTrue);
   });
 
+  test('draft buttons are detected without blocking plain save', () {
+    expect(ExecutionGuard.looksLikeDraftAction('保存草稿'), isTrue);
+    expect(ExecutionGuard.looksLikeDraftAction('存草稿'), isTrue);
+    expect(ExecutionGuard.looksLikeDraftAction('Save draft'), isTrue);
+    expect(ExecutionGuard.looksLikeDraftAction('发送'), isFalse);
+    expect(ExecutionGuard.looksLikeDraftAction('保存'), isFalse);
+  });
+
   test('rate limit detection uses page text', () {
     expect(ExecutionGuard.looksRateLimited('操作过于频繁，请稍后再试'), isTrue);
     expect(ExecutionGuard.looksRateLimited('temporarily blocked'), isTrue);
     expect(ExecutionGuard.looksRateLimited('正常内容'), isFalse);
   });
 
-  test('safe mode allows normal writes but asks for destructive actions', () async {
+  test('safe mode allows normal writes but asks for destructive actions',
+      () async {
     var asked = 0;
     final guard = ExecutionGuard(
       safeMode: false,

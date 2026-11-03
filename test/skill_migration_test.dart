@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:operon/config/quick_command_defaults.dart';
 import 'package:operon/config/skill_defaults.dart';
+import 'package:operon/models/quick_command.dart';
 import 'package:operon/models/skill.dart';
 import 'package:operon/services/quick_command_service.dart';
 import 'package:operon/services/skill_migration.dart';
@@ -52,7 +53,8 @@ void main() {
 
   test('existing quick commands are migrated and the legacy key is kept',
       () async {
-    final legacy = QuickCommandDefaults.all().first;
+    final legacy = QuickCommandDefaults.all()
+        .firstWhere((command) => command.id == 'quick_batch_extract');
     SharedPreferences.setMockInitialValues({
       SkillService.legacyKey: [jsonEncode(legacy.toJson())],
     });
@@ -72,6 +74,95 @@ void main() {
     expect(prefs.getStringList('pref_skills_v1'), isNotNull);
   });
 
+  test('legacy builtin reply is upgraded to the single-reply revision',
+      () async {
+    const legacy = QuickCommand(
+      id: 'quick_batch_reply',
+      title: '批量智能回复',
+      description: '旧版批量回复',
+      promptTemplate: '处理最多 {{count}} 条不同条目。',
+      policy: QuickCommandPolicy(mode: QuickCommandMode.batch, maxItems: 5),
+      builtin: true,
+    );
+    SharedPreferences.setMockInitialValues({
+      SkillService.legacyKey: [jsonEncode(legacy.toJson())],
+    });
+    QuickCommandService.resetForTest();
+    SkillService.resetForTest();
+
+    final service = await SkillService.getInstance();
+    final reply = service
+        .getSkills()
+        .firstWhere((item) => item.id == 'quick_batch_reply');
+
+    expect(reply.name, '智能回复');
+    expect(reply.policy.maxItems, 1);
+  });
+
+  test('untouched builtin reply upgrades to the single-reply revision',
+      () async {
+    const old = Skill(
+      id: 'quick_batch_reply',
+      name: '批量智能回复',
+      kind: SkillKind.instruction,
+      origin: SkillOrigin.builtin,
+      version: 1,
+      instructions: '处理当前页面最多 {{count}} 条不同条目。',
+      inputs: [
+        SkillInput(
+          key: 'count',
+          label: '处理条数',
+          defaultValue: '3',
+          required: true,
+        ),
+      ],
+      policy: SkillPolicy(maxItems: 5),
+      builtin: true,
+    );
+    SharedPreferences.setMockInitialValues({
+      'pref_skills_v1': [jsonEncode(old.toJson())],
+    });
+    SkillService.resetForTest();
+
+    final service = await SkillService.getInstance();
+    final reply = service
+        .getSkills()
+        .firstWhere((item) => item.id == 'quick_batch_reply');
+
+    expect(reply.version, 2);
+    expect(reply.name, '智能回复');
+    expect(reply.policy.maxItems, 1);
+    expect(reply.policy.maxSideEffects, 1);
+    expect(reply.inputs.map((input) => input.key), isNot(contains('count')));
+    expect(reply.instructions, isNot(contains('{{count}}')));
+  });
+
+  test('edited builtin reply is preserved during upgrade', () async {
+    const edited = Skill(
+      id: 'quick_batch_reply',
+      name: '我的回复',
+      kind: SkillKind.instruction,
+      origin: SkillOrigin.builtin,
+      version: 3,
+      instructions: '我的自定义回复',
+      policy: SkillPolicy(maxItems: 3),
+      builtin: true,
+    );
+    SharedPreferences.setMockInitialValues({
+      'pref_skills_v1': [jsonEncode(edited.toJson())],
+    });
+    SkillService.resetForTest();
+
+    final service = await SkillService.getInstance();
+    final reply = service
+        .getSkills()
+        .firstWhere((item) => item.id == 'quick_batch_reply');
+
+    expect(reply.name, '我的回复');
+    expect(reply.version, 3);
+    expect(reply.policy.maxItems, 3);
+  });
+
   test('saving an existing skill bumps its content version', () async {
     final service = await SkillService.getInstance();
     var skill = const Skill(
@@ -82,7 +173,8 @@ void main() {
     );
 
     await service.saveSkill(skill);
-    var saved = service.getSkills().firstWhere((item) => item.id == 'user_skill');
+    var saved =
+        service.getSkills().firstWhere((item) => item.id == 'user_skill');
     expect(saved.version, 1);
 
     skill = saved.copyWith(name: '我的技能 2');

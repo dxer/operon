@@ -9,10 +9,12 @@ import '../utils/cancellation.dart';
 import '../utils/extracted_data.dart';
 import '../utils/prompt_builder.dart';
 import '../utils/url_utils.dart';
+import 'action_loop_detector.dart';
 import 'execution_guard.dart';
 import 'finish_verifier.dart';
 import 'llm_service.dart';
 import 'notification_service.dart';
+import 'run_budget.dart';
 import 'side_effect_ledger.dart';
 import 'webview_controller_wrapper.dart';
 
@@ -34,8 +36,8 @@ class AgentRunner {
   Completer<bool>? _confirmationCompleter;
   Completer<bool>? _captchaCompleter;
 
-  String? _lastActionSignature;
-  int _repeatedActionCount = 0;
+  final ActionLoopDetector _loopDetector = ActionLoopDetector();
+  late RunBudget _budget;
   String? _prevPageSignature;
   bool _checkProgressNextStep = false;
   int _noProgressCount = 0;
@@ -57,7 +59,6 @@ class AgentRunner {
   String? _lastTypedText;
   int _lastTypedStep = -10;
   bool _lastTypedSecret = false;
-  int _completedSideEffects = 0;
   bool _batchLimitReached = false;
   String? _pendingItemContextKey;
   String? _pendingItemUrl;
@@ -105,8 +106,7 @@ class AgentRunner {
     _safeMode = safeMode;
     _isSiteAllowed = isSiteAllowed;
     _taskToken = CancellationToken();
-    _lastActionSignature = null;
-    _repeatedActionCount = 0;
+    _loopDetector.reset();
     _prevPageSignature = null;
     _checkProgressNextStep = false;
     _noProgressCount = 0;
@@ -128,11 +128,11 @@ class AgentRunner {
     _lastTypedText = null;
     _lastTypedStep = -10;
     _lastTypedSecret = false;
-    _completedSideEffects = 0;
+    _budget = RunBudget.fromPolicy(policy, fallbackMaxSteps: maxSteps);
     _batchLimitReached = false;
     _pendingItemContextKey = null;
     _pendingItemUrl = null;
-    final stepLimit = policy?.maxSteps ?? maxSteps;
+    final stepLimit = _budget.maxSteps;
     final token = _taskToken!;
     final generation = ++_generation;
 
@@ -154,6 +154,16 @@ class AgentRunner {
 
     try {
       while (step < stepLimit) {
+        if (_budget.timedOut) {
+          _addLog('超过本次运行的最长时长，任务已停止', isError: true);
+          _emit(_state.copyWith(
+            status: AgentStatus.error,
+            errorMessage: '超过本次运行的最长时长，任务已停止。',
+          ));
+          await webView.clearHighlights();
+          return;
+        }
+
         if (_isCancelled) {
           await _abortTask(webView, generation: generation);
           return;
@@ -224,10 +234,17 @@ class AgentRunner {
           _captchaCompleter = Completer<bool>();
           // Do not wait forever: the user may have walked away after the
           // notification, and the task would otherwise hang until stopped.
-          final passed = await _captchaCompleter!.future.timeout(
-            _captchaWait,
-            onTimeout: () => false,
-          );
+          // Human-wait time must not consume the run's duration budget.
+          _budget.pause();
+          bool passed = false;
+          try {
+            passed = await _captchaCompleter!.future.timeout(
+              _captchaWait,
+              onTimeout: () => false,
+            );
+          } finally {
+            _budget.resume();
+          }
           _captchaCompleter = null;
           if (generation != _generation) return;
 
@@ -301,6 +318,7 @@ class AgentRunner {
 
           if (responded) {
             _noProgressCount = 0;
+            _loopDetector.notifyProgress();
             if (sideEffectKey != null) {
               _sideEffects.markVerified(sideEffectKey);
             }
@@ -371,6 +389,20 @@ class AgentRunner {
 
         // 2. Reason (Call LLM)
         _emit(_state.copyWith(status: AgentStatus.thinking));
+
+        if (!_budget.canCallLlm()) {
+          final reason = _budget.timedOut
+              ? '超过本次运行的最长时长'
+              : '已达到本次运行的 AI 调用上限';
+          _addLog('$reason，任务已停止', isError: true);
+          _emit(_state.copyWith(
+            status: AgentStatus.error,
+            errorMessage: '$reason，任务已停止。',
+          ));
+          await webView.clearHighlights();
+          return;
+        }
+        _budget.recordLlmCall();
 
         final messages = PromptBuilder.buildMessages(
           userGoal: userGoal,
@@ -476,7 +508,10 @@ class AgentRunner {
 
         // Stop early when the model keeps choosing the same target: it almost
         // always means the page ignored the action or the element is gone.
-        if (_recordActionAndDetectLoop(action)) {
+        if (_loopDetector.record(
+          action,
+          pageSignature: _pageSignature(snapshot),
+        )) {
           _addLog(
             '检测到连续重复操作，自动停止以避免空转',
             detail: _actionLogDescription(action),
@@ -566,6 +601,21 @@ class AgentRunner {
 
         final elementText = (elementRisk?['text'] ?? '').toString();
         final elementContextKey = (elementRisk?['contextKey'] ?? '').toString();
+
+        // Saving a draft is not a reply. Reply composers often show a
+        // highlighted "保存草稿" button next to send; reject it deterministically
+        // instead of trusting the model to ignore it.
+        if (action.action == ActionType.click &&
+            ExecutionGuard.looksLikeDraftAction(elementText)) {
+          _addLog(
+            '已拦截草稿按钮',
+            detail: '「$elementText」是草稿按钮，不能用于回复。'
+                '请改为点击“发送 / 回复 / 发布 / 提交”按钮。',
+            isError: true,
+          );
+          _checkProgressNextStep = false;
+          continue;
+        }
         var isSensitive = action.isSensitive(
           '${action.thought} $elementText',
           pageUrl: snapshot.url,
@@ -649,6 +699,20 @@ class AgentRunner {
           _pendingItemContextKey = elementContextKey;
           _pendingItemUrl = snapshot.url;
         }
+        // Soft write budget: stop starting new writes, but let the model
+        // summarize what it already completed instead of failing the task.
+        if (submitLike && !_budget.canStartSideEffect()) {
+          final reason = _budget.timedOut
+              ? '超过本次运行的最长时长'
+              : '已达到本次写入上限（${_budget.sideEffects} 条）';
+          _addLog(
+            '$reason，已跳过该写入',
+            detail: '请汇总已有结果并 finish。',
+            isError: true,
+          );
+          _checkProgressNextStep = false;
+          continue;
+        }
         final targetContextKey =
             (_pendingItemContextKey != null && _pendingItemUrl == snapshot.url)
                 ? _pendingItemContextKey!
@@ -683,7 +747,14 @@ class AgentRunner {
               .notifyConfirmationNeeded(_actionLogDescription(action));
 
           _confirmationCompleter = Completer<bool>();
-          final confirmed = await _confirmationCompleter!.future;
+          // Waiting for a human decision is not automation time.
+          _budget.pause();
+          bool confirmed = false;
+          try {
+            confirmed = await _confirmationCompleter!.future;
+          } finally {
+            _budget.resume();
+          }
           _confirmationCompleter = null;
           if (generation != _generation) return;
 
@@ -729,7 +800,7 @@ class AgentRunner {
         if (submitLike && _batchLimitReached) {
           _addLog(
             '已达到本次批量上限',
-            detail: '本任务已处理 $_completedSideEffects 条，请汇总结果并 finish。',
+            detail: '本任务已处理 ${_budget.sideEffects} 条，请汇总结果并 finish。',
             isError: true,
           );
           _checkProgressNextStep = false;
@@ -850,18 +921,15 @@ class AgentRunner {
             }
             // Count every completed write, including deletes/follows that carry
             // no text. Content dedupe only applies when there is content.
-            _completedSideEffects++;
+            _budget.recordSideEffect();
             if (submitKey != null) {
               _processedSideEffectKeys.add(submitKey);
             }
-            final policy = _policy;
-            if (policy != null &&
-                policy.maxItems > 1 &&
-                _completedSideEffects >= policy.maxItems) {
+            if (_budget.itemLimitReached) {
               _batchLimitReached = true;
               _addLog(
                 '已达到本次批量上限',
-                detail: '已完成 $_completedSideEffects 条，请汇总结果并 finish。',
+                detail: '已完成 ${_budget.sideEffects} 条，请汇总结果并 finish。',
               );
             }
             // Do not reuse this text for the next target.
@@ -1242,18 +1310,24 @@ class AgentRunner {
     int generation,
   ) async {
     if (!_isPaused) return true;
-    while (_isPaused) {
-      await Future.delayed(const Duration(milliseconds: 300));
-      if (generation != _generation) return false;
-      if (_isCancelled) {
-        _addLog('任务已由用户手动停止');
-        _emit(_state.copyWith(
-          status: AgentStatus.idle,
-          clearCurrentAction: true,
-        ));
-        await webView.clearHighlights();
-        return false;
+    // Paused time is not automation time.
+    _budget.pause();
+    try {
+      while (_isPaused) {
+        await Future.delayed(const Duration(milliseconds: 300));
+        if (generation != _generation) return false;
+        if (_isCancelled) {
+          _addLog('任务已由用户手动停止');
+          _emit(_state.copyWith(
+            status: AgentStatus.idle,
+            clearCurrentAction: true,
+          ));
+          await webView.clearHighlights();
+          return false;
+        }
       }
+    } finally {
+      _budget.resume();
     }
     _emit(_state.copyWith(status: AgentStatus.executing));
     return true;
@@ -1273,41 +1347,6 @@ class AgentRunner {
       clearCurrentAction: true,
     ));
     await webView.clearHighlights();
-  }
-
-  /// Tracks consecutive identical interactive actions.
-  bool _recordActionAndDetectLoop(AgentAction action) {
-    const interactive = {
-      ActionType.click,
-      ActionType.type,
-      ActionType.pressKey,
-      ActionType.selectOption,
-      ActionType.hover,
-      ActionType.navigate,
-      ActionType.goBack,
-    };
-    if (!interactive.contains(action.action)) {
-      _lastActionSignature = null;
-      _repeatedActionCount = 0;
-      return false;
-    }
-
-    final signature = [
-      action.action.name,
-      action.elementId ?? '',
-      action.text ?? '',
-      action.url ?? '',
-      action.key ?? '',
-      action.selectValue ?? '',
-    ].join('|');
-
-    if (signature == _lastActionSignature) {
-      _repeatedActionCount++;
-    } else {
-      _lastActionSignature = signature;
-      _repeatedActionCount = 1;
-    }
-    return _repeatedActionCount >= 4;
   }
 
   void confirmAction(bool proceed) {

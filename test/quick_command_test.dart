@@ -42,10 +42,11 @@ void main() {
     }
   });
 
-  test('batch templates enable content dedupe', () {
+  test('builtin reply is a single-item template with content dedupe', () {
     final reply = QuickCommandDefaults.all()
         .firstWhere((item) => item.id == 'quick_batch_reply');
-    expect(reply.policy.mode, QuickCommandMode.batch);
+    expect(reply.policy.mode, QuickCommandMode.single);
+    expect(reply.policy.maxItems, 1);
     expect(reply.policy.uniqueContent, isTrue);
     expect(reply.policy.maxSteps, isNotNull);
   });

@@ -1699,22 +1699,6 @@ class _BrowserPageState extends State<BrowserPage> {
     );
   }
 
-  void _onUserTouchedWebView(PointerDownEvent event) {
-    if (_agentState.isRunning &&
-        (_agentState.status == AgentStatus.executing ||
-            _agentState.status == AgentStatus.observing ||
-            _agentState.status == AgentStatus.thinking)) {
-      _agentRunner.pause();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('检测到触屏操作，已暂停自动化任务'),
-          duration: Duration(milliseconds: 1400),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final isStartPage = _currentTab.url == 'operon://newtab' ||
@@ -1758,17 +1742,15 @@ class _BrowserPageState extends State<BrowserPage> {
                     ),
                   ),
 
-                // Full-screen IndexedStack Multi-Tab WebView Canvas with Touch-To-Interrupt
+                // Full-screen IndexedStack Multi-Tab WebView Canvas.
+                // Touches are intentionally not used to pause the agent; the
+                // status strip's pause button is the explicit takeover path.
                 Expanded(
-                  child: Listener(
-                    behavior: HitTestBehavior.translucent,
-                    onPointerDown: _onUserTouchedWebView,
-                    child: IndexedStack(
-                      index: _currentTabIndex,
-                      children: _tabs.asMap().entries.map((entry) {
-                        return _buildTabWebView(entry.value, entry.key);
-                      }).toList(),
-                    ),
+                  child: IndexedStack(
+                    index: _currentTabIndex,
+                    children: _tabs.asMap().entries.map((entry) {
+                      return _buildTabWebView(entry.value, entry.key);
+                    }).toList(),
                   ),
                 ),
 

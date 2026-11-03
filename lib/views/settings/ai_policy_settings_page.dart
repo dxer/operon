@@ -237,12 +237,12 @@ class _AiPolicySettingsPageState extends State<AiPolicySettingsPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '触屏即接管机制 (Touch-to-Interrupt)',
+                  '手动暂停与接管',
                   style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
                 ),
                 SizedBox(height: 6),
                 Text(
-                  'AI 正在执行网页滚动、点击或键入时，只要用户手指触碰网页任意区域，AI 将在毫秒级内自动挂起暂停，底部的 AI 状态条会变更为“已暂停 (接管中)”，确保人机共存无冲突。',
+                  'AI 执行时，触摸或滚动网页不会自动暂停任务，你可以正常浏览页面。需要接管时，点击底部 AI 状态条上的暂停按钮；任务会在当前动作完成后停住，恢复后从下一步继续。',
                   style: TextStyle(
                       fontSize: 12, color: AppTheme.neutral, height: 1.5),
                 ),

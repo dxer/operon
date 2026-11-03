@@ -31,30 +31,51 @@ class SkillService {
   }
 
   Future<void> _ensureSeeded() async {
-    if (_prefs.containsKey(_key)) return;
+    if (!_prefs.containsKey(_key)) {
+      final legacyRaw = _prefs.getStringList(legacyKey);
+      final skills = <Skill>[];
 
-    final legacyRaw = _prefs.getStringList(legacyKey);
-    final skills = <Skill>[];
-
-    if (legacyRaw != null) {
-      final legacy = await QuickCommandService.getInstance();
-      for (final command in legacy.getCommands()) {
-        if (command.id.trim().isEmpty) continue;
-        skills.add(SkillMigration.fromQuickCommand(command));
+      if (legacyRaw != null) {
+        final legacy = await QuickCommandService.getInstance();
+        for (final command in legacy.getCommands()) {
+          if (command.id.trim().isEmpty) continue;
+          skills.add(SkillMigration.fromQuickCommand(command));
+        }
+      } else {
+        skills.addAll(SkillDefaults.instructionDefaults());
       }
-    } else {
-      skills.addAll(SkillDefaults.instructionDefaults());
+
+      final ids = skills.map((skill) => skill.id).toSet();
+      for (final flow in SkillDefaults.flowDefaults) {
+        if (!ids.contains(flow.id)) {
+          skills.add(SkillDefaults.withRevision(flow));
+          ids.add(flow.id);
+        }
+      }
+
+      await _save(skills);
     }
 
-    final ids = skills.map((skill) => skill.id).toSet();
-    for (final flow in SkillDefaults.flowDefaults) {
-      if (!ids.contains(flow.id)) {
-        skills.add(flow);
-        ids.add(flow.id);
-      }
-    }
+    await _upgradeBuiltins();
+  }
 
-    await _save(skills);
+  /// Applies shipped content changes to built-in skills the user never edited.
+  ///
+  /// A version at or above the shipped revision means the stored copy was
+  /// edited (or is already current), so it is left untouched.
+  Future<void> _upgradeBuiltins() async {
+    final shipped = {for (final skill in SkillDefaults.all()) skill.id: skill};
+    final skills = getSkills();
+    var changed = false;
+    for (var i = 0; i < skills.length; i++) {
+      final stored = skills[i];
+      final latest = shipped[stored.id];
+      if (latest == null || !stored.builtin) continue;
+      if (stored.version >= latest.version) continue;
+      skills[i] = latest.copyWith(sortOrder: stored.sortOrder);
+      changed = true;
+    }
+    if (changed) await _save(skills);
   }
 
   List<Skill> getSkills() {

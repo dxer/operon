@@ -10,17 +10,31 @@ import 'quick_command_defaults.dart';
 class SkillDefaults {
   SkillDefaults._();
 
+  /// Shipped content revisions for built-in skills.
+  ///
+  /// `saveSkill` bumps a stored skill's `version`, so a stored version below
+  /// the revision here means the user never edited it and it is safe to
+  /// replace with the current shipped content.
+  static const Map<String, int> builtinRevisions = {
+    'quick_batch_reply': 2,
+  };
+
+  static Skill withRevision(Skill skill) {
+    final revision = builtinRevisions[skill.id];
+    return revision == null ? skill : skill.copyWith(version: revision);
+  }
+
   static List<Skill> all() => [
         ...instructionDefaults(),
-        ...flowDefaults,
+        ...flowDefaults.map(withRevision),
       ];
 
   static List<Skill> instructionDefaults() {
     return QuickCommandDefaults.all()
-        .map((command) => SkillMigration.fromQuickCommand(
+        .map((command) => withRevision(SkillMigration.fromQuickCommand(
               command,
               origin: SkillOrigin.builtin,
-            ))
+            )))
         .toList();
   }
 

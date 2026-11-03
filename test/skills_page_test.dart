@@ -23,7 +23,7 @@ void main() {
 
     expect(find.text('技能'), findsOneWidget);
     expect(find.text('AI 创建'), findsOneWidget);
-    expect(find.text('批量智能回复'), findsOneWidget);
+    expect(find.text('智能回复'), findsOneWidget);
     await tester.enterText(find.byType(TextField).first, '区域内容总结');
     await tester.pumpAndSettle();
     expect(find.text('区域内容总结'), findsWidgets);

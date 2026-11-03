@@ -40,25 +40,25 @@ class SideEffectLedger {
 
   bool isUnverified(String key) => _records[key]?.unverified == true;
 
-  void markPending(String key) {
+  void markPending(String key, {DateTime? now}) {
     _records[key] = SideEffectRecord(
-      at: DateTime.now(),
+      at: now ?? DateTime.now(),
       verified: false,
       unverified: false,
     );
   }
 
-  void markVerified(String key) {
+  void markVerified(String key, {DateTime? now}) {
     _records[key] = SideEffectRecord(
-      at: DateTime.now(),
+      at: now ?? DateTime.now(),
       verified: true,
       unverified: false,
     );
   }
 
-  void markUnverified(String key) {
+  void markUnverified(String key, {DateTime? now}) {
     _records[key] = SideEffectRecord(
-      at: DateTime.now(),
+      at: now ?? DateTime.now(),
       verified: false,
       unverified: true,
     );

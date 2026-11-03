@@ -88,7 +88,7 @@ class AboutSettingsPage extends StatelessWidget {
                   title: Text('自主 Agent 引擎',
                       style:
                           TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                  subtitle: Text('原生 DOM 语义感知、边缘吸附悬浮球与触屏即接管机制。',
+                  subtitle: Text('原生 DOM 语义感知、边缘吸附悬浮球与手动暂停接管。',
                       style: TextStyle(fontSize: 12, color: AppTheme.neutral)),
                 ),
                 const Divider(height: 1),

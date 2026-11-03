@@ -72,6 +72,14 @@ class ExecutionGuard {
     return text.toLowerCase().replaceAll(RegExp(r'\s+'), ' ').trim();
   }
 
+  /// True when a target is a draft-saving control rather than a real submit.
+  ///
+  /// Reply composers often put "保存草稿" next to the send button. Clicking it
+  /// is an extra, non-publishing step and must never stand in for a reply.
+  static bool looksLikeDraftAction(String targetText) {
+    return RegExp(r'草稿|draft', caseSensitive: false).hasMatch(targetText);
+  }
+
   static bool looksRateLimited(String pageText) {
     final lower = pageText.toLowerCase();
     const patterns = [
