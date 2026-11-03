@@ -29,6 +29,23 @@ class AppTheme {
   static const Color lightOnSurface = Color(0xFF17181A);
   static const Color lightMuted = Color(0xFF6E6A62);
 
+  /// Decoration for text fields that already sit inside a custom-drawn box.
+  ///
+  /// The global [InputDecorationTheme] fills and outlines inputs; leaving just
+  /// `border: InputBorder.none` still lets `enabledBorder`/`focusedBorder`
+  /// through and produces a box inside a box.
+  static const InputDecoration flatInput = InputDecoration(
+    border: InputBorder.none,
+    enabledBorder: InputBorder.none,
+    focusedBorder: InputBorder.none,
+    disabledBorder: InputBorder.none,
+    errorBorder: InputBorder.none,
+    focusedErrorBorder: InputBorder.none,
+    filled: false,
+    isDense: true,
+    contentPadding: EdgeInsets.zero,
+  );
+
   static const Map<TargetPlatform, PageTransitionsBuilder> _pageTransitions = {
     TargetPlatform.android: FadeForwardsPageTransitionsBuilder(),
     TargetPlatform.iOS: FadeForwardsPageTransitionsBuilder(),

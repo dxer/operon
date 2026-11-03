@@ -366,11 +366,7 @@ class _UserScriptsPageState extends State<UserScriptsPage> {
                       fontSize: 12,
                       height: 1.4,
                     ),
-                    decoration: const InputDecoration(
-                      border: InputBorder.none,
-                      isDense: true,
-                      contentPadding: EdgeInsets.zero,
-                    ),
+                    decoration: AppTheme.flatInput,
                   ),
                 ),
               ],

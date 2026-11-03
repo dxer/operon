@@ -23,6 +23,8 @@ typedef AgentStartHandler = void Function(
   QuickCommandPolicy? policy,
 );
 
+enum _SheetAction { logs, macros, skills, close }
+
 class AgentBottomSheet extends StatefulWidget {
   final AgentState state;
   final AgentStartHandler onStart;
@@ -76,6 +78,7 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
   QuickCommandPolicy? _activePolicy;
   bool _showLogs = false;
   final bool _showExtractedData = true;
+  bool _resultExpanded = false;
   bool _hasDraft = false;
   bool _discardDialogOpen = false;
 
@@ -156,6 +159,11 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
     if (widget.safeMode != oldWidget.safeMode) {
       _safeMode = widget.safeMode;
     }
+    // A failure is the moment logs matter most, so surface them immediately.
+    if (oldWidget.state.status != AgentStatus.error &&
+        widget.state.status == AgentStatus.error) {
+      _showLogs = true;
+    }
     if (widget.skills != oldWidget.skills) {
       _skills = List<Skill>.from(widget.skills);
     }
@@ -182,6 +190,7 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
     setState(() {
       _activeSkill = null;
       _activePolicy = null;
+      _resultExpanded = false;
     });
     widget.onStart(text, policy);
   }
@@ -438,6 +447,27 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
     return host;
   }
 
+  /// Long hosts collapse to their registrable domain so the header keeps room
+  /// for the status and authorization chips. The full host stays in the tooltip.
+  String _compactHost(String host) {
+    if (host.length <= 18) return host;
+    if (host.contains(':')) return host; // IPv6 literal; never split on dots.
+    final labels = host.split('.');
+    if (labels.length <= 2 ||
+        labels.every((label) => int.tryParse(label) != null)) {
+      return host;
+    }
+    final secondLevel = labels[labels.length - 2];
+    final tld = labels.last;
+    final keep = tld.length == 2 &&
+            const ['co', 'com', 'net', 'org', 'gov', 'edu', 'ac', 'or', 'ne']
+                .contains(secondLevel)
+        ? 3
+        : 2;
+    if (labels.length <= keep) return host;
+    return labels.sublist(labels.length - keep).join('.');
+  }
+
   /// Host of the tab the sheet was opened from; null means start page.
   String? get _pageHost {
     final url = widget.currentUrl;
@@ -539,13 +569,6 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
             style:
                 TextStyle(color: fg, fontSize: 12, fontWeight: FontWeight.bold),
           ),
-          if (widget.state.currentStep > 0) ...[
-            const SizedBox(width: 6),
-            Text(
-              '${widget.state.currentStep}/${widget.state.maxSteps}',
-              style: TextStyle(color: fg.withValues(alpha: 0.8), fontSize: 11),
-            ),
-          ]
         ],
       ),
     );
@@ -557,14 +580,15 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
     final hairline = isDark ? AppTheme.darkBorder : AppTheme.lightBorder;
     final surface = isDark ? AppTheme.darkInput : AppTheme.lightInput;
     final host = _pageHost;
+    final displayHost = host == null ? null : _compactHost(host);
     final fg = host == null
         ? onSurface.withValues(alpha: 0.55)
         : onSurface.withValues(alpha: 0.78);
 
     return Tooltip(
-      message: host == null ? '当前在起始页，AI 会按指令打开网页' : 'AI 将在这个站点上操作',
+      message: host == null ? '当前在起始页，AI 会按指令打开网页' : 'AI 将在这个站点上操作\n$host',
       child: Container(
-        constraints: const BoxConstraints(maxWidth: 150),
+        constraints: const BoxConstraints(minWidth: 54, maxWidth: 132),
         padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
         decoration: BoxDecoration(
           color: surface,
@@ -582,7 +606,7 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
             const SizedBox(width: 4),
             Flexible(
               child: Text(
-                host ?? '起始页',
+                displayHost ?? '起始页',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(fontSize: 10.5, color: fg),
@@ -594,7 +618,7 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
     );
   }
 
-  Widget _buildSafeModeChip() {
+  Widget _buildSafeModeChip({bool showLabel = true}) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final sage = isDark ? const Color(0xFF6FC7A3) : const Color(0xFF237A5A);
     final ochre = isDark ? AppTheme.warning : const Color(0xFF8A5A12);
@@ -607,7 +631,10 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
           borderRadius: BorderRadius.circular(20),
           onTap: () => _toggleSafeMode(!_safeMode),
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+            padding: EdgeInsets.symmetric(
+              horizontal: showLabel ? 8 : 6,
+              vertical: 5,
+            ),
             decoration: BoxDecoration(
               color: fg.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(20),
@@ -624,15 +651,17 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
                   size: 13,
                   color: fg,
                 ),
-                const SizedBox(width: 3),
-                Text(
-                  _safeMode ? '人工授权' : '全自动',
-                  style: TextStyle(
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.w600,
-                    color: fg,
+                if (showLabel) ...[
+                  const SizedBox(width: 3),
+                  Text(
+                    _safeMode ? '人工授权' : '全自动',
+                    style: TextStyle(
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w600,
+                      color: fg,
+                    ),
                   ),
-                ),
+                ],
               ],
             ),
           ),
@@ -641,45 +670,424 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
     );
   }
 
+  bool _hasResultCard(AgentState state) {
+    if (state.currentThought.trim().isNotEmpty) return true;
+    return state.status == AgentStatus.completed ||
+        state.status == AgentStatus.error ||
+        state.status == AgentStatus.maxStepsReached;
+  }
+
+  String _resultText(AgentState state) {
+    final thought = state.currentThought.trim();
+    if (thought.isNotEmpty) return thought;
+    switch (state.status) {
+      case AgentStatus.completed:
+        return '任务已完成。';
+      case AgentStatus.error:
+        return '任务执行失败，请查看日志。';
+      case AgentStatus.maxStepsReached:
+        return '已达到步数上限，任务已停止。';
+      default:
+        return '';
+    }
+  }
+
+  void _copyResult() {
+    final text = _resultText(widget.state);
+    if (text.isEmpty) return;
+    HapticFeedback.selectionClick();
+    Clipboard.setData(ClipboardData(text: text));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('已复制任务结果')),
+    );
+  }
+
+  Widget _smallAction({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 14, color: color),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: TextStyle(fontSize: 11, color: color),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildResultCard({
+    required AgentState state,
+    required bool isDark,
+    required Color surface,
+    required Color hairline,
+    required Color onSurface,
+    required Color muted,
+    required bool canSaveMacro,
+  }) {
+    final sage = isDark ? const Color(0xFF6FC7A3) : const Color(0xFF237A5A);
+    final ochre = isDark ? const Color(0xFFE0A23C) : const Color(0xFF8A5A12);
+    final brick = isDark ? const Color(0xFFE06A5E) : AppTheme.danger;
+    final copper = isDark ? const Color(0xFFE08A56) : AppTheme.primary;
+
+    late Color color;
+    late IconData icon;
+    late String title;
+    var finished = true;
+    switch (state.status) {
+      case AgentStatus.completed:
+        color = sage;
+        icon = Icons.check_circle_rounded;
+        title = '任务结果';
+        break;
+      case AgentStatus.error:
+        color = brick;
+        icon = Icons.error_outline_rounded;
+        title = '执行异常';
+        break;
+      case AgentStatus.maxStepsReached:
+        color = ochre;
+        icon = Icons.timer_outlined;
+        title = '达到步数上限';
+        break;
+      default:
+        color = copper;
+        icon = Icons.auto_awesome_rounded;
+        title = 'AI 思路';
+        finished = false;
+    }
+
+    final text = _resultText(state);
+    final maxLines = finished ? 3 : 2;
+    final needsToggle = text.length > (finished ? 84 : 56) ||
+        text.split('\n').length > maxLines;
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+      decoration: BoxDecoration(
+        color: surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: hairline),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 15, color: color),
+              const SizedBox(width: 6),
+              Text(
+                title,
+                style: TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.2,
+                  color: color,
+                ),
+              ),
+              const Spacer(),
+              if (state.currentStep > 0)
+                Text(
+                  finished
+                      ? '共 ${state.currentStep} 步'
+                      : '第 ${state.currentStep}/${state.maxSteps} 步',
+                  style: TextStyle(fontSize: 10.5, color: muted),
+                ),
+            ],
+          ),
+          const SizedBox(height: 5),
+          Text(
+            text,
+            maxLines: _resultExpanded ? null : maxLines,
+            overflow:
+                _resultExpanded ? TextOverflow.clip : TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 12.5,
+              height: 1.5,
+              color: onSurface.withValues(alpha: 0.88),
+            ),
+          ),
+          if (needsToggle)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: InkWell(
+                onTap: () => setState(() => _resultExpanded = !_resultExpanded),
+                borderRadius: BorderRadius.circular(6),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 3),
+                  child: Text(
+                    _resultExpanded ? '收起' : '展开',
+                    style: TextStyle(fontSize: 11, color: color),
+                  ),
+                ),
+              ),
+            ),
+          if (finished) ...[
+            const SizedBox(height: 4),
+            Wrap(
+              spacing: 2,
+              runSpacing: 2,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                _smallAction(
+                  icon: Icons.copy_rounded,
+                  label: '复制',
+                  color: muted,
+                  onTap: _copyResult,
+                ),
+                if (canSaveMacro)
+                  _smallAction(
+                    icon: Icons.bookmark_add_outlined,
+                    label: '存为宏',
+                    color: muted,
+                    onTap: _saveAsMacro,
+                  ),
+                if (state.logs.isNotEmpty)
+                  _smallAction(
+                    icon: Icons.subject_rounded,
+                    label: _showLogs ? '收起日志' : '日志 ${state.logs.length}',
+                    color: muted,
+                    onTap: () => setState(() => _showLogs = !_showLogs),
+                  ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  int _dataCount(dynamic data) => data is List ? data.length : 1;
+
+  /// Fields of the first record; lists of primitives have no field names.
+  List<MapEntry<String, dynamic>> _dataEntries(dynamic data) {
+    dynamic record = data;
+    if (data is List) {
+      if (data.isEmpty) return const [];
+      record = data.first;
+    }
+    if (record is Map) {
+      return record.entries
+          .map((entry) => MapEntry(entry.key.toString(), entry.value))
+          .toList();
+    }
+    return const [];
+  }
+
+  String _shortValue(dynamic value) {
+    if (value == null) return '—';
+    if (value is String) return value;
+    if (value is num || value is bool) return value.toString();
+    return jsonEncode(value);
+  }
+
+  String _dataSummary(dynamic data) {
+    final fields = _dataEntries(data).length;
+    if (fields == 0) return '已抓取结构化数据';
+    final count = _dataCount(data);
+    if (data is List) return '$count 条数据 · $fields 个字段';
+    return '$fields 个字段';
+  }
+
+  Widget _iconAction({
+    required IconData icon,
+    required String tooltip,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return Tooltip(
+      message: tooltip,
+      child: InkResponse(
+        onTap: onTap,
+        radius: 16,
+        child: Padding(
+          padding: const EdgeInsets.all(6),
+          child: Icon(icon, size: 15, color: color),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildExtractedCard({
+    required dynamic data,
+    required Color surface,
+    required Color hairline,
+    required Color onSurface,
+    required Color muted,
+  }) {
+    final entries = _dataEntries(data);
+    final count = _dataCount(data);
+    final preview = entries.take(3).toList();
+    final canExpand = entries.isEmpty ||
+        entries.length > preview.length ||
+        (data is List && count > 1);
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+      decoration: BoxDecoration(
+        color: surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: hairline),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.dataset_outlined,
+                  size: 15, color: AppTheme.accent),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  _dataSummary(data),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w700,
+                    color: onSurface.withValues(alpha: 0.82),
+                  ),
+                ),
+              ),
+              _iconAction(
+                icon: Icons.copy_rounded,
+                tooltip: '复制数据',
+                color: muted,
+                onTap: _copyExtractedData,
+              ),
+              if (canExpand)
+                _iconAction(
+                  icon: Icons.open_in_full_rounded,
+                  tooltip: '展开全部',
+                  color: muted,
+                  onTap: _showExtractedDataSheet,
+                ),
+            ],
+          ),
+          if (preview.isNotEmpty) ...[
+            const SizedBox(height: 5),
+            ...preview.map(
+              (entry) => Padding(
+                padding: const EdgeInsets.only(bottom: 3),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(
+                      width: 116,
+                      child: Text(
+                        entry.key,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 10.5,
+                          height: 1.4,
+                          color: muted,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _shortValue(entry.value),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontFamily: 'monospace',
+                          fontSize: 11,
+                          height: 1.4,
+                          color: onSurface.withValues(alpha: 0.86),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showExtractedDataSheet() async {
+    final data = widget.state.extractedData;
+    if (data == null) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _ExtractedDataSheet(data: data),
+    );
+  }
+
   Widget _buildSkillStrip({
     required Color surface,
     required Color hairline,
     required Color muted,
   }) {
+    Widget chipFor(Skill skill) {
+      return ActionChip(
+        avatar: Icon(
+          skill.isFlow ? Icons.account_tree_outlined : Icons.auto_awesome,
+          size: 14,
+          color: AppTheme.primary,
+        ),
+        label: Text(
+          skill.name,
+          style: TextStyle(fontSize: 11, color: muted),
+        ),
+        labelPadding: const EdgeInsets.symmetric(horizontal: 2),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
+        visualDensity: VisualDensity.compact,
+        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        backgroundColor: surface,
+        side: BorderSide(color: hairline),
+        onPressed: () => _applySkill(skill),
+      );
+    }
+
+    // A handful of skills fits cleanly on wrapped rows. Only fall back to a
+    // scrolling strip when the list is long enough to need it.
+    if (_skills.length <= 4) {
+      return Wrap(
+        spacing: 6,
+        runSpacing: 6,
+        children: _skills.map(chipFor).toList(),
+      );
+    }
+
     final strip = SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       padding: const EdgeInsets.only(right: 16),
       child: Row(
-        children: _skills.map((skill) {
-          return Padding(
-            padding: const EdgeInsets.only(right: 6.0),
-            child: ActionChip(
-              avatar: Icon(
-                skill.isFlow ? Icons.account_tree_outlined : Icons.auto_awesome,
-                size: 14,
-                color: AppTheme.primary,
-              ),
-              label: Text(
-                skill.name,
-                style: TextStyle(fontSize: 11, color: muted),
-              ),
-              backgroundColor: surface,
-              side: BorderSide(color: hairline),
-              onPressed: () => _applySkill(skill),
-            ),
-          );
-        }).toList(),
+        children: _skills
+            .map((skill) => Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: chipFor(skill),
+                ))
+            .toList(),
       ),
     );
 
     // Fade the right edge to hint that more skills can be scrolled into view.
-    if (_skills.length <= 3) return strip;
     return ShaderMask(
       shaderCallback: (bounds) => const LinearGradient(
         begin: Alignment.centerLeft,
         end: Alignment.centerRight,
         colors: [Colors.white, Colors.white, Colors.transparent],
-        stops: [0, 0.88, 1],
+        stops: [0, 0.9, 1],
       ).createShader(bounds),
       blendMode: BlendMode.dstIn,
       child: strip,
@@ -687,63 +1095,127 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
   }
 
   Widget _buildHeader({required AgentState state, required bool isRunning}) {
-    // The header packs four controls; clamp text scaling so large system
-    // fonts cannot overflow the row on narrow phones.
+    // Keep this row to four controls. Logs, macros and skill management move
+    // into the overflow menu so the host chip never collapses to a bare globe.
     return MediaQuery.withClampedTextScaling(
-      maxScaleFactor: 1.2,
-      child: Row(
-        children: [
-          _buildStatusBadge(state.status),
-          const SizedBox(width: 8),
-          Flexible(
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: _buildPageChip(),
-            ),
-          ),
-          _buildSafeModeChip(),
-          if (!isRunning)
-            IconButton(
-              icon: const Icon(Icons.bolt, size: 20, color: AppTheme.primary),
-              onPressed: () {
-                showDialog(
-                  context: context,
-                  builder: (_) => MacroDialog(onRunMacro: widget.onRunMacro),
-                );
-              },
-              tooltip: '快捷宏任务库 (0 Token)',
-              visualDensity: VisualDensity.compact,
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(
-                minWidth: 36,
-                minHeight: 36,
+      maxScaleFactor: 1.15,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          // On narrow phones drop the authorization label to an icon so a long
+          // host keeps enough room to show its registrable domain.
+          final compact = constraints.maxWidth < 310;
+          return Row(
+            children: [
+              Expanded(
+                child: Row(
+                  children: [
+                    _buildStatusBadge(state.status),
+                    const SizedBox(width: 6),
+                    Flexible(child: _buildPageChip()),
+                    const SizedBox(width: 6),
+                    _buildSafeModeChip(showLabel: !compact),
+                  ],
+                ),
               ),
-            ),
-          if (state.logs.isNotEmpty)
-            TextButton(
-              onPressed: () => setState(() => _showLogs = !_showLogs),
-              style: TextButton.styleFrom(
-                foregroundColor: AppTheme.primary,
-                minimumSize: const Size(0, 32),
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    _showLogs ? '收起' : '日志 ${state.logs.length}',
-                    style: const TextStyle(fontSize: 11.5),
-                  ),
-                  Icon(
-                    _showLogs ? Icons.expand_less : Icons.expand_more,
-                    size: 15,
-                  ),
-                ],
-              ),
-            ),
-        ],
+              const SizedBox(width: 4),
+              _buildOverflowMenu(state: state, isRunning: isRunning),
+            ],
+          );
+        },
       ),
     );
+  }
+
+  Widget _buildOverflowMenu({
+    required AgentState state,
+    required bool isRunning,
+  }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final onSurface = Theme.of(context).colorScheme.onSurface;
+    return PopupMenuButton<_SheetAction>(
+      tooltip: '更多操作',
+      padding: EdgeInsets.zero,
+      onSelected: (action) => _handleSheetAction(action, state: state),
+      color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(
+          color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
+        ),
+      ),
+      itemBuilder: (context) => [
+        if (state.logs.isNotEmpty)
+          PopupMenuItem(
+            value: _SheetAction.logs,
+            height: 42,
+            child: _menuRow(
+              Icons.subject_rounded,
+              _showLogs ? '收起日志' : '日志 ${state.logs.length}',
+            ),
+          ),
+        if (!isRunning)
+          PopupMenuItem(
+            value: _SheetAction.macros,
+            height: 42,
+            child: _menuRow(Icons.bolt_rounded, '快捷宏任务库'),
+          ),
+        if (widget.onManageSkills != null)
+          PopupMenuItem(
+            value: _SheetAction.skills,
+            height: 42,
+            child: _menuRow(Icons.tune_rounded, '管理技能'),
+          ),
+        PopupMenuItem(
+          value: _SheetAction.close,
+          height: 42,
+          child: _menuRow(Icons.close_rounded, '关闭面板'),
+        ),
+      ],
+      child: SizedBox(
+        width: 34,
+        height: 34,
+        child: Icon(
+          Icons.more_horiz_rounded,
+          size: 20,
+          color: onSurface.withValues(alpha: 0.7),
+        ),
+      ),
+    );
+  }
+
+  Widget _menuRow(IconData icon, String label) {
+    final onSurface = Theme.of(context).colorScheme.onSurface;
+    return Row(
+      children: [
+        Icon(icon, size: 16, color: onSurface.withValues(alpha: 0.62)),
+        const SizedBox(width: 8),
+        Text(label, style: const TextStyle(fontSize: 12.5)),
+      ],
+    );
+  }
+
+  Future<void> _handleSheetAction(
+    _SheetAction action, {
+    required AgentState state,
+  }) async {
+    switch (action) {
+      case _SheetAction.logs:
+        setState(() => _showLogs = !_showLogs);
+        return;
+      case _SheetAction.macros:
+        await showDialog<void>(
+          context: context,
+          builder: (_) => MacroDialog(onRunMacro: widget.onRunMacro),
+        );
+        return;
+      case _SheetAction.skills:
+        await _manageSkills();
+        return;
+      case _SheetAction.close:
+        if (!mounted) return;
+        await Navigator.of(context).maybePop();
+        return;
+    }
   }
 
   @override
@@ -760,7 +1232,6 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
     final subtle = onSurface.withValues(alpha: 0.38);
     final hairline = isDark ? AppTheme.darkBorder : AppTheme.lightBorder;
     final surface = isDark ? AppTheme.darkInput : AppTheme.lightInput;
-    final deepSurface = isDark ? AppTheme.darkBg : AppTheme.lightBg;
     final dangerInk = isDark ? const Color(0xFFE06A5E) : AppTheme.danger;
 
     final media = MediaQuery.of(context);
@@ -819,7 +1290,7 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
                           ),
                         ),
                       ),
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 10),
 
                       _buildHeader(state: state, isRunning: isRunning),
 
@@ -850,189 +1321,61 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
                         ),
                       ],
 
-                      // Thought Display Box
-                      if (state.currentThought.isNotEmpty) ...[
-                        const SizedBox(height: 10),
-                        Container(
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            color: surface,
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: hairline),
-                          ),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Icon(Icons.tips_and_updates_outlined,
-                                  size: 16, color: AppTheme.warning),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  state.currentThought,
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: muted,
-                                    fontStyle: FontStyle.italic,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-
-                      // Save As Macro Banner (when completed)
-                      if (canSaveMacro) ...[
-                        const SizedBox(height: 10),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 8),
-                          decoration: BoxDecoration(
-                            color: AppTheme.warning.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(
-                                color: AppTheme.warning.withValues(alpha: 0.4)),
-                          ),
-                          child: Row(
-                            children: [
-                              const Icon(Icons.electric_bolt,
-                                  size: 16, color: AppTheme.warning),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  '已成功执行 ${state.recordedMacroSteps.length} 个步骤',
-                                  style:
-                                      TextStyle(fontSize: 12, color: onSurface),
-                                ),
-                              ),
-                              ElevatedButton.icon(
-                                onPressed: _saveAsMacro,
-                                icon: const Icon(Icons.bookmark_add, size: 14),
-                                label: const Text('存为快捷宏'),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: AppTheme.warning,
-                                  foregroundColor: Colors.black,
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 10, vertical: 0),
-                                  textStyle: const TextStyle(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.bold),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-
-                      // Extracted Data Viewer
-                      if (hasExtractedData && _showExtractedData) ...[
-                        const SizedBox(height: 10),
-                        Container(
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            color: deepSurface,
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(
-                                color: AppTheme.accent.withValues(alpha: 0.5)),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  const Icon(Icons.dataset_outlined,
-                                      size: 14, color: AppTheme.accent),
-                                  const SizedBox(width: 6),
-                                  const Text(
-                                    '已抓取结构化数据',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.bold,
-                                      color: AppTheme.accent,
-                                    ),
-                                  ),
-                                  const Spacer(),
-                                  InkWell(
-                                    onTap: _copyExtractedData,
-                                    child: const Padding(
-                                      padding: EdgeInsets.symmetric(
-                                          horizontal: 6, vertical: 2),
-                                      child: Text(
-                                        '一键复制',
-                                        style: TextStyle(
-                                            fontSize: 11,
-                                            color: AppTheme.accent),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 6),
-                              Container(
-                                constraints:
-                                    const BoxConstraints(maxHeight: 120),
-                                child: SingleChildScrollView(
-                                  child: Text(
-                                    const JsonEncoder.withIndent('  ')
-                                        .convert(state.extractedData),
-                                    style: TextStyle(
-                                      fontFamily: 'monospace',
-                                      fontSize: 11,
-                                      color: muted,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-
                       // CAPTCHA Hand-Off Banner
                       if (state.status == AgentStatus.waitingCaptcha) ...[
-                        const SizedBox(height: 12),
+                        const SizedBox(height: 8),
                         Container(
-                          padding: const EdgeInsets.all(12),
+                          padding: const EdgeInsets.fromLTRB(11, 10, 11, 10),
                           decoration: BoxDecoration(
-                            color: AppTheme.warning.withValues(alpha: 0.15),
-                            borderRadius: BorderRadius.circular(10),
+                            color: AppTheme.warning.withValues(alpha: 0.10),
+                            borderRadius: BorderRadius.circular(12),
                             border: Border.all(
-                                color: AppTheme.warning.withValues(alpha: 0.5)),
+                              color: AppTheme.warning.withValues(alpha: 0.32),
+                            ),
                           ),
                           child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
                               Row(
                                 children: [
-                                  Icon(Icons.shield_outlined,
-                                      color: isDark
-                                          ? AppTheme.warning
-                                          : const Color(0xFF8A5A12),
-                                      size: 18),
-                                  const SizedBox(width: 8),
+                                  Icon(
+                                    Icons.verified_user_outlined,
+                                    color: isDark
+                                        ? AppTheme.warning
+                                        : const Color(0xFF8A5A12),
+                                    size: 15,
+                                  ),
+                                  const SizedBox(width: 6),
                                   Expanded(
                                     child: Text(
-                                      '页面弹出人机验证 (${state.captchaType ?? "验证码"})',
+                                      state.captchaType == null
+                                          ? '需要人机验证'
+                                          : '需要人机验证 · ${state.captchaType}',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
                                       style: TextStyle(
                                         color: isDark
                                             ? AppTheme.warning
                                             : const Color(0xFF8A5A12),
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 12,
                                       ),
                                     ),
                                   ),
                                 ],
                               ),
-                              const SizedBox(height: 6),
+                              const SizedBox(height: 4),
                               Text(
-                                '请在上方网页中手动完成滑动或点击验证，完成后点击“我已通过验证”继续。',
-                                style: TextStyle(fontSize: 12, color: muted),
+                                '请在上方网页完成验证，然后点击继续。',
+                                style: TextStyle(
+                                  fontSize: 11.5,
+                                  height: 1.4,
+                                  color: muted,
+                                ),
                               ),
-                              const SizedBox(height: 10),
-                              Wrap(
-                                alignment: WrapAlignment.center,
-                                spacing: 12,
-                                runSpacing: 8,
+                              const SizedBox(height: 8),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.end,
                                 children: [
                                   OutlinedButton(
                                     onPressed: () =>
@@ -1040,17 +1383,36 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
                                     style: OutlinedButton.styleFrom(
                                       foregroundColor: muted,
                                       side: BorderSide(color: hairline),
+                                      minimumSize: const Size(0, 34),
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 10),
+                                      textStyle:
+                                          const TextStyle(fontSize: 11.5),
+                                      visualDensity: VisualDensity.compact,
+                                      tapTargetSize:
+                                          MaterialTapTargetSize.shrinkWrap,
                                     ),
                                     child: const Text('中止任务'),
                                   ),
+                                  const SizedBox(width: 8),
                                   ElevatedButton(
                                     onPressed: () =>
                                         widget.onConfirmCaptcha(true),
                                     style: ElevatedButton.styleFrom(
                                       backgroundColor: AppTheme.warning,
                                       foregroundColor: Colors.black,
+                                      minimumSize: const Size(0, 34),
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 10),
+                                      textStyle: const TextStyle(
+                                        fontSize: 11.5,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                      visualDensity: VisualDensity.compact,
+                                      tapTargetSize:
+                                          MaterialTapTargetSize.shrinkWrap,
                                     ),
-                                    child: const Text('我已通过验证，继续'),
+                                    child: const Text('验证完成，继续'),
                                   ),
                                 ],
                               ),
@@ -1061,46 +1423,59 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
 
                       // Human Confirmation Banner
                       if (state.status == AgentStatus.waitingConfirmation) ...[
-                        const SizedBox(height: 12),
+                        const SizedBox(height: 8),
                         Container(
-                          padding: const EdgeInsets.all(12),
+                          padding: const EdgeInsets.fromLTRB(11, 10, 11, 8),
                           decoration: BoxDecoration(
-                            color: AppTheme.danger.withValues(alpha: 0.15),
-                            borderRadius: BorderRadius.circular(10),
+                            color: AppTheme.danger.withValues(alpha: 0.10),
+                            borderRadius: BorderRadius.circular(12),
                             border: Border.all(
-                                color: AppTheme.danger.withValues(alpha: 0.5)),
+                              color: AppTheme.danger.withValues(alpha: 0.38),
+                            ),
                           ),
                           child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
                               Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
                                   Icon(Icons.shield_outlined,
-                                      size: 16, color: dangerInk),
+                                      size: 15, color: dangerInk),
                                   const SizedBox(width: 6),
-                                  Text(
-                                    '敏感操作拦截提醒',
-                                    style: TextStyle(
-                                      color: dangerInk,
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 13,
+                                  Expanded(
+                                    child: Text(
+                                      '敏感操作，等待授权',
+                                      style: TextStyle(
+                                        color: dangerInk,
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 12,
+                                      ),
                                     ),
                                   ),
                                 ],
                               ),
-                              const SizedBox(height: 4),
-                              Text(
-                                'AI 准备执行: ${_actionLabel(state.currentAction)}',
-                                style:
-                                    TextStyle(fontSize: 12, color: onSurface),
-                              ),
-                              if (state.confirmationReason != null &&
-                                  state.confirmationReason!.isNotEmpty) ...[
+                              if (_actionLabel(state.currentAction)
+                                  .isNotEmpty) ...[
                                 const SizedBox(height: 4),
                                 Text(
-                                  '风险类型: ${state.confirmationReason}',
+                                  '将执行：${_actionLabel(state.currentAction)}',
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
                                     fontSize: 11.5,
+                                    height: 1.4,
+                                    color: onSurface,
+                                  ),
+                                ),
+                              ],
+                              if (state.confirmationReason != null &&
+                                  state.confirmationReason!.isNotEmpty) ...[
+                                const SizedBox(height: 2),
+                                Text(
+                                  '风险类型：${state.confirmationReason}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 11,
                                     color: dangerInk,
                                     fontWeight: FontWeight.w600,
                                   ),
@@ -1109,17 +1484,17 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
                               if (_hostOf(state.targetUrl).isNotEmpty) ...[
                                 const SizedBox(height: 2),
                                 Text(
-                                  '目标站点: ${_hostOf(state.targetUrl)}',
-                                  style:
-                                      TextStyle(fontSize: 11.5, color: muted),
+                                  '目标站点：${_compactHost(_hostOf(state.targetUrl))}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(fontSize: 11, color: muted),
                                 ),
                               ],
                               if (state.confirmationPayload != null &&
                                   state.confirmationPayload!.isNotEmpty) ...[
                                 const SizedBox(height: 6),
                                 Container(
-                                  width: double.infinity,
-                                  padding: const EdgeInsets.all(8),
+                                  padding: const EdgeInsets.all(7),
                                   decoration: BoxDecoration(
                                     color: isDark
                                         ? Colors.white.withValues(alpha: 0.06)
@@ -1128,7 +1503,7 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
                                   ),
                                   child: Text(
                                     '将发送：${state.confirmationPayload}',
-                                    maxLines: 6,
+                                    maxLines: 4,
                                     overflow: TextOverflow.ellipsis,
                                     style: TextStyle(
                                       fontSize: 11.5,
@@ -1138,11 +1513,9 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
                                   ),
                                 ),
                               ],
-                              const SizedBox(height: 10),
-                              Wrap(
-                                alignment: WrapAlignment.center,
-                                spacing: 12,
-                                runSpacing: 8,
+                              const SizedBox(height: 8),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.end,
                                 children: [
                                   OutlinedButton(
                                     onPressed: () =>
@@ -1150,61 +1523,117 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
                                     style: OutlinedButton.styleFrom(
                                       foregroundColor: muted,
                                       side: BorderSide(color: hairline),
+                                      minimumSize: const Size(0, 34),
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 10),
+                                      textStyle:
+                                          const TextStyle(fontSize: 11.5),
+                                      visualDensity: VisualDensity.compact,
+                                      tapTargetSize:
+                                          MaterialTapTargetSize.shrinkWrap,
                                     ),
                                     child: const Text('取消任务'),
                                   ),
+                                  const SizedBox(width: 8),
                                   ElevatedButton(
                                     onPressed: () =>
                                         widget.onConfirmAction(true),
                                     style: ElevatedButton.styleFrom(
                                       backgroundColor: AppTheme.accent,
                                       foregroundColor: Colors.black,
+                                      minimumSize: const Size(0, 34),
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 12),
+                                      textStyle: const TextStyle(
+                                        fontSize: 11.5,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                      visualDensity: VisualDensity.compact,
+                                      tapTargetSize:
+                                          MaterialTapTargetSize.shrinkWrap,
                                     ),
                                     child: const Text('授权继续'),
                                   ),
                                 ],
                               ),
-                              if (widget.onAllowSite != null) ...[
-                                const SizedBox(height: 2),
-                                TextButton.icon(
-                                  onPressed: widget.onAllowSite,
-                                  icon: const Icon(Icons.verified_user_outlined,
-                                      size: 15),
-                                  label: Text(
-                                    '本站始终允许（${_hostOf(state.targetUrl)}）',
-                                    style: const TextStyle(fontSize: 11.5),
-                                  ),
-                                  style: TextButton.styleFrom(
-                                    foregroundColor: AppTheme.accent,
-                                    minimumSize: const Size(0, 30),
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 6),
+                              if (widget.onAllowSite != null &&
+                                  _hostOf(state.targetUrl).isNotEmpty)
+                                Align(
+                                  alignment: Alignment.centerRight,
+                                  child: TextButton.icon(
+                                    onPressed: widget.onAllowSite,
+                                    icon: const Icon(
+                                        Icons.verified_user_outlined,
+                                        size: 14),
+                                    label: ConstrainedBox(
+                                      constraints:
+                                          const BoxConstraints(maxWidth: 210),
+                                      child: Text(
+                                        '本站始终允许（${_compactHost(_hostOf(state.targetUrl))}）',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(fontSize: 11),
+                                      ),
+                                    ),
+                                    style: TextButton.styleFrom(
+                                      foregroundColor: AppTheme.accent,
+                                      minimumSize: const Size(0, 32),
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 6),
+                                      visualDensity: VisualDensity.compact,
+                                      tapTargetSize:
+                                          MaterialTapTargetSize.shrinkWrap,
+                                    ),
                                   ),
                                 ),
-                              ],
                             ],
                           ),
                         ),
                       ],
 
+                      // Result card: one place for the conclusion, step count and
+                      // follow-up actions instead of three stacked success banners.
+                      if (_hasResultCard(state)) ...[
+                        const SizedBox(height: 8),
+                        _buildResultCard(
+                          state: state,
+                          isDark: isDark,
+                          surface: surface,
+                          hairline: hairline,
+                          onSurface: onSurface,
+                          muted: muted,
+                          canSaveMacro: canSaveMacro,
+                        ),
+                      ],
+
+                      // Extracted data: compact key/value preview, full view on demand.
+                      if (hasExtractedData && _showExtractedData) ...[
+                        const SizedBox(height: 8),
+                        _buildExtractedCard(
+                          data: state.extractedData,
+                          surface: surface,
+                          hairline: hairline,
+                          onSurface: onSurface,
+                          muted: muted,
+                        ),
+                      ],
+
                       // Expandable Logs
                       if (_showLogs) ...[
-                        const SizedBox(height: 10),
+                        const SizedBox(height: 8),
                         Container(
                           constraints: const BoxConstraints(maxHeight: 180),
                           decoration: BoxDecoration(
                             color: surface,
-                            borderRadius: BorderRadius.circular(8),
+                            borderRadius: BorderRadius.circular(12),
                           ),
                           child: StepLogView(logs: state.logs),
                         ),
                       ],
 
-                      const SizedBox(height: 12),
-
                       // Skill templates (instruction or flow).
                       if (!isRunning) ...[
-                        const SizedBox(height: 10),
+                        const SizedBox(height: 12),
                         Row(
                           children: [
                             const Icon(Icons.auto_awesome,
@@ -1291,7 +1720,7 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
 
                       // Control Action Buttons (when running)
                       if (isRunning) ...[
-                        const SizedBox(height: 12),
+                        const SizedBox(height: 10),
                         Row(
                           children: [
                             Expanded(
@@ -1372,6 +1801,10 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
     required bool isRunning,
     required Color subtle,
   }) {
+    final finished = !isRunning &&
+        (widget.state.status == AgentStatus.completed ||
+            widget.state.status == AgentStatus.error ||
+            widget.state.status == AgentStatus.maxStepsReached);
     return TextField(
       controller: _goalController,
       enabled: !isRunning,
@@ -1381,7 +1814,7 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
       onSubmitted: (_) => _startGoal(),
       style: const TextStyle(fontSize: 14),
       decoration: InputDecoration(
-        hintText: '描述你想让 AI 做的事…',
+        hintText: finished ? '继续追问，或开始新任务…' : '描述你想让 AI 做的事…',
         hintStyle: TextStyle(fontSize: 12, color: subtle),
         suffixIconConstraints: const BoxConstraints(
           minWidth: 48,
@@ -1418,6 +1851,116 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
                   );
                 },
               ),
+      ),
+    );
+  }
+}
+
+/// Full-screen-ish viewer for extracted data. Keeping the sheet itself short
+/// avoids a nested scroll area inside the agent panel.
+class _ExtractedDataSheet extends StatefulWidget {
+  final dynamic data;
+
+  const _ExtractedDataSheet({required this.data});
+
+  @override
+  State<_ExtractedDataSheet> createState() => _ExtractedDataSheetState();
+}
+
+class _ExtractedDataSheetState extends State<_ExtractedDataSheet> {
+  bool _copied = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final onSurface = theme.colorScheme.onSurface;
+    final muted = onSurface.withValues(alpha: 0.6);
+    final jsonStr = const JsonEncoder.withIndent('  ').convert(widget.data);
+
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.72,
+      decoration: BoxDecoration(
+        color: isDark ? AppTheme.darkCard : AppTheme.lightCard,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Column(
+          children: [
+            const SizedBox(height: 10),
+            Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: isDark ? Colors.white24 : Colors.black12,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 8, 6),
+              child: Row(
+                children: [
+                  const Icon(Icons.dataset_outlined,
+                      size: 16, color: AppTheme.accent),
+                  const SizedBox(width: 6),
+                  Text(
+                    '抓取的数据',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: onSurface,
+                    ),
+                  ),
+                  const Spacer(),
+                  TextButton.icon(
+                    onPressed: () async {
+                      await Clipboard.setData(ClipboardData(text: jsonStr));
+                      if (mounted) setState(() => _copied = true);
+                    },
+                    icon: Icon(
+                      _copied ? Icons.check_rounded : Icons.copy_rounded,
+                      size: 15,
+                    ),
+                    label: Text(
+                      _copied ? '已复制' : '复制',
+                      style: const TextStyle(fontSize: 11.5),
+                    ),
+                    style: TextButton.styleFrom(
+                      foregroundColor: AppTheme.accent,
+                      minimumSize: const Size(0, 32),
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: '关闭',
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: Icon(Icons.close_rounded, size: 18, color: muted),
+                    visualDensity: VisualDensity.compact,
+                  ),
+                ],
+              ),
+            ),
+            Divider(
+              height: 1,
+              color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
+            ),
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                child: SelectableText(
+                  jsonStr,
+                  style: TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 11.5,
+                    height: 1.5,
+                    color: onSurface.withValues(alpha: 0.82),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

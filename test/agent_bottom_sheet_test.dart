@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:operon/config/app_theme.dart';
 import 'package:operon/models/agent_state.dart';
+import 'package:operon/models/macro_workflow.dart';
+import 'package:operon/models/skill.dart';
 import 'package:operon/views/widgets/agent_bottom_sheet.dart';
 
 void main() {
@@ -47,6 +49,9 @@ Widget _sheet({
   AgentState state = const AgentState(),
   AgentStartHandler? onStart,
   String? currentUrl,
+  List<Skill> skills = const [],
+  Future<void> Function()? onManageSkills,
+  VoidCallback? onAllowSite,
 }) {
   return MaterialApp(
     theme: AppTheme.darkTheme.copyWith(
@@ -57,6 +62,9 @@ Widget _sheet({
         state: state,
         currentUrl: currentUrl,
         safeMode: true,
+        skills: skills,
+        onManageSkills: onManageSkills,
+        onAllowSite: onAllowSite,
         onSafeModeChanged: (_) {},
         onStart: onStart ?? (_, __) {},
         onPause: () {},
@@ -189,9 +197,13 @@ void _moreTests() {
     expect(field.controller?.text, '还没发送的指令');
   });
 
-  testWidgets('empty logs are not shown in the header', (tester) async {
+  testWidgets('empty logs are not offered in the overflow menu',
+      (tester) async {
     await tester.pumpWidget(_sheet());
     await tester.pump();
+
+    await tester.tap(find.byTooltip('更多操作'));
+    await tester.pumpAndSettle();
 
     expect(find.textContaining('日志'), findsNothing);
   });
@@ -212,6 +224,8 @@ void _moreTests() {
     ));
     await tester.pump();
 
+    await tester.tap(find.byTooltip('更多操作'));
+    await tester.pumpAndSettle();
     expect(find.text('日志 1'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
@@ -249,6 +263,265 @@ void _moreTests() {
     await tester.pump();
 
     expect(find.byType(TextField), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('completed task consolidates the result into one card',
+      (tester) async {
+    await tester.pumpWidget(_sheet(
+      state: AgentState(
+        status: AgentStatus.completed,
+        goal: '回复推文',
+        currentStep: 5,
+        currentThought: '回复已发布，任务目标达成。',
+        logs: [AgentLogItem(step: 1, title: '打开推文')],
+        recordedMacroSteps: const [
+          MacroStep(action: 'click', description: '打开推文'),
+        ],
+      ),
+    ));
+    await tester.pump();
+
+    expect(find.text('任务结果'), findsOneWidget);
+    expect(find.text('共 5 步'), findsOneWidget);
+    expect(find.text('复制'), findsOneWidget);
+    expect(find.text('存为宏'), findsOneWidget);
+    expect(find.text('日志 1'), findsOneWidget);
+    expect(find.textContaining('已成功执行'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('extracted data shows a compact summary and opens the full view',
+      (tester) async {
+    await tester.pumpWidget(_sheet(
+      state: const AgentState(
+        status: AgentStatus.completed,
+        currentStep: 2,
+        currentThought: '已抓取数据。',
+        extractedData: [
+          {
+            'action': 'reply',
+            'target_tweet_handle': '@jwx1250',
+            'target_tweet_url': 'https://x.com/jwx1250/status/1',
+            'reply_content': '支持！',
+            'extra': 'more',
+          }
+        ],
+      ),
+    ));
+    await tester.pump();
+
+    expect(find.text('1 条数据 · 5 个字段'), findsOneWidget);
+    expect(find.text('target_tweet_handle'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('展开全部'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('抓取的数据'), findsOneWidget);
+    expect(find.textContaining('"action": "reply"'), findsOneWidget);
+  });
+
+  testWidgets('overflow menu exposes logs, macros, skills and close',
+      (tester) async {
+    await tester.pumpWidget(_sheet(
+      skills: const [Skill(id: 'a', name: '批量智能回复')],
+      onManageSkills: () async {},
+      state: AgentState(
+        status: AgentStatus.completed,
+        currentThought: '完成。',
+        logs: [AgentLogItem(step: 1, title: '打开推文')],
+      ),
+    ));
+    await tester.pump();
+
+    await tester.tap(find.byTooltip('更多操作'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('日志 1'), findsWidgets);
+    expect(find.text('快捷宏任务库'), findsOneWidget);
+    expect(find.text('管理技能'), findsOneWidget);
+    expect(find.text('关闭面板'), findsOneWidget);
+  });
+
+  testWidgets('an error surfaces its logs automatically', (tester) async {
+    var state = AgentState(
+      status: AgentStatus.executing,
+      currentStep: 2,
+      currentThought: '正在点击。',
+      logs: [
+        AgentLogItem(step: 2, title: '点击失败：目标元素不存在', isError: true),
+      ],
+    );
+    late StateSetter rebuild;
+
+    await tester.pumpWidget(MaterialApp(
+      theme: AppTheme.darkTheme.copyWith(
+        splashFactory: InkRipple.splashFactory,
+      ),
+      home: Scaffold(
+        body: StatefulBuilder(
+          builder: (context, setState) {
+            rebuild = setState;
+            return AgentBottomSheet(
+              state: state,
+              safeMode: true,
+              onSafeModeChanged: (_) {},
+              onStart: (_, __) {},
+              onPause: () {},
+              onResume: () {},
+              onStop: () {},
+              onConfirmAction: (_) {},
+              onConfirmCaptcha: (_) {},
+              onRunMacro: (_) {},
+            );
+          },
+        ),
+      ),
+    ));
+    await tester.pump();
+    expect(find.textContaining('点击失败'), findsNothing);
+
+    rebuild(() => state = state.copyWith(status: AgentStatus.error));
+    await tester.pump();
+
+    expect(find.textContaining('点击失败'), findsOneWidget);
+  });
+
+  testWidgets('completed panel fits a 320px screen', (tester) async {
+    tester.view.physicalSize = const Size(320, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(_sheet(
+      state: AgentState(
+        status: AgentStatus.completed,
+        currentStep: 5,
+        currentThought: '页面顶部已显示发送成功提示，任务目标达成，可以继续下一步操作。',
+        extractedData: const [
+          {
+            'action': 'reply',
+            'target_tweet_handle': '@jwx1250',
+            'target_tweet_url': 'https://x.com/jwx1250/status/1',
+            'reply_content': '支持！',
+            'extra': 'more',
+          }
+        ],
+        logs: [AgentLogItem(step: 1, title: '打开推文')],
+        recordedMacroSteps: const [
+          MacroStep(action: 'click', description: '打开推文'),
+        ],
+      ),
+    ));
+    await tester.pump();
+
+    expect(find.text('任务结果'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('overflow menu is pinned to the trailing edge', (tester) async {
+    tester.view.physicalSize = const Size(320, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(_sheet(
+      currentUrl: 'https://www.example.com/articles/1',
+      state: AgentState(
+        status: AgentStatus.completed,
+        currentStep: 5,
+        currentThought: '完成。',
+        logs: [AgentLogItem(step: 1, title: '打开页面')],
+      ),
+    ));
+    await tester.pump();
+
+    final rect = tester.getRect(find.byIcon(Icons.more_horiz_rounded));
+    expect(rect.right, greaterThan(320 - 40));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('long hosts collapse to the registrable domain', (tester) async {
+    tester.view.physicalSize = const Size(320, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(_sheet(
+      currentUrl: 'https://very-long-subdomain.example.co.uk/deep/path',
+      state: AgentState(
+        status: AgentStatus.waitingCaptcha,
+        goal: '测试任务',
+        logs: [AgentLogItem(step: 1, title: '打开页面')],
+      ),
+    ));
+    await tester.pump();
+
+    expect(find.text('example.co.uk'), findsOneWidget);
+    expect(find.textContaining('very-long-subdomain'), findsNothing);
+    expect(
+      find.byTooltip('AI 将在这个站点上操作\nvery-long-subdomain.example.co.uk'),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('short hosts are not abbreviated', (tester) async {
+    await tester.pumpWidget(_sheet(
+      currentUrl: 'https://x.com/linyun1128',
+    ));
+    await tester.pump();
+
+    expect(find.text('x.com'), findsOneWidget);
+  });
+
+  testWidgets('captcha hand-off stays compact on a narrow phone',
+      (tester) async {
+    tester.view.physicalSize = const Size(320, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(_sheet(
+      state: const AgentState(
+        status: AgentStatus.waitingCaptcha,
+        captchaType: '滑动验证',
+        currentStep: 3,
+        currentThought: '页面弹出验证码。',
+      ),
+    ));
+    await tester.pump();
+
+    expect(find.text('需要人机验证 · 滑动验证'), findsOneWidget);
+    expect(find.text('请在上方网页完成验证，然后点击继续。'), findsOneWidget);
+
+    final abort = tester.getCenter(find.text('中止任务'));
+    final proceed = tester.getCenter(find.text('验证完成，继续'));
+    expect((abort.dy - proceed.dy).abs(), lessThan(1));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('confirmation banner stays compact and shortens the host',
+      (tester) async {
+    tester.view.physicalSize = const Size(320, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(_sheet(
+      onAllowSite: () {},
+      state: const AgentState(
+        status: AgentStatus.waitingConfirmation,
+        goal: '发送回复',
+        currentStep: 4,
+        confirmationReason: '发布内容',
+        targetUrl: 'https://very-long-subdomain.example.co.uk/status/1',
+        confirmationPayload: '支持！祝你早日突破百万粉丝，期待更多优质内容。',
+      ),
+    ));
+    await tester.pump();
+
+    expect(find.text('敏感操作，等待授权'), findsOneWidget);
+    expect(find.text('本站始终允许（example.co.uk）'), findsOneWidget);
+
+    final cancel = tester.getCenter(find.text('取消任务'));
+    final allow = tester.getCenter(find.text('授权继续'));
+    expect((cancel.dy - allow.dy).abs(), lessThan(1));
     expect(tester.takeException(), isNull);
   });
 }

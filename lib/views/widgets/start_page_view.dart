@@ -381,9 +381,9 @@ class _StartPageViewState extends State<StartPageView> {
                         boxShadow: [
                           BoxShadow(
                             color: Colors.black
-                                .withValues(alpha: isDark ? 0.32 : 0.06),
-                            blurRadius: 22,
-                            offset: const Offset(0, 6),
+                                .withValues(alpha: isDark ? 0.28 : 0.045),
+                            blurRadius: isDark ? 18 : 14,
+                            offset: const Offset(0, 4),
                           ),
                         ],
                       ),
@@ -393,10 +393,12 @@ class _StartPageViewState extends State<StartPageView> {
                         children: [
                           Icon(
                             Icons.search_rounded,
-                            size: 22,
-                            color: isDark ? Colors.white54 : Colors.black45,
+                            size: 21,
+                            color: isDark
+                                ? AppTheme.darkMuted
+                                : AppTheme.lightMuted,
                           ),
-                          const SizedBox(width: 12),
+                          const SizedBox(width: 10),
                           Expanded(
                             child: TextField(
                               controller: _searchController,
@@ -404,20 +406,22 @@ class _StartPageViewState extends State<StartPageView> {
                               textAlignVertical: TextAlignVertical.center,
                               cursorColor: AppTheme.primary,
                               style: TextStyle(
-                                fontSize: 16,
+                                fontSize: 15.5,
                                 fontWeight: FontWeight.normal,
-                                color: isDark ? Colors.white : Colors.black87,
+                                color: isDark
+                                    ? AppTheme.darkOnSurface
+                                    : AppTheme.lightOnSurface,
                               ),
-                              decoration: InputDecoration(
+                              decoration: AppTheme.flatInput.copyWith(
                                 hintText: '搜索或输入网址',
                                 hintStyle: TextStyle(
-                                  fontSize: 16,
-                                  color:
-                                      isDark ? Colors.white38 : Colors.black38,
+                                  fontSize: 15.5,
+                                  color: isDark
+                                      ? AppTheme.darkMuted
+                                          .withValues(alpha: 0.72)
+                                      : AppTheme.lightMuted
+                                          .withValues(alpha: 0.78),
                                 ),
-                                border: InputBorder.none,
-                                contentPadding:
-                                    const EdgeInsets.symmetric(vertical: 12),
                               ),
                               textInputAction: TextInputAction.go,
                               onSubmitted: _handleSubmit,
@@ -434,8 +438,9 @@ class _StartPageViewState extends State<StartPageView> {
                                 child: Icon(
                                   Icons.close_rounded,
                                   size: 18,
-                                  color:
-                                      isDark ? Colors.white38 : Colors.black38,
+                                  color: isDark
+                                      ? AppTheme.darkMuted
+                                      : AppTheme.lightMuted,
                                 ),
                               ),
                             )
@@ -444,7 +449,9 @@ class _StartPageViewState extends State<StartPageView> {
                               icon: Icon(
                                 Icons.arrow_forward_rounded,
                                 size: 20,
-                                color: isDark ? Colors.white54 : Colors.black45,
+                                color: isDark
+                                    ? AppTheme.darkMuted
+                                    : AppTheme.lightMuted,
                               ),
                               padding: const EdgeInsets.all(4),
                               constraints: const BoxConstraints(),

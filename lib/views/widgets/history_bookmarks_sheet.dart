@@ -189,16 +189,16 @@ class _HistoryBookmarksSheetState extends State<HistoryBookmarksSheet>
                             child: TextField(
                               controller: _searchController,
                               style: const TextStyle(fontSize: 13),
-                              decoration: InputDecoration(
+                              decoration: AppTheme.flatInput.copyWith(
                                 hintText: '搜索标题或网址...',
                                 hintStyle: TextStyle(
                                   fontSize: 13,
-                                  color:
-                                      isDark ? Colors.white38 : Colors.black38,
+                                  color: isDark
+                                      ? AppTheme.darkMuted
+                                          .withValues(alpha: 0.72)
+                                      : AppTheme.lightMuted
+                                          .withValues(alpha: 0.78),
                                 ),
-                                border: InputBorder.none,
-                                isDense: true,
-                                contentPadding: EdgeInsets.zero,
                               ),
                             ),
                           ),
