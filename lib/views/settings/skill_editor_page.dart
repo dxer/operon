@@ -257,7 +257,7 @@ class _SkillEditPageState extends State<SkillEditPage> {
                     result.error!,
                     style: const TextStyle(
                       fontSize: 12,
-                      color: Colors.redAccent,
+                      color: AppTheme.danger,
                     ),
                   ),
                 ...result.validation.errors.take(6).map(
@@ -267,7 +267,7 @@ class _SkillEditPageState extends State<SkillEditPage> {
                           '• ${issue.message}',
                           style: const TextStyle(
                             fontSize: 11.5,
-                            color: Colors.redAccent,
+                            color: AppTheme.danger,
                           ),
                         ),
                       ),
@@ -306,7 +306,7 @@ class _SkillEditPageState extends State<SkillEditPage> {
                           style: const TextStyle(
                             fontSize: 12,
                             height: 1.4,
-                            color: Colors.redAccent,
+                            color: AppTheme.danger,
                           ),
                         ),
                       ))
@@ -907,7 +907,7 @@ class _SkillInputDialogState extends State<SkillInputDialog> {
                 child: Text(
                   _error!,
                   style: const TextStyle(
-                    color: Colors.redAccent,
+                    color: AppTheme.danger,
                     fontSize: 11.5,
                   ),
                 ),
@@ -1278,7 +1278,7 @@ class _SkillStepDialogState extends State<SkillStepDialog> {
               Text(
                 _error!,
                 style: const TextStyle(
-                  color: Colors.redAccent,
+                  color: AppTheme.danger,
                   fontSize: 11.5,
                 ),
               ),

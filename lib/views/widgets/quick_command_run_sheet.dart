@@ -84,7 +84,7 @@ class _QuickCommandRunSheetState extends State<QuickCommandRunSheet> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('请填写：${input.label}'),
-            backgroundColor: Colors.redAccent,
+            backgroundColor: AppTheme.danger,
           ),
         );
         return;
@@ -95,7 +95,7 @@ class _QuickCommandRunSheetState extends State<QuickCommandRunSheet> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text('${input.label} 需要填写大于 0 的数字'),
-              backgroundColor: Colors.redAccent,
+              backgroundColor: AppTheme.danger,
             ),
           );
           return;
@@ -123,7 +123,7 @@ class _QuickCommandRunSheetState extends State<QuickCommandRunSheet> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final cardBg = isDark ? AppTheme.darkCard : Colors.white;
-    final surface = isDark ? const Color(0xFF16181C) : const Color(0xFFF1F4F6);
+    final surface = isDark ? AppTheme.darkInput : AppTheme.lightInput;
     final onSurface = Theme.of(context).colorScheme.onSurface;
     final muted = onSurface.withValues(alpha: isDark ? 0.72 : 0.6);
     final hairline = isDark ? AppTheme.darkBorder : AppTheme.lightBorder;
@@ -167,7 +167,7 @@ class _QuickCommandRunSheetState extends State<QuickCommandRunSheet> {
           const SizedBox(height: 10),
           Row(
             children: [
-              const Icon(Icons.bolt_rounded, size: 18, color: Colors.amber),
+              const Icon(Icons.bolt_rounded, size: 18, color: AppTheme.warning),
               const SizedBox(width: 6),
               Expanded(
                 child: Text(

@@ -1,5 +1,6 @@
 import 'dart:ui' show ImageFilter;
 import 'package:flutter/material.dart';
+import '../../config/app_theme.dart';
 import '../../models/agent_state.dart';
 
 class DynamicAgentCapsule extends StatefulWidget {
@@ -108,7 +109,7 @@ class _DynamicAgentCapsuleState extends State<DynamicAgentCapsule>
               child: const Icon(
                 Icons.auto_awesome,
                 size: 14,
-                color: Color(0xFF1D9BF0),
+                color: AppTheme.primary,
               ),
             ),
             const SizedBox(width: 7),
@@ -133,10 +134,10 @@ class _DynamicAgentCapsuleState extends State<DynamicAgentCapsule>
       case AgentStatus.thinking:
         targetWidth = 210.0;
         targetHeight = 34.0;
-        borderColor = const Color(0xFF1D9BF0).withValues(alpha: 0.45);
+        borderColor = AppTheme.primary.withValues(alpha: 0.45);
         shadows.add(
           BoxShadow(
-            color: const Color(0xFF1D9BF0).withValues(alpha: 0.15),
+            color: AppTheme.primary.withValues(alpha: 0.15),
             blurRadius: 10,
             spreadRadius: 1,
           ),
@@ -149,7 +150,7 @@ class _DynamicAgentCapsuleState extends State<DynamicAgentCapsule>
               height: 12,
               child: CircularProgressIndicator(
                 strokeWidth: 1.8,
-                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF1D9BF0)),
+                valueColor: AlwaysStoppedAnimation<Color>(AppTheme.primary),
               ),
             ),
             const SizedBox(width: 8),
@@ -185,10 +186,10 @@ class _DynamicAgentCapsuleState extends State<DynamicAgentCapsule>
       case AgentStatus.executing:
         targetWidth = 240.0;
         targetHeight = 34.0;
-        borderColor = const Color(0xFF00BA7C).withValues(alpha: 0.45);
+        borderColor = AppTheme.accent.withValues(alpha: 0.45);
         shadows.add(
           BoxShadow(
-            color: const Color(0xFF00BA7C).withValues(alpha: 0.15),
+            color: AppTheme.accent.withValues(alpha: 0.15),
             blurRadius: 10,
             spreadRadius: 1,
           ),
@@ -199,7 +200,7 @@ class _DynamicAgentCapsuleState extends State<DynamicAgentCapsule>
             ScaleTransition(
               scale: _pulseAnimation,
               child: const Icon(Icons.touch_app_rounded,
-                  size: 14, color: Color(0xFF00BA7C)),
+                  size: 14, color: AppTheme.accent),
             ),
             const SizedBox(width: 6),
             Expanded(
@@ -247,10 +248,10 @@ class _DynamicAgentCapsuleState extends State<DynamicAgentCapsule>
       case AgentStatus.paused:
         targetWidth = 220.0;
         targetHeight = 34.0;
-        borderColor = Colors.amber.withValues(alpha: 0.6);
+        borderColor = AppTheme.warning.withValues(alpha: 0.6);
         shadows.add(
           BoxShadow(
-            color: Colors.amber.withValues(alpha: 0.2),
+            color: AppTheme.warning.withValues(alpha: 0.2),
             blurRadius: 10,
             spreadRadius: 1,
           ),
@@ -259,7 +260,7 @@ class _DynamicAgentCapsuleState extends State<DynamicAgentCapsule>
           mainAxisSize: MainAxisSize.min,
           children: [
             const Icon(Icons.pause_circle_outline_rounded,
-                size: 14, color: Colors.amber),
+                size: 14, color: AppTheme.warning),
             const SizedBox(width: 6),
             const Expanded(
               child: Text(
@@ -280,21 +281,21 @@ class _DynamicAgentCapsuleState extends State<DynamicAgentCapsule>
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                 decoration: BoxDecoration(
-                  color: Colors.amber.withValues(alpha: 0.25),
+                  color: AppTheme.warning.withValues(alpha: 0.25),
                   borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: Colors.amber, width: 0.8),
+                  border: Border.all(color: AppTheme.warning, width: 0.8),
                 ),
                 child: const Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(Icons.play_arrow_rounded,
-                        size: 12, color: Colors.amber),
+                        size: 12, color: AppTheme.warning),
                     SizedBox(width: 2),
                     Text(
                       '继续',
                       style: TextStyle(
                           fontSize: 10,
-                          color: Colors.amber,
+                          color: AppTheme.warning,
                           fontWeight: FontWeight.bold),
                     ),
                   ],
@@ -308,10 +309,10 @@ class _DynamicAgentCapsuleState extends State<DynamicAgentCapsule>
       case AgentStatus.waitingCaptcha:
         targetWidth = 224.0;
         targetHeight = 34.0;
-        borderColor = Colors.deepOrangeAccent.withValues(alpha: 0.7);
+        borderColor = AppTheme.warning.withValues(alpha: 0.7);
         shadows.add(
           BoxShadow(
-            color: Colors.deepOrangeAccent.withValues(alpha: 0.25),
+            color: AppTheme.warning.withValues(alpha: 0.25),
             blurRadius: 10,
             spreadRadius: 1,
           ),
@@ -320,7 +321,7 @@ class _DynamicAgentCapsuleState extends State<DynamicAgentCapsule>
           mainAxisSize: MainAxisSize.min,
           children: [
             const Icon(Icons.verified_user_outlined,
-                size: 14, color: Colors.deepOrangeAccent),
+                size: 14, color: AppTheme.warning),
             const SizedBox(width: 6),
             const Expanded(
               child: Text(
@@ -341,10 +342,9 @@ class _DynamicAgentCapsuleState extends State<DynamicAgentCapsule>
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                 decoration: BoxDecoration(
-                  color: Colors.deepOrangeAccent.withValues(alpha: 0.25),
+                  color: AppTheme.warning.withValues(alpha: 0.25),
                   borderRadius: BorderRadius.circular(10),
-                  border:
-                      Border.all(color: Colors.deepOrangeAccent, width: 0.8),
+                  border: Border.all(color: AppTheme.warning, width: 0.8),
                 ),
                 child: const Text(
                   '已通过',
@@ -362,10 +362,10 @@ class _DynamicAgentCapsuleState extends State<DynamicAgentCapsule>
       case AgentStatus.waitingConfirmation:
         targetWidth = 224.0;
         targetHeight = 34.0;
-        borderColor = Colors.redAccent.withValues(alpha: 0.7);
+        borderColor = AppTheme.danger.withValues(alpha: 0.7);
         shadows.add(
           BoxShadow(
-            color: Colors.redAccent.withValues(alpha: 0.25),
+            color: AppTheme.danger.withValues(alpha: 0.25),
             blurRadius: 10,
             spreadRadius: 1,
           ),
@@ -373,8 +373,7 @@ class _DynamicAgentCapsuleState extends State<DynamicAgentCapsule>
         content = Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.shield_outlined,
-                size: 14, color: Colors.redAccent),
+            const Icon(Icons.shield_outlined, size: 14, color: AppTheme.danger),
             const SizedBox(width: 6),
             const Expanded(
               child: Text(
@@ -395,9 +394,9 @@ class _DynamicAgentCapsuleState extends State<DynamicAgentCapsule>
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                 decoration: BoxDecoration(
-                  color: Colors.redAccent.withValues(alpha: 0.25),
+                  color: AppTheme.danger.withValues(alpha: 0.25),
                   borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: Colors.redAccent, width: 0.8),
+                  border: Border.all(color: AppTheme.danger, width: 0.8),
                 ),
                 child: const Text(
                   '授权',
@@ -415,12 +414,11 @@ class _DynamicAgentCapsuleState extends State<DynamicAgentCapsule>
       case AgentStatus.completed:
         targetWidth = 190.0;
         targetHeight = 34.0;
-        borderColor = const Color(0xFF00BA7C).withValues(alpha: 0.7);
+        borderColor = AppTheme.accent.withValues(alpha: 0.7);
         content = const Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.check_circle_rounded,
-                size: 14, color: Color(0xFF00BA7C)),
+            Icon(Icons.check_circle_rounded, size: 14, color: AppTheme.accent),
             SizedBox(width: 6),
             Expanded(
               child: Text(
@@ -441,11 +439,11 @@ class _DynamicAgentCapsuleState extends State<DynamicAgentCapsule>
       case AgentStatus.maxStepsReached:
         targetWidth = 190.0;
         targetHeight = 34.0;
-        borderColor = Colors.amber.withValues(alpha: 0.7);
+        borderColor = AppTheme.warning.withValues(alpha: 0.7);
         content = const Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.timer_outlined, size: 14, color: Colors.amber),
+            Icon(Icons.timer_outlined, size: 14, color: AppTheme.warning),
             SizedBox(width: 6),
             Expanded(
               child: Text(
@@ -466,12 +464,12 @@ class _DynamicAgentCapsuleState extends State<DynamicAgentCapsule>
       case AgentStatus.error:
         targetWidth = 190.0;
         targetHeight = 34.0;
-        borderColor = Colors.redAccent.withValues(alpha: 0.7);
+        borderColor = AppTheme.danger.withValues(alpha: 0.7);
         content = Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             const Icon(Icons.error_outline_rounded,
-                size: 14, color: Colors.redAccent),
+                size: 14, color: AppTheme.danger),
             const SizedBox(width: 6),
             Expanded(
               child: Text(

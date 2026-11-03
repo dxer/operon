@@ -109,7 +109,7 @@ class BottomToolbar extends StatelessWidget {
     final border = isDark
         ? Colors.white.withValues(alpha: 0.06)
         : Colors.black.withValues(alpha: 0.06);
-    final iconColor = isDark ? Colors.white70 : const Color(0xFF536471);
+    final iconColor = isDark ? AppTheme.darkMuted : AppTheme.lightMuted;
     final disabledColor = isDark ? Colors.white24 : Colors.black26;
 
     return Container(
@@ -160,7 +160,7 @@ class BottomToolbar extends StatelessWidget {
                         borderRadius: BorderRadius.circular(7),
                         border: Border.all(
                           color:
-                              isDark ? Colors.white54 : const Color(0xFF536471),
+                              isDark ? AppTheme.darkMuted : AppTheme.lightMuted,
                           width: 1.4,
                         ),
                       ),
@@ -169,8 +169,9 @@ class BottomToolbar extends StatelessWidget {
                         style: TextStyle(
                           fontSize: 11.5,
                           fontWeight: FontWeight.w700,
-                          color:
-                              isDark ? Colors.white : const Color(0xFF0F141C),
+                          color: isDark
+                              ? AppTheme.darkOnSurface
+                              : AppTheme.lightOnSurface,
                         ),
                       ),
                     ),
@@ -306,7 +307,7 @@ class _ActionMenuSheet extends StatelessWidget {
       _MenuAction(
         isBookmarked ? Icons.star_rounded : Icons.star_border_rounded,
         isBookmarked ? '取消收藏' : '收藏',
-        isBookmarked ? Colors.amber : null,
+        isBookmarked ? AppTheme.warning : null,
         onToggleBookmark,
       ),
       _MenuAction(Icons.history_rounded, '浏览历史', null, onOpenHistory),
@@ -410,9 +411,7 @@ class _ActionMenuSheet extends StatelessWidget {
                             action.icon,
                             size: 20,
                             color: action.color ??
-                                (isDark
-                                    ? Colors.white70
-                                    : const Color(0xFF536471)),
+                                (isDark ? Colors.white70 : AppTheme.lightMuted),
                           ),
                         ),
                         const SizedBox(height: 6),
@@ -423,9 +422,8 @@ class _ActionMenuSheet extends StatelessWidget {
                           style: TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w500,
-                            color: isDark
-                                ? Colors.white70
-                                : const Color(0xFF536471),
+                            color:
+                                isDark ? Colors.white70 : AppTheme.lightMuted,
                           ),
                         ),
                       ],
@@ -474,7 +472,7 @@ class _QuickAction extends StatelessWidget {
               Icon(
                 icon,
                 size: 18,
-                color: isDark ? Colors.white70 : const Color(0xFF536471),
+                color: isDark ? AppTheme.darkMuted : AppTheme.lightMuted,
               ),
               const SizedBox(width: 6),
               Text(
@@ -482,7 +480,7 @@ class _QuickAction extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w500,
-                  color: isDark ? Colors.white70 : const Color(0xFF536471),
+                  color: isDark ? AppTheme.darkMuted : AppTheme.lightMuted,
                 ),
               ),
             ],

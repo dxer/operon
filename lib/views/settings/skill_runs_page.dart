@@ -50,7 +50,7 @@ class _SkillRunsPageState extends State<SkillRunsPage> {
           ),
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('清空', style: TextStyle(color: Colors.redAccent)),
+            child: const Text('清空', style: TextStyle(color: AppTheme.danger)),
           ),
         ],
       ),
@@ -90,15 +90,15 @@ class _SkillRunsPageState extends State<SkillRunsPage> {
   Color _statusColor(SkillRunStatus status) {
     switch (status) {
       case SkillRunStatus.idle:
-        return Colors.grey;
+        return AppTheme.neutral;
       case SkillRunStatus.running:
         return AppTheme.primary;
       case SkillRunStatus.completed:
         return AppTheme.accent;
       case SkillRunStatus.failed:
-        return Colors.redAccent;
+        return AppTheme.danger;
       case SkillRunStatus.cancelled:
-        return Colors.amber;
+        return AppTheme.neutral;
     }
   }
 

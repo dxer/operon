@@ -1,9 +1,13 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../../config/app_theme.dart';
 import '../../models/agent_state.dart';
 
+/// A calm, tactile floating control rather than a glowing "AI orb".
+///
+/// The puck stays neutral graphite so it reads as a browser tool on any page;
+/// state is communicated by a thin ring and a small badge instead of a colored
+/// gradient or a scaling pulse.
 class FloatingAgentBall extends StatefulWidget {
   final AgentState state;
   final VoidCallback onTap;
@@ -21,23 +25,28 @@ class FloatingAgentBall extends StatefulWidget {
 }
 
 class _FloatingAgentBallState extends State<FloatingAgentBall>
-    with TickerProviderStateMixin {
-  // Ball Dimensions
-  static const double ballSize = 54.0;
+    with SingleTickerProviderStateMixin {
+  // Keep a 52dp touch target while shrinking the visible puck.
+  static const double ballSize = 52.0;
+  static const double ringSize = 46.0;
+  static const double puckSize = 40.0;
   static const double marginX = 8.0;
+
+  static const Color _ink = Color(0xFF15171A);
+  static const Color _inkTop = Color(0xFF343840);
+  static const Color _bone = Color(0xFFF4F1EA);
+  static const Color _warning = Color(0xFFC08A2E);
+  static const Color _success = Color(0xFF2A8563);
 
   // Position state
   Offset _position = Offset.zero;
   bool _isInitialized = false;
   bool _isDragging = false;
+  bool _isPressed = false;
 
-  // Edge Snap Animation
+  // Edge snap animation
   late AnimationController _snapAnimController;
   late Animation<Offset> _snapAnimation;
-
-  // Pulse Animation for Running / Warning states
-  late AnimationController _pulseAnimController;
-  late Animation<double> _pulseAnimation;
 
   // Inactivity auto-dim timer
   Timer? _idleTimer;
@@ -52,19 +61,6 @@ class _FloatingAgentBallState extends State<FloatingAgentBall>
       duration: const Duration(milliseconds: 320),
     );
 
-    _pulseAnimController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1000),
-    );
-
-    _pulseAnimation = Tween<double>(begin: 1.0, end: 1.12).animate(
-      CurvedAnimation(
-        parent: _pulseAnimController,
-        curve: Curves.easeInOut,
-      ),
-    );
-
-    _checkPulseState();
     _resetIdleTimer();
   }
 
@@ -72,23 +68,7 @@ class _FloatingAgentBallState extends State<FloatingAgentBall>
   void didUpdateWidget(covariant FloatingAgentBall oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.state.status != oldWidget.state.status) {
-      _checkPulseState();
       _wakeUp();
-    }
-  }
-
-  void _checkPulseState() {
-    if (widget.state.isRunning ||
-        widget.state.status == AgentStatus.waitingConfirmation ||
-        widget.state.status == AgentStatus.waitingCaptcha) {
-      if (!_pulseAnimController.isAnimating) {
-        _pulseAnimController.repeat(reverse: true);
-      }
-    } else {
-      if (_pulseAnimController.isAnimating) {
-        _pulseAnimController.stop();
-        _pulseAnimController.value = 0;
-      }
     }
   }
 
@@ -112,7 +92,6 @@ class _FloatingAgentBallState extends State<FloatingAgentBall>
   void dispose() {
     _idleTimer?.cancel();
     _snapAnimController.dispose();
-    _pulseAnimController.dispose();
     super.dispose();
   }
 
@@ -134,7 +113,7 @@ class _FloatingAgentBallState extends State<FloatingAgentBall>
       end: targetOffset,
     ).animate(CurvedAnimation(
       parent: _snapAnimController,
-      curve: Curves.easeOutBack,
+      curve: Curves.easeOutCubic,
     ))
       ..addListener(() {
         setState(() {
@@ -145,6 +124,162 @@ class _FloatingAgentBallState extends State<FloatingAgentBall>
     HapticFeedback.lightImpact();
     _snapAnimController.forward(from: 0.0);
     _resetIdleTimer();
+  }
+
+  Widget _buildStatusRing({
+    required bool isWaiting,
+    required bool isCompleted,
+  }) {
+    if (!isWaiting && !isCompleted) {
+      return const SizedBox(width: ringSize, height: ringSize);
+    }
+
+    final color = isWaiting ? _warning : _success;
+    return Container(
+      width: ringSize,
+      height: ringSize,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: color.withValues(alpha: 0.85),
+          width: 1.8,
+        ),
+      ),
+    );
+  }
+
+  /// Kept inside the puck so it stays visible on both light and dark pages.
+  Widget _buildRunningSpinner() {
+    return SizedBox(
+      width: 35,
+      height: 35,
+      child: CircularProgressIndicator(
+        strokeWidth: 1.8,
+        strokeCap: StrokeCap.round,
+        valueColor: AlwaysStoppedAnimation<Color>(
+          _bone.withValues(alpha: 0.92),
+        ),
+        backgroundColor: _bone.withValues(alpha: 0.16),
+      ),
+    );
+  }
+
+  Widget _buildPuck({required bool isWaiting}) {
+    return Container(
+      width: puckSize,
+      height: puckSize,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [_inkTop, _ink],
+        ),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.14),
+          width: 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.22),
+            blurRadius: 14,
+            offset: const Offset(0, 5),
+          ),
+          if (isWaiting)
+            BoxShadow(
+              color: _warning.withValues(alpha: 0.28),
+              blurRadius: 16,
+              spreadRadius: 2,
+            ),
+        ],
+      ),
+      child: const Icon(
+        Icons.touch_app_rounded,
+        size: 18.5,
+        color: _bone,
+      ),
+    );
+  }
+
+  Widget _buildStepBadge(int step) {
+    return Positioned(
+      top: -1,
+      right: -1,
+      child: Container(
+        constraints: const BoxConstraints(minWidth: 16),
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1.5),
+        decoration: BoxDecoration(
+          color: _bone,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: _ink, width: 1.5),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.22),
+              blurRadius: 4,
+              offset: const Offset(0, 1),
+            ),
+          ],
+        ),
+        child: Text(
+          '$step',
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            color: _ink,
+            fontSize: 8.5,
+            fontWeight: FontWeight.w700,
+            height: 1,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAlertBadge() {
+    return Positioned(
+      top: -1,
+      right: -1,
+      child: Container(
+        width: 16,
+        height: 16,
+        decoration: BoxDecoration(
+          color: _warning,
+          shape: BoxShape.circle,
+          border: Border.all(color: _ink, width: 1.5),
+        ),
+        child: const Center(
+          child: Text(
+            '!',
+            style: TextStyle(
+              color: _ink,
+              fontSize: 10,
+              fontWeight: FontWeight.w800,
+              height: 1,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDoneBadge() {
+    return Positioned(
+      top: -1,
+      right: -1,
+      child: Container(
+        width: 16,
+        height: 16,
+        decoration: BoxDecoration(
+          color: _success,
+          shape: BoxShape.circle,
+          border: Border.all(color: _ink, width: 1.5),
+        ),
+        child: const Icon(
+          Icons.check_rounded,
+          size: 10,
+          color: _ink,
+        ),
+      ),
+    );
   }
 
   @override
@@ -162,16 +297,11 @@ class _FloatingAgentBallState extends State<FloatingAgentBall>
       _isInitialized = true;
     }
 
-    final isRunning = widget.state.isRunning;
     final isWaiting = widget.state.status == AgentStatus.waitingConfirmation ||
         widget.state.status == AgentStatus.waitingCaptcha;
-
-    Color glowColor = AppTheme.primary;
-    if (isWaiting) {
-      glowColor = AppTheme.warning;
-    } else if (widget.state.status == AgentStatus.completed) {
-      glowColor = AppTheme.accent;
-    }
+    final isExecuting = widget.state.isRunning && !isWaiting;
+    final isCompleted = widget.state.status == AgentStatus.completed;
+    final step = widget.state.currentStep;
 
     return Positioned(
       left: _position.dx,
@@ -181,6 +311,7 @@ class _FloatingAgentBallState extends State<FloatingAgentBall>
           _wakeUp();
           setState(() {
             _isDragging = true;
+            _isPressed = false;
           });
         },
         onPanUpdate: (details) {
@@ -200,6 +331,12 @@ class _FloatingAgentBallState extends State<FloatingAgentBall>
           });
           _snapToNearestEdge(screenSize, bottomInset);
         },
+        onTapDown: (_) {
+          _wakeUp();
+          setState(() => _isPressed = true);
+        },
+        onTapUp: (_) => setState(() => _isPressed = false),
+        onTapCancel: () => setState(() => _isPressed = false),
         onTap: () {
           _wakeUp();
           HapticFeedback.selectionClick();
@@ -207,6 +344,7 @@ class _FloatingAgentBallState extends State<FloatingAgentBall>
         },
         onLongPress: () {
           _wakeUp();
+          setState(() => _isPressed = false);
           HapticFeedback.mediumImpact();
           if (widget.onQuickSummarize != null) {
             widget.onQuickSummarize!();
@@ -214,117 +352,51 @@ class _FloatingAgentBallState extends State<FloatingAgentBall>
             widget.onTap();
           }
         },
-        child: AnimatedOpacity(
-          opacity: _isDragging ? 1.0 : (_isDimmed ? 0.65 : 1.0),
-          duration: const Duration(milliseconds: 250),
-          child: ScaleTransition(
-            scale: (isRunning || isWaiting)
-                ? _pulseAnimation
-                : const AlwaysStoppedAnimation(1.0),
-            child: Stack(
-              clipBehavior: Clip.none,
-              children: [
-                // Glowing outer ring / shadow
-                Container(
-                  width: ballSize,
-                  height: ballSize,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                        color: glowColor.withValues(
-                            alpha: isRunning ? 0.55 : 0.35),
-                        blurRadius: isRunning ? 16 : 10,
-                        spreadRadius: isRunning ? 3 : 1,
-                        offset: const Offset(0, 3),
-                      ),
-                    ],
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        glowColor,
-                        glowColor.withValues(alpha: 0.85),
-                        const Color(0xFF0F141C),
+        child: Semantics(
+          button: true,
+          excludeSemantics: true,
+          label: isWaiting
+              ? 'AI 等待人工确认'
+              : isExecuting
+                  ? 'AI 正在执行，第 $step 步'
+                  : isCompleted
+                      ? 'AI 任务已完成'
+                      : '打开 AI 操作面板',
+          child: AnimatedOpacity(
+            opacity: _isDragging ? 1.0 : (_isDimmed ? 0.55 : 1.0),
+            duration: const Duration(milliseconds: 250),
+            child: AnimatedScale(
+              scale: _isPressed ? 0.94 : 1.0,
+              duration: const Duration(milliseconds: 110),
+              curve: Curves.easeOut,
+              child: SizedBox(
+                width: ballSize,
+                height: ballSize,
+                child: Center(
+                  child: SizedBox(
+                    width: ringSize,
+                    height: ringSize,
+                    child: Stack(
+                      alignment: Alignment.center,
+                      clipBehavior: Clip.none,
+                      children: [
+                        _buildStatusRing(
+                          isWaiting: isWaiting,
+                          isCompleted: isCompleted,
+                        ),
+                        _buildPuck(isWaiting: isWaiting),
+                        if (isExecuting) _buildRunningSpinner(),
+                        if (isExecuting && step > 0)
+                          _buildStepBadge(step)
+                        else if (isWaiting)
+                          _buildAlertBadge()
+                        else if (isCompleted)
+                          _buildDoneBadge(),
                       ],
                     ),
-                    border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.25),
-                      width: 1.5,
-                    ),
-                  ),
-                  child: Center(
-                    child: isRunning
-                        ? const SizedBox(
-                            width: 26,
-                            height: 26,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2.5,
-                              valueColor:
-                                  AlwaysStoppedAnimation<Color>(Colors.white),
-                            ),
-                          )
-                        : Icon(
-                            isWaiting
-                                ? Icons.warning_amber_rounded
-                                : Icons.psychology_outlined,
-                            color: Colors.white,
-                            size: 28,
-                          ),
                   ),
                 ),
-
-                // Running step counter badge or warning alert badge
-                if (isRunning && widget.state.currentStep > 0)
-                  Positioned(
-                    top: -4,
-                    right: -4,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 6, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: AppTheme.accent,
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: Colors.white, width: 1.5),
-                        boxShadow: const [
-                          BoxShadow(color: Colors.black45, blurRadius: 4),
-                        ],
-                      ),
-                      child: Text(
-                        '#${widget.state.currentStep}',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 10,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  )
-                else if (isWaiting)
-                  Positioned(
-                    top: -4,
-                    right: -4,
-                    child: Container(
-                      width: 18,
-                      height: 18,
-                      decoration: BoxDecoration(
-                        color: AppTheme.warning,
-                        shape: BoxShape.circle,
-                        border: Border.all(color: Colors.white, width: 1.5),
-                      ),
-                      child: const Center(
-                        child: Text(
-                          '!',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
+              ),
             ),
           ),
         ),

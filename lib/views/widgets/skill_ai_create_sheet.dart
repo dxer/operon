@@ -56,7 +56,7 @@ class _SkillAuthoringSheetState extends State<SkillAuthoringSheet> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: const Text('请先在设置中配置有效的大模型 API Key'),
-          backgroundColor: Colors.redAccent,
+          backgroundColor: AppTheme.danger,
           action: SnackBarAction(
             label: '知道了',
             textColor: Colors.white,
@@ -137,8 +137,8 @@ class _SkillAuthoringSheetState extends State<SkillAuthoringSheet> {
                               color: item.found
                                   ? AppTheme.accent
                                   : (item.ambiguous
-                                      ? Colors.amber
-                                      : Colors.redAccent),
+                                      ? AppTheme.warning
+                                      : AppTheme.danger),
                             ),
                             const SizedBox(width: 6),
                             Expanded(
@@ -218,7 +218,7 @@ class _SkillAuthoringSheetState extends State<SkillAuthoringSheet> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final cardBg = isDark ? AppTheme.darkCard : Colors.white;
-    final surface = isDark ? const Color(0xFF16181C) : const Color(0xFFF1F4F6);
+    final surface = isDark ? AppTheme.darkInput : AppTheme.lightInput;
     final onSurface = Theme.of(context).colorScheme.onSurface;
     final muted = onSurface.withValues(alpha: isDark ? 0.72 : 0.6);
     final hairline = isDark ? AppTheme.darkBorder : AppTheme.lightBorder;
@@ -404,7 +404,7 @@ class _SkillAuthoringSheetState extends State<SkillAuthoringSheet> {
                               result.error!,
                               style: const TextStyle(
                                 fontSize: 11.5,
-                                color: Colors.redAccent,
+                                color: AppTheme.danger,
                                 height: 1.4,
                               ),
                             ),
@@ -418,7 +418,7 @@ class _SkillAuthoringSheetState extends State<SkillAuthoringSheet> {
                                       '• ${issue.message}',
                                       style: const TextStyle(
                                         fontSize: 10.5,
-                                        color: Colors.redAccent,
+                                        color: AppTheme.danger,
                                         height: 1.35,
                                       ),
                                     ),

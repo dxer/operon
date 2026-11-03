@@ -90,8 +90,7 @@ class _GeneralSettingsPageState extends State<GeneralSettingsPage> {
               onPressed: (clearCookies || clearCache || clearStorage)
                   ? () => Navigator.of(ctx).pop(true)
                   : null,
-              style:
-                  ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+              style: ElevatedButton.styleFrom(backgroundColor: AppTheme.danger),
               child: const Text('确认清除', style: TextStyle(color: Colors.white)),
             ),
           ],
@@ -199,7 +198,7 @@ class _GeneralSettingsPageState extends State<GeneralSettingsPage> {
                 const SizedBox(height: 6),
                 const Text(
                   '新建标签页或点击底栏主页图标时打开的地址',
-                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                  style: TextStyle(fontSize: 12, color: AppTheme.neutral),
                 ),
                 const SizedBox(height: 12),
                 TextField(
@@ -240,13 +239,13 @@ class _GeneralSettingsPageState extends State<GeneralSettingsPage> {
               contentPadding:
                   const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
               leading: const Icon(Icons.delete_sweep_rounded,
-                  color: Colors.redAccent),
+                  color: AppTheme.danger),
               title: const Text('清除浏览数据与缓存',
                   style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
               subtitle: const Text('清理 Cookie、LocalStorage 及离线静态资源',
-                  style: TextStyle(fontSize: 12, color: Colors.grey)),
-              trailing:
-                  const Icon(Icons.chevron_right_rounded, color: Colors.grey),
+                  style: TextStyle(fontSize: 12, color: AppTheme.neutral)),
+              trailing: const Icon(Icons.chevron_right_rounded,
+                  color: AppTheme.neutral),
               onTap: _showClearBrowsingDataDialog,
             ),
           ),

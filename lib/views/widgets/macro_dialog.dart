@@ -46,7 +46,7 @@ class _MacroDialogState extends State<MacroDialog> {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       title: const Row(
         children: [
-          Icon(Icons.bolt, color: Colors.amber, size: 22),
+          Icon(Icons.bolt, color: AppTheme.warning, size: 22),
           SizedBox(width: 8),
           Text('零 Token 快捷宏库', style: TextStyle(fontSize: 16)),
         ],

@@ -43,7 +43,7 @@ class StepLogView extends StatelessWidget {
                 height: 22,
                 decoration: BoxDecoration(
                   color: log.isError
-                      ? Colors.redAccent.withValues(alpha: 0.2)
+                      ? AppTheme.danger.withValues(alpha: 0.2)
                       : AppTheme.primary.withValues(alpha: 0.2),
                   shape: BoxShape.circle,
                 ),
@@ -53,7 +53,7 @@ class StepLogView extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.bold,
-                    color: log.isError ? Colors.redAccent : AppTheme.primary,
+                    color: log.isError ? AppTheme.danger : AppTheme.primary,
                   ),
                 ),
               ),
@@ -68,7 +68,7 @@ class StepLogView extends StatelessWidget {
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
                         color: log.isError
-                            ? Colors.redAccent
+                            ? AppTheme.danger
                             : theme.colorScheme.onSurface,
                       ),
                     ),

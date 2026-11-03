@@ -87,7 +87,7 @@ class TabsOverviewSheet extends StatelessWidget {
                     icon: const Icon(Icons.clear_all, size: 16),
                     label: const Text('全部关闭', style: TextStyle(fontSize: 12)),
                     style:
-                        TextButton.styleFrom(foregroundColor: Colors.redAccent),
+                        TextButton.styleFrom(foregroundColor: AppTheme.danger),
                     onPressed: () {
                       HapticFeedback.mediumImpact();
                       onCloseAll();
@@ -139,9 +139,8 @@ class TabsOverviewSheet extends StatelessWidget {
                     borderRadius: BorderRadius.circular(12),
                     child: Container(
                       decoration: BoxDecoration(
-                        color: isDark
-                            ? const Color(0xFF14181F)
-                            : const Color(0xFFF2F5F8),
+                        color:
+                            isDark ? AppTheme.darkInput : AppTheme.lightInput,
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(
                           color: isActive

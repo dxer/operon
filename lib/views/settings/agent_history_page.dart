@@ -48,7 +48,7 @@ class _AgentHistoryPageState extends State<AgentHistoryPage> {
               if (ctx.mounted) Navigator.pop(ctx);
               if (mounted) setState(() {});
             },
-            child: const Text('清空', style: TextStyle(color: Colors.redAccent)),
+            child: const Text('清空', style: TextStyle(color: AppTheme.danger)),
           ),
         ],
       ),
@@ -73,7 +73,7 @@ class _AgentHistoryPageState extends State<AgentHistoryPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('这条记录没有可转换的动作'),
-          backgroundColor: Colors.redAccent,
+          backgroundColor: AppTheme.danger,
         ),
       );
       return;
@@ -88,7 +88,7 @@ class _AgentHistoryPageState extends State<AgentHistoryPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('无法转换：${validation.errors.first.message}'),
-          backgroundColor: Colors.redAccent,
+          backgroundColor: AppTheme.danger,
         ),
       );
       return;
@@ -198,18 +198,25 @@ class _RecordTile extends StatelessWidget {
     required this.onSaveAsSkill,
   });
 
+  Color get _successColor =>
+      isDark ? const Color(0xFF6FC7A3) : const Color(0xFF237A5A);
+  Color get _warningColor =>
+      isDark ? const Color(0xFFE0A23C) : const Color(0xFF8A5A12);
+  Color get _dangerColor => isDark ? const Color(0xFFE06A5E) : AppTheme.danger;
+  Color get _neutralColor => isDark ? AppTheme.darkMuted : AppTheme.lightMuted;
+
   Color get _statusColor {
     switch (record.status) {
       case 'completed':
-        return AppTheme.accent;
+        return _successColor;
       case 'maxStepsReached':
-        return Colors.amber;
+        return _warningColor;
       case 'error':
-        return Colors.redAccent;
+        return _dangerColor;
       case 'stopped':
-        return Colors.blueGrey;
+        return _neutralColor;
       default:
-        return Colors.grey;
+        return _neutralColor;
     }
   }
 
@@ -239,7 +246,7 @@ class _RecordTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final onSurface = Theme.of(context).colorScheme.onSurface;
     final muted = onSurface.withValues(alpha: 0.55);
-    final cardColor = isDark ? AppTheme.darkCard : Colors.white;
+    final cardColor = isDark ? AppTheme.darkCard : AppTheme.lightCard;
     final border = isDark ? AppTheme.darkBorder : AppTheme.lightBorder;
     final seconds = record.duration.inSeconds;
 
@@ -275,9 +282,8 @@ class _RecordTile extends StatelessWidget {
             children: [
               _pill(_statusLabel, _statusColor),
               if (record.hasSensitiveActions)
-                _pill('敏感操作 ${record.sensitiveActions.length}',
-                    Colors.deepOrange),
-              if (!record.safeMode) _pill('完全自主', Colors.redAccent),
+                _pill('敏感操作 ${record.sensitiveActions.length}', _warningColor),
+              if (!record.safeMode) _pill('完全自主', _dangerColor),
               Text(
                 '$_timeLabel · ${record.steps}/${record.maxSteps} 步 · ${seconds}s',
                 style: TextStyle(fontSize: 11, color: muted),
@@ -292,7 +298,7 @@ class _RecordTile extends StatelessWidget {
               alignment: Alignment.centerLeft,
               child: Text(
                 record.errorMessage!,
-                style: const TextStyle(fontSize: 12, color: Colors.redAccent),
+                style: const TextStyle(fontSize: 12, color: AppTheme.danger),
               ),
             ),
             const SizedBox(height: 8),
@@ -331,8 +337,7 @@ class _RecordTile extends StatelessWidget {
                   padding: const EdgeInsets.only(bottom: 3),
                   child: Text(
                     '• $line',
-                    style:
-                        const TextStyle(fontSize: 11, color: Colors.deepOrange),
+                    style: TextStyle(fontSize: 11, color: _warningColor),
                   ),
                 ),
               ),
@@ -382,7 +387,7 @@ class _RecordTile extends StatelessWidget {
               icon: const Icon(Icons.delete_outline, size: 15),
               label: const Text('删除这条记录', style: TextStyle(fontSize: 11.5)),
               style: TextButton.styleFrom(
-                foregroundColor: Colors.redAccent,
+                foregroundColor: AppTheme.danger,
                 minimumSize: const Size(0, 30),
               ),
             ),

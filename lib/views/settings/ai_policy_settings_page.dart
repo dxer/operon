@@ -95,7 +95,7 @@ class _AiPolicySettingsPageState extends State<AiPolicySettingsPage> {
                 const SizedBox(height: 6),
                 const Text(
                   '防止模型在复杂页面寻路陷入死循环，步数耗尽将自动挂起',
-                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                  style: TextStyle(fontSize: 12, color: AppTheme.neutral),
                 ),
                 const SizedBox(height: 8),
                 Slider(
@@ -132,7 +132,7 @@ class _AiPolicySettingsPageState extends State<AiPolicySettingsPage> {
                   style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
               subtitle: const Text(
                   '开启：支付、发布、删除等高危操作会暂停并等待你确认。关闭：AI 将自动执行全部操作，不再询问。',
-                  style: TextStyle(fontSize: 12, color: Colors.grey)),
+                  style: TextStyle(fontSize: 12, color: AppTheme.neutral)),
               value: _safeMode,
               activeThumbColor: AppTheme.primary,
               onChanged: (val) async {
@@ -168,7 +168,7 @@ class _AiPolicySettingsPageState extends State<AiPolicySettingsPage> {
                       TextButton(
                         onPressed: _clearSites,
                         style: TextButton.styleFrom(
-                          foregroundColor: Colors.redAccent,
+                          foregroundColor: AppTheme.danger,
                           minimumSize: const Size(0, 28),
                           padding: const EdgeInsets.symmetric(horizontal: 6),
                         ),
@@ -179,8 +179,8 @@ class _AiPolicySettingsPageState extends State<AiPolicySettingsPage> {
                 const SizedBox(height: 4),
                 const Text(
                   '这些站点上的敏感操作会直接执行，不再弹出授权确认。仅在你完全信任的网站上添加。',
-                  style:
-                      TextStyle(fontSize: 12, color: Colors.grey, height: 1.4),
+                  style: TextStyle(
+                      fontSize: 12, color: AppTheme.neutral, height: 1.4),
                 ),
                 const SizedBox(height: 8),
                 if (_allowedSites.isEmpty)
@@ -243,8 +243,8 @@ class _AiPolicySettingsPageState extends State<AiPolicySettingsPage> {
                 SizedBox(height: 6),
                 Text(
                   'AI 正在执行网页滚动、点击或键入时，只要用户手指触碰网页任意区域，AI 将在毫秒级内自动挂起暂停，底部的 AI 状态条会变更为“已暂停 (接管中)”，确保人机共存无冲突。',
-                  style:
-                      TextStyle(fontSize: 12, color: Colors.grey, height: 1.5),
+                  style: TextStyle(
+                      fontSize: 12, color: AppTheme.neutral, height: 1.5),
                 ),
               ],
             ),

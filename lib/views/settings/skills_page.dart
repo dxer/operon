@@ -98,7 +98,7 @@ class _SkillsPageState extends State<SkillsPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('请先在 AI 引擎设置中配置有效的大模型 API Key'),
-          backgroundColor: Colors.redAccent,
+          backgroundColor: AppTheme.danger,
         ),
       );
       return;
@@ -128,7 +128,7 @@ class _SkillsPageState extends State<SkillsPage> {
           ),
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('删除', style: TextStyle(color: Colors.redAccent)),
+            child: const Text('删除', style: TextStyle(color: AppTheme.danger)),
           ),
         ],
       ),
@@ -151,7 +151,7 @@ class _SkillsPageState extends State<SkillsPage> {
           ),
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('恢复', style: TextStyle(color: Colors.redAccent)),
+            child: const Text('恢复', style: TextStyle(color: AppTheme.danger)),
           ),
         ],
       ),
@@ -511,12 +511,12 @@ class _SkillCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cardColor = isDark ? AppTheme.darkCard : Colors.white;
+    final cardColor = isDark ? AppTheme.darkCard : AppTheme.lightCard;
     final muted = Theme.of(context)
         .colorScheme
         .onSurface
         .withValues(alpha: isDark ? 0.7 : 0.58);
-    final accent = skill.isFlow ? AppTheme.primary : Colors.amber;
+    const accent = AppTheme.primary;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
@@ -578,7 +578,7 @@ class _SkillCard extends StatelessWidget {
                                 color: accent.withValues(alpha: 0.12),
                                 borderRadius: BorderRadius.circular(6),
                               ),
-                              child: Text(
+                              child: const Text(
                                 '内置',
                                 style: TextStyle(
                                   fontSize: 8.5,
@@ -635,7 +635,7 @@ class _SkillCard extends StatelessWidget {
                   style: TextButton.styleFrom(
                     minimumSize: const Size(0, 28),
                     padding: const EdgeInsets.symmetric(horizontal: 6),
-                    foregroundColor: Colors.redAccent,
+                    foregroundColor: AppTheme.danger,
                   ),
                   child: const Text('删除', style: TextStyle(fontSize: 11)),
                 ),

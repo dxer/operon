@@ -80,7 +80,7 @@ class _HistoryBookmarksSheetState extends State<HistoryBookmarksSheet>
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: TextButton.styleFrom(foregroundColor: Colors.redAccent),
+            style: TextButton.styleFrom(foregroundColor: AppTheme.danger),
             child: const Text('清空'),
           ),
         ],
@@ -97,9 +97,9 @@ class _HistoryBookmarksSheetState extends State<HistoryBookmarksSheet>
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final bg = isDark ? const Color(0xFF15191E) : Colors.white;
+    final bg = isDark ? AppTheme.darkBg : AppTheme.lightCard;
     final dividerColor = isDark ? AppTheme.darkBorder : AppTheme.lightBorder;
-    final cardBg = isDark ? const Color(0xFF1C222A) : const Color(0xFFF7F9FA);
+    final cardBg = isDark ? AppTheme.darkCard : AppTheme.lightBg;
 
     final filteredHistory = _allHistory.where((h) {
       if (_searchQuery.isEmpty) return true;
@@ -222,10 +222,10 @@ class _HistoryBookmarksSheetState extends State<HistoryBookmarksSheet>
                         visualDensity: VisualDensity.compact,
                       ),
                       icon: const Icon(Icons.delete_outline,
-                          size: 16, color: Colors.redAccent),
+                          size: 16, color: AppTheme.danger),
                       label: const Text('清空',
                           style:
-                              TextStyle(fontSize: 12, color: Colors.redAccent)),
+                              TextStyle(fontSize: 12, color: AppTheme.danger)),
                       onPressed: _clearAllHistory,
                     ),
                   ],
@@ -343,7 +343,7 @@ class _HistoryBookmarksSheetState extends State<HistoryBookmarksSheet>
                                   borderRadius: BorderRadius.circular(8),
                                 ),
                                 child: const Icon(Icons.star_rounded,
-                                    size: 20, color: Colors.amber),
+                                    size: 20, color: AppTheme.warning),
                               ),
                               title: Text(
                                 item.title.isNotEmpty ? item.title : item.url,

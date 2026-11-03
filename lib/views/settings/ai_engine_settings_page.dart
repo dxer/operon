@@ -108,7 +108,7 @@ class _AiEngineSettingsPageState extends State<AiEngineSettingsPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('请先填写完整的 Base URL、API Key 与 Model 名称'),
-          backgroundColor: Colors.redAccent,
+          backgroundColor: AppTheme.danger,
         ),
       );
       return;
@@ -138,7 +138,7 @@ class _AiEngineSettingsPageState extends State<AiEngineSettingsPage> {
                 RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
             title: const Text('API 连通性测试通过',
                 style: TextStyle(
-                    color: Colors.green,
+                    color: AppTheme.accent,
                     fontSize: 16,
                     fontWeight: FontWeight.bold)),
             content: Text(
@@ -164,7 +164,7 @@ class _AiEngineSettingsPageState extends State<AiEngineSettingsPage> {
                 RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
             title: const Text('API 连通测试失败',
                 style: TextStyle(
-                    color: Colors.redAccent,
+                    color: AppTheme.danger,
                     fontSize: 16,
                     fontWeight: FontWeight.bold)),
             content: Text(

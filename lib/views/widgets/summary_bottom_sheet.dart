@@ -206,13 +206,13 @@ class _SummaryBottomSheetState extends State<SummaryBottomSheet> {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             const Icon(Icons.error_outline,
-                                color: Colors.redAccent, size: 36),
+                                color: AppTheme.danger, size: 36),
                             const SizedBox(height: 12),
                             Text(
                               '提炼失败: $_error',
                               textAlign: TextAlign.center,
                               style: const TextStyle(
-                                  fontSize: 12, color: Colors.redAccent),
+                                  fontSize: 12, color: AppTheme.danger),
                             ),
                             const SizedBox(height: 12),
                             ElevatedButton.icon(
@@ -231,8 +231,8 @@ class _SummaryBottomSheetState extends State<SummaryBottomSheet> {
                             fontSize: 13.5,
                             height: 1.6,
                             color: isDark
-                                ? Colors.white.withValues(alpha: 0.9)
-                                : const Color(0xFF0F141C),
+                                ? AppTheme.darkOnSurface.withValues(alpha: 0.9)
+                                : AppTheme.lightOnSurface,
                           ),
                         ),
                       ),

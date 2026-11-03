@@ -590,7 +590,7 @@ class _BrowserPageState extends State<BrowserPage> {
                 linkUrl,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 12, color: Colors.grey),
+                style: const TextStyle(fontSize: 12, color: AppTheme.neutral),
               ),
             ),
             const Divider(height: 1),
@@ -644,7 +644,7 @@ class _BrowserPageState extends State<BrowserPage> {
                 imageUrl,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 12, color: Colors.grey),
+                style: const TextStyle(fontSize: 12, color: AppTheme.neutral),
               ),
             ),
             const Divider(height: 1),
@@ -681,7 +681,7 @@ class _BrowserPageState extends State<BrowserPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: const Text('请先在设置中配置有效的大模型 API Key'),
-          backgroundColor: Colors.redAccent,
+          backgroundColor: AppTheme.danger,
           action: SnackBarAction(
             label: '去配置',
             textColor: Colors.white,
@@ -709,7 +709,7 @@ class _BrowserPageState extends State<BrowserPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('当前页面正文内容过少，无法生成深度速读摘要'),
-            backgroundColor: Colors.amber,
+            backgroundColor: AppTheme.warning,
           ),
         );
       }
@@ -763,7 +763,7 @@ class _BrowserPageState extends State<BrowserPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: const Text('请先在设置中配置有效的大模型 API Key'),
-          backgroundColor: Colors.redAccent,
+          backgroundColor: AppTheme.danger,
           action: SnackBarAction(
             label: '去设置',
             textColor: Colors.white,
@@ -813,7 +813,7 @@ class _BrowserPageState extends State<BrowserPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: const Text('请先在设置中配置有效的大模型 API Key'),
-          backgroundColor: Colors.redAccent,
+          backgroundColor: AppTheme.danger,
           action: SnackBarAction(
             label: '去设置',
             textColor: Colors.white,
@@ -1064,7 +1064,7 @@ class _BrowserPageState extends State<BrowserPage> {
               ? '宏任务 [${macro.title}] 执行完成！'
               : '宏任务 [${macro.title}] 执行中断：有步骤未成功。涉及发帖/支付等步骤时不会自动重试，请检查页面。',
         ),
-        backgroundColor: success ? AppTheme.accent : Colors.redAccent,
+        backgroundColor: success ? AppTheme.accent : AppTheme.danger,
         duration: Duration(seconds: success ? 3 : 6),
       ),
     );
@@ -1194,6 +1194,7 @@ class _BrowserPageState extends State<BrowserPage> {
             final state = snapshot.data ?? _agentState;
             return AgentBottomSheet(
               state: state,
+              currentUrl: _currentTab.url,
               safeMode: _storage?.getSafeMode() ?? true,
               onSafeModeChanged: _setSafeMode,
               onAllowSite: _allowSiteForTask,
@@ -1225,7 +1226,7 @@ class _BrowserPageState extends State<BrowserPage> {
 
   Widget _buildErrorOverlay(WebTab tab) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bg = isDark ? const Color(0xFF15191E) : Colors.white;
+    final bg = isDark ? AppTheme.darkBg : AppTheme.lightCard;
 
     return Container(
       color: bg,
@@ -1237,14 +1238,13 @@ class _BrowserPageState extends State<BrowserPage> {
             Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
-                color:
-                    isDark ? const Color(0xFF1E242B) : const Color(0xFFEFF3F4),
+                color: isDark ? AppTheme.darkInput : AppTheme.lightInput,
                 shape: BoxShape.circle,
               ),
               child: const Icon(
                 Icons.wifi_off_rounded,
                 size: 48,
-                color: Colors.redAccent,
+                color: AppTheme.danger,
               ),
             ),
             const SizedBox(height: 20),

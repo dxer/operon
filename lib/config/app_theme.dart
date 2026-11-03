@@ -1,21 +1,33 @@
 import 'package:flutter/material.dart';
 
+/// Operon's "Operator" palette.
+///
+/// Browser chrome stays neutral graphite/warm paper; a single copper accent is
+/// reserved for the agent and primary actions. Semantic colors are deliberately
+/// desaturated so status is readable without turning the UI into a dashboard.
 class AppTheme {
-  static const Color primary = Color(0xFF1D9BF0); // Twitter/X Blue
-  static const Color accent = Color(0xFF00BA7C); // Success Green
-  static const Color warning = Color(0xFFFF7A00); // Warning Amber
+  // Brand / action
+  static const Color primary = Color(0xFFBA6030); // Operator copper
+  static const Color accent = Color(0xFF2A8563); // Sage success
+  static const Color warning = Color(0xFFB07A24); // Ochre warning
+  static const Color danger = Color(0xFFC0453C); // Brick danger
+  static const Color neutral = Color(0xFF7E786D); // Mid warm grey
 
   // Dark Palette
-  static const Color darkBg = Color(0xFF0F141C);
-  static const Color darkCard = Color(0xFF1A212B);
-  static const Color darkBorder = Color(0xFF2A313B);
-  static const Color darkInput = Color(0xFF161D26);
+  static const Color darkBg = Color(0xFF111214);
+  static const Color darkCard = Color(0xFF1A1C20);
+  static const Color darkBorder = Color(0xFF2B2E34);
+  static const Color darkInput = Color(0xFF14161A);
+  static const Color darkOnSurface = Color(0xFFF2EFE8);
+  static const Color darkMuted = Color(0xFFA7A29A);
 
   // Light Palette
-  static const Color lightBg = Color(0xFFF7F9FA);
+  static const Color lightBg = Color(0xFFF6F4EF);
   static const Color lightCard = Colors.white;
-  static const Color lightBorder = Color(0xFFE3E8EC);
-  static const Color lightInput = Color(0xFFEFF3F4);
+  static const Color lightBorder = Color(0xFFE6E2D9);
+  static const Color lightInput = Color(0xFFF1EDE5);
+  static const Color lightOnSurface = Color(0xFF17181A);
+  static const Color lightMuted = Color(0xFF6E6A62);
 
   static const Map<TargetPlatform, PageTransitionsBuilder> _pageTransitions = {
     TargetPlatform.android: FadeForwardsPageTransitionsBuilder(),
@@ -40,8 +52,10 @@ class AppTheme {
       onPrimary: Colors.white,
       secondary: accent,
       onSecondary: Colors.black,
+      error: danger,
+      onError: Colors.white,
       surface: darkCard,
-      onSurface: Colors.white,
+      onSurface: darkOnSurface,
       surfaceContainerHighest: darkInput,
       outline: darkBorder,
       outlineVariant: darkBorder,
@@ -53,9 +67,9 @@ class AppTheme {
       elevation: 0,
       centerTitle: false,
       titleSpacing: 8,
-      iconTheme: IconThemeData(color: Colors.white, size: 22),
+      iconTheme: IconThemeData(color: darkOnSurface, size: 22),
       titleTextStyle: TextStyle(
-        color: Colors.white,
+        color: darkOnSurface,
         fontSize: 17,
         fontWeight: FontWeight.w600,
         letterSpacing: -0.2,
@@ -71,7 +85,7 @@ class AppTheme {
       ),
     ),
     dividerTheme: DividerThemeData(
-      color: Colors.white.withValues(alpha: 0.07),
+      color: darkOnSurface.withValues(alpha: 0.07),
       thickness: 0.7,
       space: 1,
     ),
@@ -79,7 +93,9 @@ class AppTheme {
       filled: true,
       fillColor: darkInput,
       hintStyle: TextStyle(
-          color: Colors.white.withValues(alpha: 0.32), fontSize: 13.5),
+        color: darkOnSurface.withValues(alpha: 0.36),
+        fontSize: 13.5,
+      ),
       floatingLabelStyle: const TextStyle(color: primary, fontSize: 13),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
@@ -96,7 +112,7 @@ class AppTheme {
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
     ),
     switchTheme: SwitchThemeData(
-      thumbColor: const WidgetStatePropertyAll(Colors.white),
+      thumbColor: const WidgetStatePropertyAll(darkOnSurface),
       trackColor: WidgetStateProperty.resolveWith(
         (states) =>
             states.contains(WidgetState.selected) ? primary : Colors.white24,
@@ -105,9 +121,12 @@ class AppTheme {
     ),
     snackBarTheme: SnackBarThemeData(
       behavior: SnackBarBehavior.floating,
-      backgroundColor: const Color(0xFF232B36),
+      backgroundColor: const Color(0xFF23252A),
       elevation: 6,
-      contentTextStyle: const TextStyle(color: Colors.white, fontSize: 13),
+      contentTextStyle: const TextStyle(
+        color: darkOnSurface,
+        fontSize: 13,
+      ),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       insetPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
     ),
@@ -126,19 +145,19 @@ class AppTheme {
       elevation: 12,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       titleTextStyle: const TextStyle(
-        color: Colors.white,
+        color: darkOnSurface,
         fontSize: 17,
         fontWeight: FontWeight.w600,
       ),
       contentTextStyle: TextStyle(
-        color: Colors.white.withValues(alpha: 0.8),
+        color: darkOnSurface.withValues(alpha: 0.8),
         fontSize: 13.5,
         height: 1.5,
       ),
     ),
     listTileTheme: const ListTileThemeData(
-      iconColor: Colors.white70,
-      textColor: Colors.white,
+      iconColor: darkMuted,
+      textColor: darkOnSurface,
     ),
     progressIndicatorTheme: const ProgressIndicatorThemeData(
       color: primary,
@@ -166,8 +185,10 @@ class AppTheme {
       onPrimary: Colors.white,
       secondary: accent,
       onSecondary: Colors.black,
+      error: danger,
+      onError: Colors.white,
       surface: lightCard,
-      onSurface: Color(0xFF0F141C),
+      onSurface: lightOnSurface,
       surfaceContainerHighest: lightInput,
       outline: lightBorder,
       outlineVariant: lightBorder,
@@ -179,9 +200,9 @@ class AppTheme {
       elevation: 0,
       centerTitle: false,
       titleSpacing: 8,
-      iconTheme: IconThemeData(color: Color(0xFF0F141C), size: 22),
+      iconTheme: IconThemeData(color: lightOnSurface, size: 22),
       titleTextStyle: TextStyle(
-        color: Color(0xFF0F141C),
+        color: lightOnSurface,
         fontSize: 17,
         fontWeight: FontWeight.w600,
         letterSpacing: -0.2,
@@ -204,7 +225,10 @@ class AppTheme {
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
       fillColor: lightInput,
-      hintStyle: const TextStyle(color: Color(0x66000000), fontSize: 13.5),
+      hintStyle: TextStyle(
+        color: lightOnSurface.withValues(alpha: 0.38),
+        fontSize: 13.5,
+      ),
       floatingLabelStyle: const TextStyle(color: primary, fontSize: 13),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
@@ -225,15 +249,18 @@ class AppTheme {
       trackColor: WidgetStateProperty.resolveWith(
         (states) => states.contains(WidgetState.selected)
             ? primary
-            : const Color(0xFFD5DCE2),
+            : const Color(0xFFD8D2C8),
       ),
       trackOutlineColor: const WidgetStatePropertyAll(Colors.transparent),
     ),
     snackBarTheme: SnackBarThemeData(
       behavior: SnackBarBehavior.floating,
-      backgroundColor: const Color(0xFF1F2937),
+      backgroundColor: const Color(0xFF23252A),
       elevation: 6,
-      contentTextStyle: const TextStyle(color: Colors.white, fontSize: 13),
+      contentTextStyle: const TextStyle(
+        color: darkOnSurface,
+        fontSize: 13,
+      ),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       insetPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
     ),
@@ -252,7 +279,7 @@ class AppTheme {
       elevation: 12,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       titleTextStyle: const TextStyle(
-        color: Color(0xFF0F141C),
+        color: lightOnSurface,
         fontSize: 17,
         fontWeight: FontWeight.w600,
       ),
@@ -263,8 +290,8 @@ class AppTheme {
       ),
     ),
     listTileTheme: const ListTileThemeData(
-      iconColor: Color(0xFF536471),
-      textColor: Color(0xFF0F141C),
+      iconColor: lightMuted,
+      textColor: lightOnSurface,
     ),
     progressIndicatorTheme: const ProgressIndicatorThemeData(
       color: primary,

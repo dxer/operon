@@ -83,12 +83,12 @@ class _BrowserControlsState extends State<BrowserControls> {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final barBg = isDark ? AppTheme.darkBg : AppTheme.lightBg;
-    final inputBg = isDark ? const Color(0xFF1B222C) : AppTheme.lightInput;
+    final inputBg = isDark ? AppTheme.darkInput : AppTheme.lightInput;
     final borderColor = isDark
-        ? (_hasFocus ? AppTheme.primary : const Color(0xFF2A313B))
-        : (_hasFocus ? AppTheme.primary : const Color(0xFFDDE3E8));
-    final iconColor = isDark ? Colors.white54 : const Color(0xFF536471);
-    final textColor = isDark ? Colors.white : const Color(0xFF0F141C);
+        ? (_hasFocus ? AppTheme.primary : AppTheme.darkBorder)
+        : (_hasFocus ? AppTheme.primary : AppTheme.lightBorder);
+    final iconColor = isDark ? AppTheme.darkMuted : AppTheme.lightMuted;
+    final textColor = isDark ? AppTheme.darkOnSurface : AppTheme.lightOnSurface;
 
     return Container(
       decoration: BoxDecoration(

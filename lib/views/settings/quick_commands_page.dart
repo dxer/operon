@@ -54,7 +54,7 @@ class _QuickCommandsPageState extends State<QuickCommandsPage> {
           ),
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('删除', style: TextStyle(color: Colors.redAccent)),
+            child: const Text('删除', style: TextStyle(color: AppTheme.danger)),
           ),
         ],
       ),
@@ -77,7 +77,7 @@ class _QuickCommandsPageState extends State<QuickCommandsPage> {
           ),
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('恢复', style: TextStyle(color: Colors.redAccent)),
+            child: const Text('恢复', style: TextStyle(color: AppTheme.danger)),
           ),
         ],
       ),
@@ -206,10 +206,11 @@ class _CommandCard extends StatelessWidget {
           width: 34,
           height: 34,
           decoration: BoxDecoration(
-            color: Colors.amber.withValues(alpha: 0.14),
+            color: AppTheme.warning.withValues(alpha: 0.14),
             shape: BoxShape.circle,
           ),
-          child: const Icon(Icons.bolt_rounded, size: 18, color: Colors.amber),
+          child:
+              const Icon(Icons.bolt_rounded, size: 18, color: AppTheme.warning),
         ),
         title: Row(
           children: [
@@ -281,7 +282,7 @@ class _CommandCard extends StatelessWidget {
               tooltip: '删除',
               icon: const Icon(Icons.delete_outline, size: 18),
               visualDensity: VisualDensity.compact,
-              color: Colors.redAccent,
+              color: AppTheme.danger,
               onPressed: onDelete,
             ),
           ],
@@ -450,7 +451,7 @@ class _QuickCommandEditPageState extends State<QuickCommandEditPage> {
 
   void _showError(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: Colors.redAccent),
+      SnackBar(content: Text(message), backgroundColor: AppTheme.danger),
     );
   }
 
@@ -600,7 +601,7 @@ class _QuickCommandEditPageState extends State<QuickCommandEditPage> {
                       ),
                       IconButton(
                         icon: const Icon(Icons.delete_outline, size: 17),
-                        color: Colors.redAccent,
+                        color: AppTheme.danger,
                         visualDensity: VisualDensity.compact,
                         onPressed: () => _removeInput(index),
                       ),
@@ -805,7 +806,7 @@ class _QuickCommandInputDialogState extends State<QuickCommandInputDialog> {
 
   void _error(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: Colors.redAccent),
+      SnackBar(content: Text(message), backgroundColor: AppTheme.danger),
     );
   }
 

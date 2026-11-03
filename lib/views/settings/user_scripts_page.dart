@@ -73,7 +73,7 @@ class _UserScriptsPageState extends State<UserScriptsPage> {
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: TextButton.styleFrom(foregroundColor: Colors.redAccent),
+            style: TextButton.styleFrom(foregroundColor: AppTheme.danger),
             child: const Text('删除'),
           ),
         ],
@@ -126,7 +126,7 @@ class _UserScriptsPageState extends State<UserScriptsPage> {
                   Row(
                     children: [
                       const Icon(Icons.auto_awesome,
-                          color: Colors.amber, size: 22),
+                          color: AppTheme.warning, size: 22),
                       const SizedBox(width: 8),
                       const Text(
                         'AI 生成用户脚本',
@@ -148,9 +148,8 @@ class _UserScriptsPageState extends State<UserScriptsPage> {
                           horizontal: 10, vertical: 6),
                       margin: const EdgeInsets.only(bottom: 12),
                       decoration: BoxDecoration(
-                        color: isDark
-                            ? const Color(0xFF16181C)
-                            : const Color(0xFFEFF3F4),
+                        color:
+                            isDark ? AppTheme.darkInput : AppTheme.lightInput,
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Row(
@@ -171,7 +170,7 @@ class _UserScriptsPageState extends State<UserScriptsPage> {
                     ),
                   const Text(
                     '告诉我你希望对网页实现什么效果（例如：自动关闭登录弹窗、去除广告横幅、深色背景增强）：',
-                    style: TextStyle(fontSize: 12.5, color: Colors.grey),
+                    style: TextStyle(fontSize: 12.5, color: AppTheme.neutral),
                   ),
                   const SizedBox(height: 10),
                   TextField(
@@ -186,8 +185,8 @@ class _UserScriptsPageState extends State<UserScriptsPage> {
                     const SizedBox(height: 8),
                     Text(
                       errorText!,
-                      style: const TextStyle(
-                          color: Colors.redAccent, fontSize: 12),
+                      style:
+                          const TextStyle(color: AppTheme.danger, fontSize: 12),
                     ),
                   ],
                   const SizedBox(height: 16),
@@ -350,9 +349,7 @@ class _UserScriptsPageState extends State<UserScriptsPage> {
                 Container(
                   height: 190,
                   decoration: BoxDecoration(
-                    color: isDark
-                        ? const Color(0xFF14181F)
-                        : const Color(0xFFF4F6F8),
+                    color: isDark ? AppTheme.darkInput : AppTheme.lightInput,
                     borderRadius: BorderRadius.circular(8),
                     border: Border.all(
                         color: isDark
@@ -453,7 +450,7 @@ class _UserScriptsPageState extends State<UserScriptsPage> {
                       TextButton(
                         onPressed: () => Navigator.pop(ctx, true),
                         style: TextButton.styleFrom(
-                            foregroundColor: Colors.redAccent),
+                            foregroundColor: AppTheme.danger),
                         child: const Text('重置'),
                       ),
                     ],
@@ -522,7 +519,7 @@ class _UserScriptsPageState extends State<UserScriptsPage> {
                               const SizedBox(height: 6),
                               const Text('点击下方按钮让 AI 为当前网页编写专属脚本',
                                   style: TextStyle(
-                                      fontSize: 12, color: Colors.grey)),
+                                      fontSize: 12, color: AppTheme.neutral)),
                             ],
                           ),
                         )
@@ -574,7 +571,9 @@ class _UserScriptsPageState extends State<UserScriptsPage> {
                       Icon(
                         Icons.javascript,
                         size: 24,
-                        color: script.isEnabled ? Colors.amber : Colors.grey,
+                        color: script.isEnabled
+                            ? AppTheme.warning
+                            : AppTheme.neutral,
                       ),
                       const SizedBox(width: 6),
                       Flexible(
@@ -583,7 +582,7 @@ class _UserScriptsPageState extends State<UserScriptsPage> {
                           style: TextStyle(
                             fontSize: 14.5,
                             fontWeight: FontWeight.bold,
-                            color: script.isEnabled ? null : Colors.grey,
+                            color: script.isEnabled ? null : AppTheme.neutral,
                           ),
                         ),
                       ),
@@ -604,8 +603,7 @@ class _UserScriptsPageState extends State<UserScriptsPage> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
               decoration: BoxDecoration(
-                color:
-                    isDark ? const Color(0xFF19202A) : const Color(0xFFEFF3F4),
+                color: isDark ? AppTheme.darkInput : AppTheme.lightInput,
                 borderRadius: BorderRadius.circular(6),
               ),
               child: Text(
@@ -636,7 +634,7 @@ class _UserScriptsPageState extends State<UserScriptsPage> {
               children: [
                 Text(
                   '${script.code.length} 字符',
-                  style: const TextStyle(fontSize: 11, color: Colors.grey),
+                  style: const TextStyle(fontSize: 11, color: AppTheme.neutral),
                 ),
                 const Spacer(),
                 TextButton.icon(
@@ -647,7 +645,7 @@ class _UserScriptsPageState extends State<UserScriptsPage> {
                 ),
                 IconButton(
                   icon: const Icon(Icons.delete_outline,
-                      size: 18, color: Colors.redAccent),
+                      size: 18, color: AppTheme.danger),
                   tooltip: '删除脚本',
                   onPressed: () => _deleteScript(script),
                 ),

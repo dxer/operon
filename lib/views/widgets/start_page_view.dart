@@ -134,14 +134,14 @@ class _StartPageViewState extends State<StartPageView> {
               title: Text(item['title'] ?? '',
                   style: const TextStyle(fontWeight: FontWeight.bold)),
               subtitle: Text(item['url'] ?? '',
-                  style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                  style:
+                      const TextStyle(fontSize: 12, color: AppTheme.neutral)),
             ),
             const Divider(height: 1),
             ListTile(
-              leading:
-                  const Icon(Icons.delete_outline, color: Colors.redAccent),
+              leading: const Icon(Icons.delete_outline, color: AppTheme.danger),
               title: const Text('删除此快捷方式',
-                  style: TextStyle(color: Colors.redAccent)),
+                  style: TextStyle(color: AppTheme.danger)),
               onTap: () async {
                 Navigator.pop(ctx);
                 final list = widget.storageService.getShortcuts();
@@ -237,15 +237,14 @@ class _StartPageViewState extends State<StartPageView> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bgTop = isDark ? const Color(0xFF141C26) : const Color(0xFFFDFEFF);
+    final bgTop = isDark ? AppTheme.darkCard : AppTheme.lightCard;
     final bgBottom = isDark ? AppTheme.darkBg : AppTheme.lightBg;
-    final inputBg = isDark ? const Color(0xFF1B2431) : Colors.white;
+    final inputBg = isDark ? AppTheme.darkInput : AppTheme.lightCard;
     final borderColor = _hasFocus
         ? AppTheme.primary
-        : (isDark ? const Color(0xFF2D3744) : const Color(0xFFE1E7EC));
-    final tileBg = isDark ? const Color(0xFF1B2431) : Colors.white;
-    final tileBorder =
-        isDark ? const Color(0xFF2A3442) : const Color(0xFFE8EDF1);
+        : (isDark ? AppTheme.darkBorder : AppTheme.lightBorder);
+    final tileBg = isDark ? AppTheme.darkCard : AppTheme.lightCard;
+    final tileBorder = isDark ? AppTheme.darkBorder : AppTheme.lightBorder;
     final subtle = isDark ? Colors.white38 : Colors.black38;
 
     Widget shortcutGrid() {
@@ -339,7 +338,9 @@ class _StartPageViewState extends State<StartPageView> {
                     child: Icon(
                       Icons.auto_awesome_rounded,
                       size: 25,
-                      color: isDark ? Colors.white : const Color(0xFF0F141C),
+                      color: isDark
+                          ? AppTheme.darkOnSurface
+                          : AppTheme.lightOnSurface,
                     ),
                   ),
                   const SizedBox(height: 18),
@@ -349,7 +350,9 @@ class _StartPageViewState extends State<StartPageView> {
                       fontSize: 28,
                       fontWeight: FontWeight.w900,
                       letterSpacing: 8.0,
-                      color: isDark ? Colors.white : const Color(0xFF0F141C),
+                      color: isDark
+                          ? AppTheme.darkOnSurface
+                          : AppTheme.lightOnSurface,
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -526,7 +529,7 @@ class _ShortcutTile extends StatelessWidget {
             style: TextStyle(
               fontSize: 11.5,
               fontWeight: FontWeight.w500,
-              color: isDark ? Colors.white70 : const Color(0xFF0F141C),
+              color: isDark ? AppTheme.darkMuted : AppTheme.lightOnSurface,
             ),
           ),
         ],

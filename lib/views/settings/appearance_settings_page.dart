@@ -75,7 +75,7 @@ class _AppearanceSettingsPageState extends State<AppearanceSettingsPage> {
                 const SizedBox(height: 6),
                 const Text(
                   '控制浏览器外壳、主页及菜单色彩',
-                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                  style: TextStyle(fontSize: 12, color: AppTheme.neutral),
                 ),
                 const SizedBox(height: 14),
                 SegmentedButton<ThemeMode>(
@@ -122,7 +122,7 @@ class _AppearanceSettingsPageState extends State<AppearanceSettingsPage> {
               title: const Text('强制网页夜间模式 (Force Dark)',
                   style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
               subtitle: const Text('对不支持深色主题的网页进行内核级智能反色渲染',
-                  style: TextStyle(fontSize: 12, color: Colors.grey)),
+                  style: TextStyle(fontSize: 12, color: AppTheme.neutral)),
               value: _webDarkMode,
               activeThumbColor: AppTheme.primary,
               onChanged: (val) async {

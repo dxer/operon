@@ -94,13 +94,15 @@ class _SkillRunSheetState extends State<SkillRunSheet> {
   Color _riskColor(ToolRisk risk) {
     switch (risk) {
       case ToolRisk.read:
-        return Colors.blueGrey;
+        return Theme.of(context).colorScheme.onSurfaceVariant;
       case ToolRisk.navigate:
-        return Colors.blue;
+        return AppTheme.primary;
       case ToolRisk.write:
-        return Colors.orange;
+        return Theme.of(context).brightness == Brightness.dark
+            ? AppTheme.warning
+            : const Color(0xFF8A5A12);
       case ToolRisk.destructive:
-        return Colors.redAccent;
+        return AppTheme.danger;
     }
   }
 
@@ -148,7 +150,7 @@ class _SkillRunSheetState extends State<SkillRunSheet> {
 
   void _toast(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: Colors.redAccent),
+      SnackBar(content: Text(message), backgroundColor: AppTheme.danger),
     );
   }
 
@@ -203,8 +205,8 @@ class _SkillRunSheetState extends State<SkillRunSheet> {
                               color: item.found
                                   ? AppTheme.accent
                                   : (item.ambiguous
-                                      ? Colors.amber
-                                      : Colors.redAccent),
+                                      ? AppTheme.warning
+                                      : AppTheme.danger),
                             ),
                             const SizedBox(width: 6),
                             Expanded(
@@ -249,7 +251,7 @@ class _SkillRunSheetState extends State<SkillRunSheet> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final cardBg = isDark ? AppTheme.darkCard : Colors.white;
-    final surface = isDark ? const Color(0xFF16181C) : const Color(0xFFF1F4F6);
+    final surface = isDark ? AppTheme.darkInput : AppTheme.lightInput;
     final onSurface = Theme.of(context).colorScheme.onSurface;
     final muted = onSurface.withValues(alpha: isDark ? 0.72 : 0.6);
     final hairline = isDark ? AppTheme.darkBorder : AppTheme.lightBorder;

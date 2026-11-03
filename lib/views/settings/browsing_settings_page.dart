@@ -78,7 +78,7 @@ class _BrowsingSettingsPageState extends State<BrowsingSettingsPage> {
                       style:
                           TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
                   subtitle: const Text('在弱网环境下大幅缩减流量消耗并加快正文加载',
-                      style: TextStyle(fontSize: 12, color: Colors.grey)),
+                      style: TextStyle(fontSize: 12, color: AppTheme.neutral)),
                   value: _blockImages,
                   activeThumbColor: AppTheme.primary,
                   onChanged: (val) async {
@@ -94,7 +94,7 @@ class _BrowsingSettingsPageState extends State<BrowsingSettingsPage> {
                       style:
                           TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
                   subtitle: const Text('关闭可彻底防御恶意弹窗，但现代网页功能可能受限',
-                      style: TextStyle(fontSize: 12, color: Colors.grey)),
+                      style: TextStyle(fontSize: 12, color: AppTheme.neutral)),
                   value: _javaScriptEnabled,
                   activeThumbColor: AppTheme.primary,
                   onChanged: (val) async {
@@ -110,7 +110,7 @@ class _BrowsingSettingsPageState extends State<BrowsingSettingsPage> {
                       style:
                           TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
                   subtitle: const Text('新建标签页默认使用 PC 宽屏视口及 Desktop User-Agent',
-                      style: TextStyle(fontSize: 12, color: Colors.grey)),
+                      style: TextStyle(fontSize: 12, color: AppTheme.neutral)),
                   value: _desktopMode,
                   activeThumbColor: AppTheme.primary,
                   onChanged: (val) async {
@@ -142,7 +142,7 @@ class _BrowsingSettingsPageState extends State<BrowsingSettingsPage> {
                 const SizedBox(height: 6),
                 const Text(
                   '向网站声明的客户端设备身份',
-                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                  style: TextStyle(fontSize: 12, color: AppTheme.neutral),
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(

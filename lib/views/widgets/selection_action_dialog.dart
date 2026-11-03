@@ -141,7 +141,7 @@ class _SelectionActionDialogState extends State<SelectionActionDialog> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
             decoration: BoxDecoration(
-              color: isDark ? const Color(0xFF16181C) : const Color(0xFFF0F3F5),
+              color: isDark ? AppTheme.darkInput : AppTheme.lightInput,
               borderRadius: BorderRadius.circular(8),
               border: Border.all(
                 color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
@@ -175,7 +175,7 @@ class _SelectionActionDialogState extends State<SelectionActionDialog> {
               ),
               ActionChip(
                 avatar: const Icon(Icons.lightbulb_outline,
-                    size: 16, color: Colors.amber),
+                    size: 16, color: AppTheme.warning),
                 label: const Text('解释/释义', style: TextStyle(fontSize: 12)),
                 onPressed:
                     _isLoading ? null : () => _executeAction('explain', '通俗解释'),
@@ -217,7 +217,7 @@ class _SelectionActionDialogState extends State<SelectionActionDialog> {
               padding: const EdgeInsets.symmetric(vertical: 12.0),
               child: Text(
                 '执行失败: $_error',
-                style: const TextStyle(color: Colors.redAccent, fontSize: 12),
+                style: const TextStyle(color: AppTheme.danger, fontSize: 12),
               ),
             )
           else if (_resultText != null)
@@ -226,9 +226,7 @@ class _SelectionActionDialogState extends State<SelectionActionDialog> {
                 margin: const EdgeInsets.only(top: 6),
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: isDark
-                      ? const Color(0xFF19202A)
-                      : const Color(0xFFF7F9FA),
+                  color: isDark ? AppTheme.darkInput : AppTheme.lightBg,
                   borderRadius: BorderRadius.circular(10),
                   border: Border.all(
                       color: AppTheme.primary.withValues(alpha: 0.3)),

@@ -25,32 +25,32 @@ class SkillRunTimeline extends StatelessWidget {
   Color _statusColor(SkillRunStatus status) {
     switch (status) {
       case SkillRunStatus.idle:
-        return Colors.grey;
+        return AppTheme.neutral;
       case SkillRunStatus.running:
         return AppTheme.primary;
       case SkillRunStatus.completed:
         return AppTheme.accent;
       case SkillRunStatus.failed:
-        return Colors.redAccent;
+        return AppTheme.danger;
       case SkillRunStatus.cancelled:
-        return Colors.amber;
+        return AppTheme.neutral;
     }
   }
 
   Color _stepColor(SkillStepStatus status) {
     switch (status) {
       case SkillStepStatus.pending:
-        return Colors.grey;
+        return AppTheme.neutral;
       case SkillStepStatus.running:
         return AppTheme.primary;
       case SkillStepStatus.succeeded:
         return AppTheme.accent;
       case SkillStepStatus.failed:
-        return Colors.redAccent;
+        return AppTheme.danger;
       case SkillStepStatus.skipped:
-        return Colors.amber;
+        return AppTheme.neutral;
       case SkillStepStatus.cancelled:
-        return Colors.grey;
+        return AppTheme.neutral;
     }
   }
 
@@ -75,7 +75,7 @@ class SkillRunTimeline extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final cardBg = isDark ? AppTheme.darkCard : Colors.white;
-    final surface = isDark ? const Color(0xFF16181C) : const Color(0xFFF1F4F6);
+    final surface = isDark ? AppTheme.darkInput : AppTheme.lightInput;
     final onSurface = Theme.of(context).colorScheme.onSurface;
     final muted = onSurface.withValues(alpha: isDark ? 0.72 : 0.6);
     final hairline = isDark ? AppTheme.darkBorder : AppTheme.lightBorder;
@@ -162,17 +162,17 @@ class SkillRunTimeline extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: Colors.redAccent.withValues(alpha: 0.08),
+                color: AppTheme.danger.withValues(alpha: 0.08),
                 borderRadius: BorderRadius.circular(9),
                 border: Border.all(
-                  color: Colors.redAccent.withValues(alpha: 0.3),
+                  color: AppTheme.danger.withValues(alpha: 0.3),
                 ),
               ),
               child: Text(
                 state.error!,
                 style: const TextStyle(
                   fontSize: 11.5,
-                  color: Colors.redAccent,
+                  color: AppTheme.danger,
                   height: 1.4,
                 ),
               ),
@@ -226,7 +226,7 @@ class SkillRunTimeline extends StatelessWidget {
                                 result.errorMessage!,
                                 style: const TextStyle(
                                   fontSize: 11,
-                                  color: Colors.redAccent,
+                                  color: AppTheme.danger,
                                 ),
                               ),
                             ),
@@ -239,8 +239,8 @@ class SkillRunTimeline extends StatelessWidget {
                                 padding: const EdgeInsets.all(8),
                                 decoration: BoxDecoration(
                                   color: isDark
-                                      ? const Color(0xFF0E1013)
-                                      : const Color(0xFFF7F9FA),
+                                      ? AppTheme.darkBg
+                                      : AppTheme.lightBg,
                                   borderRadius: BorderRadius.circular(8),
                                 ),
                                 child: SelectableText(
@@ -330,7 +330,7 @@ class SkillRunTimeline extends StatelessWidget {
                     icon: const Icon(Icons.stop_circle_outlined, size: 16),
                     label: const Text('停止'),
                     style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.redAccent,
+                      foregroundColor: AppTheme.danger,
                     ),
                   ),
                 ),
