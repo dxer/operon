@@ -38,6 +38,22 @@ void main() {
     expect(catalog.map((item) => item['id']), isNot(contains('macro.run')));
   });
 
+  test('page.click exposes an explicit intent parameter', () {
+    final click = ToolCatalog.find('page.click')!;
+    final intent = click.params.firstWhere((param) => param.key == 'intent');
+    expect(intent.type, ToolParamType.select);
+    expect(intent.defaultValue, 'auto');
+    expect(
+      intent.options,
+      containsAll(['auto', 'navigate', 'toggle', 'submit', 'destructive']),
+    );
+  });
+
+  test('ToolResult.success defaults pageChanged to false', () {
+    expect(ToolResult.success().pageChanged, isFalse);
+    expect(ToolResult.success(pageChanged: true).pageChanged, isTrue);
+  });
+
   test('committing write tools require confirmation by default', () {
     for (final id in [
       'page.click',

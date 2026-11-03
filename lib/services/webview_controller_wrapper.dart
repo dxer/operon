@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import '../models/agent_action.dart';
+import '../models/page_signature.dart';
 
 class DOMSnapshot {
   final String url;
@@ -174,6 +175,26 @@ class WebViewControllerWrapper {
       return res?.value == true;
     } catch (_) {
       return false;
+    }
+  }
+
+  /// Reads a cheap page fingerprint before/after an action.
+  ///
+  /// Returns null when the page is navigating or the script is unavailable, so
+  /// callers can fall back to URL comparison instead of treating that as "no
+  /// change".
+  Future<PageSignature?> tryGetPageSignature() async {
+    try {
+      await ensureScriptInjected();
+      final result = await controller
+          .evaluateJavascript(source: 'window.OPERON.getPageSignature();')
+          .timeout(const Duration(seconds: 5));
+      if (result == null) return null;
+      final decoded = result is String ? jsonDecode(result) : result;
+      if (decoded is! Map) return null;
+      return PageSignature.fromJson(Map<String, dynamic>.from(decoded));
+    } catch (_) {
+      return null;
     }
   }
 

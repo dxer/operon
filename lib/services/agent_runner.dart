@@ -53,9 +53,8 @@ class AgentRunner {
   String? _lastConfirmedCaptchaKey;
   SkillPolicy? _policy;
   Set<String>? _allowedTools;
-  final Set<String> _sentContents = {};
   final List<String> _sentContentPreviews = [];
-  final Set<String> _processedSideEffectKeys = {};
+  final ExecutionGuard _dedupe = ExecutionGuard();
   String? _lastTypedText;
   int _lastTypedStep = -10;
   bool _lastTypedSecret = false;
@@ -122,9 +121,8 @@ class AgentRunner {
     _lastConfirmedCaptchaKey = null;
     _policy = policy;
     _allowedTools = allowedTools;
-    _sentContents.clear();
     _sentContentPreviews.clear();
-    _processedSideEffectKeys.clear();
+    _dedupe.clearDedupe();
     _lastTypedText = null;
     _lastTypedStep = -10;
     _lastTypedSecret = false;
@@ -391,9 +389,7 @@ class AgentRunner {
         _emit(_state.copyWith(status: AgentStatus.thinking));
 
         if (!_budget.canCallLlm()) {
-          final reason = _budget.timedOut
-              ? '超过本次运行的最长时长'
-              : '已达到本次运行的 AI 调用上限';
+          final reason = _budget.timedOut ? '超过本次运行的最长时长' : '已达到本次运行的 AI 调用上限';
           _addLog('$reason，任务已停止', isError: true);
           _emit(_state.copyWith(
             status: AgentStatus.error,
@@ -626,7 +622,9 @@ class AgentRunner {
         }
         // Search submissions are not publishing side effects, even when the
         // model's thought says "提交搜索".
-        final searchOnly = _isSearchOnly(action, elementText);
+        final searchOnly = ExecutionGuard.isSearchOnly(
+          '${action.thought} $elementText ${action.description}',
+        );
         if (searchOnly) {
           isSensitive = false;
           riskReason = null;
@@ -691,7 +689,10 @@ class AgentRunner {
         // or the intent explicitly says send/post/publish.
         final openerOnly = submitLikeRaw &&
             submittedContent == null &&
-            _isComposerOpener(action, elementText);
+            ExecutionGuard.isComposerOpener(
+              '${action.thought} $elementText ${action.description}',
+              elementText,
+            );
         final submitLike = submitLikeRaw && !openerOnly;
         if (openerOnly && elementContextKey.isNotEmpty) {
           // Remember which item the composer was opened for, so the actual
@@ -812,8 +813,7 @@ class AgentRunner {
         if (submitLike &&
             (_policy?.uniqueContent ?? false) &&
             submittedContent != null) {
-          final normalized = _normalizeContent(submittedContent);
-          if (normalized.isNotEmpty && _sentContents.contains(normalized)) {
+          if (_dedupe.contentAlreadySent(submittedContent)) {
             _addLog(
               '重复内容已拦截',
               detail: '本次任务已经发送过相同内容，已阻止重复发送。'
@@ -830,7 +830,7 @@ class AgentRunner {
         // working as before.
         if (submitKey != null &&
             (_policy?.uniqueTarget ?? false) &&
-            _processedSideEffectKeys.contains(submitKey)) {
+            _dedupe.targetAlreadyProcessed(submitKey)) {
           _addLog(
             '重复目标已拦截',
             detail: '本次任务已经处理过这个目标，已跳过。请处理下一个不同的条目。',
@@ -901,10 +901,7 @@ class AgentRunner {
           }
           if (submitLike) {
             if (submittedContent != null) {
-              final normalized = _normalizeContent(submittedContent);
-              if (normalized.isNotEmpty) {
-                _sentContents.add(normalized);
-              }
+              _dedupe.rememberContent(submittedContent);
               if (!_lastTypedSecret) {
                 final preview = submittedContent.trim();
                 if (preview.isNotEmpty) {
@@ -923,7 +920,7 @@ class AgentRunner {
             // no text. Content dedupe only applies when there is content.
             _budget.recordSideEffect();
             if (submitKey != null) {
-              _processedSideEffectKeys.add(submitKey);
+              _dedupe.rememberTarget(submitKey);
             }
             if (_budget.itemLimitReached) {
               _batchLimitReached = true;
@@ -1143,13 +1140,6 @@ class AgentRunner {
     return null;
   }
 
-  String _normalizeContent(String text) {
-    return text
-        .toLowerCase()
-        .replaceAll(RegExp(r'\s+'), '')
-        .replaceAll(RegExp(r'[^\w\u4e00-\u9fa5]'), '');
-  }
-
   String? _confirmationPayload(
     AgentAction action,
     Map<String, dynamic>? risk, {
@@ -1205,81 +1195,11 @@ class AgentRunner {
         action.action != ActionType.pressKey) {
       return false;
     }
-    if (_isSearchOnly(action, targetText)) return false;
-    final haystack =
-        '${action.thought} $targetText ${action.description}'.toLowerCase();
-    const words = [
-      'reply',
-      'post',
-      'tweet',
-      'send',
-      'submit',
-      'publish',
-      'comment',
-      'confirm',
-      'delete',
-      'remove',
-      'unfollow',
-      'logout',
-      '回复',
-      '发布',
-      '发送',
-      '提交',
-      '评论',
-      '发推',
-      '支付',
-      '付款',
-      '购买',
-      '下单',
-      '确认',
-      '删除',
-      '注销',
-      '解绑',
-      '退出登录',
-    ];
-    // Enter is also used for search. The keyword check below keeps plain
-    // "按回车搜索" from being treated as a side effect.
-    return words.any(haystack.contains);
-  }
-
-  /// A search/filter submission must not trigger publishing safeguards.
-  bool _isSearchOnly(AgentAction action, String targetText) {
-    final haystack =
-        '${action.thought} $targetText ${action.description}'.toLowerCase();
-    final hasSearch = RegExp(r'搜索|搜一下|查找|筛选|search|filter').hasMatch(haystack);
-    if (!hasSearch) return false;
-    final hasPublish = RegExp(
-      r'回复|评论|发布|发帖|支付|付款|购买|下单|订单|转账|删除|注销|解绑|消息|'
-      r'reply|comment|publish|pay|buy|order|delete|unfollow|logout',
-    ).hasMatch(haystack);
-    return !hasPublish;
-  }
-
-  /// A click that only opens a reply/comment composer, without send wording
-  /// and without freshly typed content, should not be treated as a side
-  /// effect. This avoids two confirmations per reply (open + send).
-  bool _isComposerOpener(AgentAction action, String targetText) {
-    if (action.action != ActionType.click) return false;
-    final haystack =
-        '${action.thought} $targetText ${action.description}'.toLowerCase();
-    final hasReply = RegExp(r'回复|评论|reply|comment').hasMatch(haystack);
-    final hasSend = RegExp(
-      r'发送|发布|发帖|提交|send|post|publish|submit',
-    ).hasMatch(haystack);
-    final exactTarget = targetText.trim().toLowerCase();
-    if (hasReply) {
-      // A target whose whole label is "Reply"/"Comment" is almost always the
-      // opener, even when the model's thought says "准备发布回复".
-      if (RegExp(r'^(回复|评论|reply|comment)$').hasMatch(exactTarget)) {
-        return true;
-      }
-      if (!hasSend) return true;
-    }
-    // "Open post/tweet/帖子" is navigation, not publishing.
-    final navigates =
-        RegExp(r'打开|查看|进入|浏览|open|view|go to|navigate').hasMatch(haystack);
-    final postTarget = RegExp(r'^(post|tweet|帖子|推文|动态)$').hasMatch(exactTarget);
-    return navigates && postTarget && !hasSend;
+    return ExecutionGuard.looksLikeSubmitIntent(
+      thought: action.thought,
+      targetText: targetText,
+      description: action.description,
+    );
   }
 
   /// Verifying progress only makes sense for actions that should change the

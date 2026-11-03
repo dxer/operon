@@ -209,6 +209,13 @@ class ToolCatalog {
           type: ToolParamType.boolean,
           defaultValue: false,
         ),
+        ToolParam(
+          key: 'intent',
+          label: '点击意图',
+          type: ToolParamType.select,
+          defaultValue: 'auto',
+          options: ['auto', 'navigate', 'toggle', 'submit', 'destructive'],
+        ),
       ],
       outputSchema: {'clicked': 'boolean', 'url': 'string'},
     ),

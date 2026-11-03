@@ -70,8 +70,7 @@ class RunBudget {
 
   bool get timedOut => maxDuration != null && elapsed > maxDuration!;
 
-  bool get llmLimitReached =>
-      maxLlmCalls != null && _llmCalls >= maxLlmCalls!;
+  bool get llmLimitReached => maxLlmCalls != null && _llmCalls >= maxLlmCalls!;
 
   bool get sideEffectLimitReached =>
       maxSideEffects != null && _sideEffects >= maxSideEffects!;

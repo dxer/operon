@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/agent_action.dart';
 import '../models/macro_workflow.dart';
+import '../utils/cancellation.dart';
+import 'macro_precondition.dart';
 import 'webview_controller_wrapper.dart';
 
 class MacroService {
@@ -59,8 +61,15 @@ class MacroService {
     required WebViewControllerWrapper webView,
     required Function(int currentStep, int totalSteps, String description)
         onProgress,
+    CancellationToken? token,
   }) async {
+    final currentUrl = await webView.getUrl();
+    if (!MacroPrecondition.check(macro: macro, currentUrl: currentUrl).ok) {
+      return false;
+    }
+
     for (int i = 0; i < macro.steps.length; i++) {
+      if (token?.isCancelled == true) return false;
       final step = macro.steps[i];
       onProgress(i + 1, macro.steps.length, step.description);
 
@@ -117,6 +126,7 @@ class MacroService {
           return false;
         }
         await Future.delayed(const Duration(milliseconds: 500));
+        if (token?.isCancelled == true) return false;
         result = await webView.executeAction(action);
         if (result['success'] != true) {
           return false;
@@ -128,6 +138,7 @@ class MacroService {
         await Future.delayed(const Duration(milliseconds: 800));
       }
       await webView.waitForDomStable(timeoutMs: 1800);
+      if (token?.isCancelled == true) return false;
     }
     return true;
   }

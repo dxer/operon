@@ -1,5 +1,5 @@
 /**
- * Operon Universal Agent DOM Engine (v0.2.1)
+ * Operon Universal Agent DOM Engine (v0.2.2)
  * - Stealth Anti-Bot Fingerprint Masking
  * - Ghost Cursor & Human-like Touch Ripple Animation
  * - Deep Shadow DOM & IFrame Traversal
@@ -8,7 +8,7 @@
  * - Dynamic MutationObserver DOM Settle Detection
  */
 (function () {
-  if (window.OPERON && window.OPERON.version === '0.2.1') {
+  if (window.OPERON && window.OPERON.version === '0.2.2') {
     return;
   }
 
@@ -641,6 +641,28 @@
     return result;
   }
 
+  // Macro replay stores a selector string. Look through shadow roots (and
+  // support the xpath:// form produced by the recorder) instead of falling
+  // back to a light-DOM-only document.querySelector.
+  function findMacroTarget(selector) {
+    if (!selector) return null;
+    if (selector.indexOf('xpath://') === 0) {
+      const expression = selector.slice(8);
+      const light = xpathElements(expression, document);
+      if (light.length) return light[0];
+      const all = document.querySelectorAll('*');
+      for (let i = 0; i < all.length; i++) {
+        if (all[i].shadowRoot) {
+          const nested = xpathElements(expression, all[i].shadowRoot);
+          if (nested.length) return nested[0];
+        }
+      }
+      return null;
+    }
+    const matches = querySelectorAllDeep(document, selector);
+    return matches.length ? matches[0] : null;
+  }
+
   function cssEscapeValue(value) {
     if (window.CSS && typeof window.CSS.escape === 'function') {
       return window.CSS.escape(String(value));
@@ -1199,9 +1221,35 @@
   // 6. Main Operon Engine Definition
   // ==========================================
   const engine = {
-    version: '0.2.1',
+    version: '0.2.2',
 
     detectCaptcha: detectCaptchaChallenge,
+
+    /// Cheap page fingerprint used to verify that an action changed the page.
+    /// Operon's own overlays are excluded so animations do not look like DOM
+    /// growth.
+    getPageSignature: function () {
+      let overlayCount = 0;
+      try {
+        overlayCount = document.querySelectorAll(
+          '#__operon_badge_container__, #__operon_badge_container__ *, ' +
+          '#__operon_ghost_cursor__, ' +
+          '.__operon_spotlight__, .__operon_ripple__'
+        ).length;
+      } catch (e) {}
+      const all = document.getElementsByTagName('*').length;
+      return JSON.stringify({
+        url: (window.location && window.location.href) || '',
+        title: document.title || '',
+        elementCount: Math.max(0, all - overlayCount),
+        textLength: document.body
+          ? (document.body.textContent || '').length
+          : 0,
+        scrollHeight: document.documentElement
+          ? document.documentElement.scrollHeight
+          : 0,
+      });
+    },
 
     extractPrunedDOM: function (showVisualBadges = false, includeContent = true) {
       removeBadges();
@@ -1446,7 +1494,7 @@
           // Support direct selector fallback for Macro Replay!
           let el = elementsMap.get(id) || document.querySelector(`[data-operon-id="${id}"]`) || document.querySelector(`[data-bbx-id="${id}"]`);
           if (!el && params.selector) {
-            try { el = document.querySelector(params.selector); } catch (_) {}
+            try { el = findMacroTarget(params.selector); } catch (_) {}
           }
 
           if (!el || el.isConnected === false) {
@@ -1532,7 +1580,7 @@
 
           let el = elementsMap.get(id) || document.querySelector(`[data-operon-id="${id}"]`) || document.querySelector(`[data-bbx-id="${id}"]`);
           if (!el && params.selector) {
-            try { el = document.querySelector(params.selector); } catch (_) {}
+            try { el = findMacroTarget(params.selector); } catch (_) {}
           }
 
           if (!el || el.isConnected === false) {
@@ -2646,5 +2694,5 @@
   };
 
   window.OPERON = window.BBX_AGENT = engine;
-  console.log('[Operon] Universal Agent Engine v0.2.1 Injected.');
+  console.log('[Operon] Universal Agent Engine v0.2.2 Injected.');
 })();

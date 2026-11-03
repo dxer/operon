@@ -98,6 +98,7 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
     if (policy == null) return '';
     return policy.maxItems > 1 ? ' · 批量 ×${policy.maxItems}' : ' · 单条';
   }
+
   bool _showLogs = false;
   bool _resultExpanded = false;
   bool _hasDraft = false;
@@ -408,7 +409,7 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
         final macro = MacroWorkflow(
           id: DateTime.now().millisecondsSinceEpoch.toString(),
           title: title,
-          initialUrl: '',
+          initialUrl: widget.currentUrl ?? '',
           createdAt: DateTime.now(),
           steps: steps,
         );
@@ -426,7 +427,7 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
         final macro = MacroWorkflow(
           id: DateTime.now().millisecondsSinceEpoch.toString(),
           title: title,
-          initialUrl: '',
+          initialUrl: widget.currentUrl ?? '',
           createdAt: DateTime.now(),
           steps: steps,
         );
@@ -591,8 +592,7 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
         state.status == AgentStatus.paused;
 
     return Tooltip(
-      message:
-          host == null ? '当前在起始页，AI 会按指令打开网页' : 'AI 将在这个站点上操作\n$host',
+      message: host == null ? '当前在起始页，AI 会按指令打开网页' : 'AI 将在这个站点上操作\n$host',
       child: Container(
         padding: const EdgeInsets.fromLTRB(9, 5, 10, 5),
         decoration: BoxDecoration(
@@ -820,9 +820,8 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
         break;
     }
 
-    final actionText = finished
-        ? ''
-        : agentActionLabel(state.currentAction).trim();
+    final actionText =
+        finished ? '' : agentActionLabel(state.currentAction).trim();
     final hasAction = actionText.isNotEmpty;
     final text = hasAction ? actionText : _resultText(state);
     final secondary = hasAction ? _resultText(state) : '';
@@ -1226,7 +1225,7 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
             height: 42,
             child: _menuRow(Icons.bolt_rounded, '快捷宏任务库'),
           ),
-        if (widget.onManageSkills != null)
+        if (widget.onManageSkills != null && !isRunning)
           PopupMenuItem(
             value: _SheetAction.skills,
             height: 42,
@@ -1366,8 +1365,7 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
                       if (isRunning && state.maxSteps > 0) ...[
                         const SizedBox(height: 8),
                         Semantics(
-                          label:
-                              '任务进度 ${state.currentStep}/${state.maxSteps}',
+                          label: '任务进度 ${state.currentStep}/${state.maxSteps}',
                           child: ClipRRect(
                             borderRadius: BorderRadius.circular(2),
                             child: LinearProgressIndicator(
@@ -1805,7 +1803,11 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
     final accent = paused || waiting ? AppTheme.warning : AppTheme.primary;
     final goal = state.goal.trim();
     final label = goal.isEmpty
-        ? (paused ? '已暂停' : waiting ? '等待你的操作' : '正在执行')
+        ? (paused
+            ? '已暂停'
+            : waiting
+                ? '等待你的操作'
+                : '正在执行')
         : goal;
 
     return Container(
@@ -1850,9 +1852,8 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
           ),
           IconButton(
             tooltip: paused ? '继续' : '暂停',
-            onPressed: waiting
-                ? null
-                : (paused ? widget.onResume : widget.onPause),
+            onPressed:
+                waiting ? null : (paused ? widget.onResume : widget.onPause),
             icon: Icon(
               paused ? Icons.play_arrow_rounded : Icons.pause_rounded,
               size: 20,

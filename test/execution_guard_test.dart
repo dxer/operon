@@ -16,6 +16,124 @@ void main() {
     expect(guard.targetAlreadyProcessed('example.com|ABC|reply'), isTrue);
   });
 
+  test('submit intent recognizes publishing words', () {
+    expect(
+      ExecutionGuard.looksLikeSubmitIntent(
+        thought: '点击发送',
+        targetText: '发送',
+        description: '',
+      ),
+      isTrue,
+    );
+    expect(
+      ExecutionGuard.looksLikeSubmitIntent(
+        thought: '打开菜单',
+        targetText: '设置',
+        description: '',
+      ),
+      isFalse,
+    );
+  });
+
+  test('search-only actions and composer openers are not side effects', () {
+    expect(
+      ExecutionGuard.assessClick(
+        targetText: '搜索',
+        thought: '提交搜索',
+      ).sideEffect,
+      isFalse,
+    );
+    expect(
+      ExecutionGuard.assessClick(
+        targetText: '回复',
+        thought: '准备发布回复',
+      ).sideEffect,
+      isFalse,
+    );
+    expect(
+      ExecutionGuard.assessClick(
+        targetText: '发送',
+        thought: '发布回复',
+      ).sideEffect,
+      isTrue,
+    );
+  });
+
+  test('draft targets are blocked without blocking plain save', () {
+    expect(
+      ExecutionGuard.assessClick(targetText: '保存草稿').draftBlocked,
+      isTrue,
+    );
+    expect(
+      ExecutionGuard.assessClick(targetText: '保存').draftBlocked,
+      isFalse,
+    );
+  });
+
+  test('declared intent overrides keyword matching', () {
+    expect(
+      ExecutionGuard.assessClick(
+        targetText: '下一步',
+        declaredIntent: 'navigate',
+      ).sideEffect,
+      isFalse,
+    );
+    expect(
+      ExecutionGuard.assessClick(
+        targetText: '继续',
+        declaredIntent: 'submit',
+      ).sideEffect,
+      isTrue,
+    );
+    expect(
+      ExecutionGuard.assessClick(
+        targetText: '继续',
+        declaredIntent: 'destructive',
+      ).destructive,
+      isTrue,
+    );
+  });
+
+  test('focus-only inputs and sensitive components are classified', () {
+    expect(
+      ExecutionGuard.assessClick(
+        targetText: '搜索',
+        tag: 'INPUT',
+        inputType: 'text',
+      ).sideEffect,
+      isFalse,
+    );
+    expect(
+      ExecutionGuard.assessClick(
+        targetText: '继续',
+        componentSensitive: true,
+      ).sideEffect,
+      isTrue,
+    );
+    final payment = ExecutionGuard.assessClick(
+      targetText: '立即支付',
+      componentSensitive: true,
+    );
+    expect(payment.sideEffect, isTrue);
+    expect(payment.destructive, isTrue);
+  });
+
+  test('content normalization ignores punctuation and whitespace', () {
+    final guard = ExecutionGuard();
+    guard.rememberContent('Hello,  World!');
+    expect(guard.contentAlreadySent('hello world'), isTrue);
+  });
+
+  test('clearDedupe resets content and target state', () {
+    final guard = ExecutionGuard()
+      ..rememberContent('same')
+      ..rememberTarget('target');
+
+    guard.clearDedupe();
+    expect(guard.contentAlreadySent('same'), isFalse);
+    expect(guard.targetAlreadyProcessed('target'), isFalse);
+  });
+
   test('draft buttons are detected without blocking plain save', () {
     expect(ExecutionGuard.looksLikeDraftAction('保存草稿'), isTrue);
     expect(ExecutionGuard.looksLikeDraftAction('存草稿'), isTrue);

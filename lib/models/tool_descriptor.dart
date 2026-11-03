@@ -156,7 +156,7 @@ class ToolResult {
   factory ToolResult.success({
     dynamic data,
     String? url,
-    bool pageChanged = true,
+    bool pageChanged = false,
     bool sideEffect = false,
     int durationMs = 0,
     Map<String, dynamic> meta = const {},

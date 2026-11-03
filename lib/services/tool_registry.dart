@@ -12,6 +12,7 @@ import '../utils/json_parser.dart';
 import 'agent_runner.dart';
 import 'execution_guard.dart';
 import 'llm_service.dart';
+import 'macro_precondition.dart';
 import 'macro_service.dart';
 import 'notification_service.dart';
 import 'webview_controller_wrapper.dart';
@@ -355,6 +356,21 @@ class ToolRegistry {
         resolved['label']?.toString() ??
         resolved['text']?.toString() ??
         '目标元素';
+    final assessment = ExecutionGuard.assessClick(
+      targetText: target,
+      componentSensitive: sensitive,
+      sensitiveReason: reason,
+      tag: risk?['tag']?.toString() ?? resolved['tag']?.toString() ?? '',
+      inputType: risk?['type']?.toString() ?? '',
+      declaredIntent: params['intent']?.toString() ?? 'auto',
+      expectNavigation: params['expectNavigation'] == true,
+    );
+    if (assessment.draftBlocked) {
+      return ToolResult.failure(
+        'DRAFT_ACTION_BLOCKED',
+        '「$target」是草稿按钮；回复/发帖请点击发送按钮',
+      );
+    }
     final effectiveRisk = sensitive ? ToolRisk.destructive : ToolRisk.write;
     final currentUrl = await context.webView.getUrl();
     final targetKey = _targetKey(currentUrl, resolved);
@@ -363,10 +379,21 @@ class ToolRegistry {
       return ToolResult.failure('DUPLICATE_TARGET', '这个目标已经处理过了');
     }
 
-    if (sensitive || context.confirmWrites) {
+    final sideEffectKey = assessment.sideEffect
+        ? '$currentUrl|click|$target|${risk?['contextKey'] ?? ''}'
+        : null;
+    if (sideEffectKey != null &&
+        !context.guard.ledger.canAttempt(sideEffectKey)) {
+      return ToolResult.failure(
+        'DUPLICATE_SIDE_EFFECT',
+        '这个提交刚刚执行过，尚未确认结果；请先检查页面',
+      );
+    }
+
+    if (sensitive || (assessment.sideEffect && context.confirmWrites)) {
       final confirmed = await context.guard.confirm(ConfirmationRequest(
         title: sensitive ? '确认高危点击' : '确认点击',
-        reason: reason.isEmpty ? '将点击页面元素' : reason,
+        reason: reason.isEmpty ? assessment.reason : reason,
         target: target,
         url: currentUrl,
         risk: effectiveRisk,
@@ -376,12 +403,19 @@ class ToolRegistry {
       }
     }
 
+    if (sideEffectKey != null) {
+      context.guard.ledger.markPending(sideEffectKey);
+    }
+    final before = await context.webView.tryGetPageSignature();
     final result = await context.webView.executeAction(AgentAction(
       thought: '技能点击',
       action: ActionType.click,
       elementId: elementId,
     ));
     if (result['success'] != true) {
+      if (sideEffectKey != null) {
+        context.guard.ledger.clear(sideEffectKey);
+      }
       return ToolResult.failure(
         'CLICK_FAILED',
         result['error']?.toString() ?? '点击失败',
@@ -396,6 +430,20 @@ class ToolRegistry {
     await context.webView.waitForDomStable(timeoutMs: 2000);
     context.guard.rememberTarget(targetKey);
     final afterUrl = await context.webView.getUrl();
+    final after = await context.webView.tryGetPageSignature();
+    final urlChanged = afterUrl != currentUrl;
+    final expectNavigation = params['expectNavigation'] == true;
+    final pageChanged = expectNavigation
+        ? urlChanged
+        : urlChanged ||
+            (before != null && after != null && after.changedFrom(before));
+    if (sideEffectKey != null) {
+      if (pageChanged) {
+        context.guard.ledger.markVerified(sideEffectKey);
+      } else {
+        context.guard.ledger.markUnverified(sideEffectKey);
+      }
+    }
     return ToolResult.success(
       data: {
         'clicked': true,
@@ -404,12 +452,13 @@ class ToolRegistry {
         'url': afterUrl,
       },
       url: afterUrl,
-      pageChanged: true,
-      sideEffect: true,
+      pageChanged: pageChanged,
+      sideEffect: assessment.sideEffect,
       meta: {
         ...resolved,
         'risk': effectiveRisk.name,
         'reason': reason,
+        'clickIntent': assessment.reason,
       },
     );
   }
@@ -471,6 +520,7 @@ class ToolRegistry {
       }
     }
 
+    final before = submit ? await context.webView.tryGetPageSignature() : null;
     final typeResult = await context.webView.executeAction(AgentAction(
       thought: '技能输入',
       action: ActionType.type,
@@ -507,6 +557,11 @@ class ToolRegistry {
     }
 
     final afterUrl = await context.webView.getUrl();
+    final after =
+        submitted ? await context.webView.tryGetPageSignature() : null;
+    final pageChanged = submitted &&
+        (afterUrl != currentUrl ||
+            (before != null && after != null && after.changedFrom(before)));
     return ToolResult.success(
       data: {
         'typed': true,
@@ -515,7 +570,7 @@ class ToolRegistry {
         'url': afterUrl,
       },
       url: afterUrl,
-      pageChanged: submitted,
+      pageChanged: pageChanged,
       sideEffect: submitted,
       meta: {
         ...resolved,
@@ -560,6 +615,8 @@ class ToolRegistry {
       }
     }
 
+    final currentUrl = await context.webView.getUrl();
+    final before = await context.webView.tryGetPageSignature();
     final result = await context.webView.executeAction(AgentAction(
       thought: '技能按键',
       action: ActionType.pressKey,
@@ -572,11 +629,15 @@ class ToolRegistry {
       );
     }
     await context.webView.waitForDomStable(timeoutMs: 1500);
+    final afterUrl = await context.webView.getUrl();
+    final after = await context.webView.tryGetPageSignature();
+    final pageChanged = afterUrl != currentUrl ||
+        (before != null && after != null && after.changedFrom(before));
     return ToolResult.success(
-      data: {'pressed': key, 'url': await context.webView.getUrl()},
-      url: await context.webView.getUrl(),
-      pageChanged: true,
-      sideEffect: true,
+      data: {'pressed': key, 'url': afterUrl},
+      url: afterUrl,
+      pageChanged: pageChanged,
+      sideEffect: key.toLowerCase() == 'enter',
     );
   }
 
@@ -608,6 +669,8 @@ class ToolRegistry {
         return ToolResult.failure('CONFIRMATION_DENIED', '用户取消了选择');
       }
     }
+    final currentUrl = await context.webView.getUrl();
+    final before = await context.webView.tryGetPageSignature();
     final result = await context.webView.executeAction(AgentAction(
       thought: '技能下拉选择',
       action: ActionType.selectOption,
@@ -620,10 +683,16 @@ class ToolRegistry {
         result['error']?.toString() ?? '选择失败',
       );
     }
+    await context.webView.waitForDomStable(timeoutMs: 1200);
+    final afterUrl = await context.webView.getUrl();
+    final after = await context.webView.tryGetPageSignature();
+    final pageChanged = afterUrl != currentUrl ||
+        (before != null && after != null && after.changedFrom(before));
     return ToolResult.success(
       data: {'selected': params['value']?.toString() ?? ''},
-      pageChanged: true,
-      sideEffect: true,
+      url: afterUrl,
+      pageChanged: pageChanged,
+      sideEffect: false,
     );
   }
 
@@ -922,12 +991,24 @@ class ToolRegistry {
       );
     }
 
+    final currentUrl = await context.webView.getUrl();
+    final precondition = MacroPrecondition.check(
+      macro: macro,
+      currentUrl: currentUrl,
+    );
+    if (!precondition.ok) {
+      return ToolResult.failure(
+        'MACRO_PRECONDITION_FAILED',
+        precondition.reason ?? '当前页面与宏不匹配',
+      );
+    }
+
     final confirmed = await context.guard.confirm(ConfirmationRequest(
       title: '确认回放宏',
       reason: '将按录制顺序执行 ${macro.steps.length} 个动作，'
           '宏回放不会逐步确认，请确认目标页面正确。',
       target: macro.title,
-      url: await context.webView.getUrl(),
+      url: currentUrl,
       // Replay bypasses per-step risk checks, so always require a human.
       risk: ToolRisk.destructive,
     ));
@@ -941,6 +1022,7 @@ class ToolRegistry {
       onProgress: (current, total, description) {
         context.log('宏回放 $current/$total：$description');
       },
+      token: context.token,
     );
     if (!completed) {
       return ToolResult.failure(

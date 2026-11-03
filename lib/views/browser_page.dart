@@ -16,8 +16,10 @@ import '../models/bookmark_item.dart';
 import '../models/history_item.dart';
 import '../services/agent_runner.dart';
 import '../services/execution_guard.dart';
+import '../services/macro_precondition.dart';
 import '../services/macro_service.dart';
 import '../services/notification_service.dart';
+import '../services/run_coordinator.dart';
 import '../services/share_intent_service.dart';
 import '../services/skill_repair_service.dart';
 import '../services/skill_runner.dart';
@@ -83,6 +85,8 @@ class _BrowserPageState extends State<BrowserPage> {
   bool get _isCleanMode => _currentTab.isCleanMode;
 
   AgentState _agentState = const AgentState();
+  final RunCoordinator _runCoordinator = RunCoordinator();
+  CancellationToken? _macroToken;
   List<Skill> _skills = const [];
   bool _statusBarDismissed = false;
   bool _captchaCheckBusy = false;
@@ -137,6 +141,7 @@ class _BrowserPageState extends State<BrowserPage> {
             state.status == AgentStatus.maxStepsReached ||
             state.status == AgentStatus.error) {
           _agentTabId = null;
+          _runCoordinator.end(RunKind.agent);
         }
         _agentState = state;
         final isTerminal = state.status == AgentStatus.completed ||
@@ -242,6 +247,7 @@ class _BrowserPageState extends State<BrowserPage> {
 
   @override
   void dispose() {
+    _macroToken?.cancel();
     _agentSub?.cancel();
     _shareSub?.cancel();
     _agentRunner.dispose();
@@ -299,6 +305,13 @@ class _BrowserPageState extends State<BrowserPage> {
 
   void _closeTab(int index) {
     if (index < 0 || index >= _tabs.length) return;
+    final rejection = _runCoordinator.closeTabRejection(_tabs[index].id);
+    if (rejection != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(rejection)),
+      );
+      return;
+    }
     setState(() {
       _tabs.removeAt(index);
       if (_tabs.isEmpty) {
@@ -319,6 +332,12 @@ class _BrowserPageState extends State<BrowserPage> {
   }
 
   void _closeAllTabs() {
+    if (_runCoordinator.isBusy) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('任务运行中，请先停止后再关闭全部标签页')),
+      );
+      return;
+    }
     setState(() {
       _tabs.clear();
       final homepage = _storage?.getHomepage() ?? AppConstants.defaultHomepage;
@@ -813,6 +832,14 @@ class _BrowserPageState extends State<BrowserPage> {
       return;
     }
 
+    final rejection = _runCoordinator.begin(RunKind.agent, _currentTab.id);
+    if (rejection != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(rejection)),
+      );
+      return;
+    }
+
     final maxSteps = policy?.maxSteps ?? _storage?.getMaxSteps() ?? 15;
     final safeMode = _storage?.getSafeMode() ?? true;
 
@@ -821,14 +848,20 @@ class _BrowserPageState extends State<BrowserPage> {
     _taskStartedAt = DateTime.now();
     _taskRecorded = false;
 
-    _agentRunner.run(
-      userGoal: goal,
-      webView: _wrapper!,
-      config: config,
-      maxSteps: maxSteps,
-      safeMode: safeMode,
-      isSiteAllowed: (host) => _storage?.isAgentSiteAllowed(host) ?? false,
-      policy: policy,
+    unawaited(
+      _agentRunner
+          .run(
+        userGoal: goal,
+        webView: _wrapper!,
+        config: config,
+        maxSteps: maxSteps,
+        safeMode: safeMode,
+        isSiteAllowed: (host) => _storage?.isAgentSiteAllowed(host) ?? false,
+        policy: policy,
+      )
+          .catchError((Object error) {
+        _runCoordinator.end(RunKind.agent);
+      }),
     );
   }
 
@@ -863,18 +896,29 @@ class _BrowserPageState extends State<BrowserPage> {
       return;
     }
     if (!mounted) return;
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => _SkillRunHost(
-        request: request,
-        webView: wrapper,
-        config: config,
-        safeMode: _storage?.getSafeMode() ?? true,
-        onConfirm: _confirmSkillAction,
-      ),
-    );
+    final rejection = _runCoordinator.begin(RunKind.skill, _currentTab.id);
+    if (rejection != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(rejection)),
+      );
+      return;
+    }
+    try {
+      await showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (_) => _SkillRunHost(
+          request: request,
+          webView: wrapper,
+          config: config,
+          safeMode: _storage?.getSafeMode() ?? true,
+          onConfirm: _confirmSkillAction,
+        ),
+      );
+    } finally {
+      _runCoordinator.end(RunKind.skill);
+    }
     if (mounted) await _loadSkills();
   }
 
@@ -1076,24 +1120,66 @@ class _BrowserPageState extends State<BrowserPage> {
   }
 
   void _runMacro(MacroWorkflow macro) async {
-    if (_wrapper == null) return;
+    final wrapper = _wrapper;
+    if (wrapper == null) return;
 
+    final currentUrl = await wrapper.getUrl();
+    final precondition = MacroPrecondition.check(
+      macro: macro,
+      currentUrl: currentUrl,
+    );
+    if (!precondition.ok) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(precondition.reason ?? '当前页面与宏不匹配'),
+            backgroundColor: AppTheme.danger,
+          ),
+        );
+      }
+      return;
+    }
+
+    final rejection = _runCoordinator.begin(RunKind.macro, _currentTab.id);
+    if (rejection != null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(rejection)),
+        );
+      }
+      return;
+    }
+
+    final token = CancellationToken();
+    _macroToken = token;
     final macroService = await MacroService.getInstance();
-    if (!mounted) return;
+    if (!mounted) {
+      _macroToken = null;
+      _runCoordinator.end(RunKind.macro);
+      return;
+    }
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('正在重放宏任务: ${macro.title}...'),
-        duration: const Duration(seconds: 1),
+        duration: const Duration(seconds: 8),
+        action: SnackBarAction(label: '停止', onPressed: token.cancel),
       ),
     );
 
-    final success = await macroService.executeMacro(
-      macro: macro,
-      webView: _wrapper!,
-      onProgress: (cur, total, desc) {
-        debugPrint('[Macro Progress] Step $cur/$total: $desc');
-      },
-    );
+    bool success = false;
+    try {
+      success = await macroService.executeMacro(
+        macro: macro,
+        webView: wrapper,
+        onProgress: (cur, total, desc) {
+          debugPrint('[Macro Progress] Step $cur/$total: $desc');
+        },
+        token: token,
+      );
+    } finally {
+      _macroToken = null;
+      _runCoordinator.end(RunKind.macro);
+    }
 
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -1914,6 +2000,12 @@ class _SkillRunHostState extends State<_SkillRunHost> {
         : record.copyWith(output: {...record.output, 'result': _shown!});
     final storage = await StorageService.getInstance();
     await storage.addSkillRun(stored);
+  }
+
+  @override
+  void dispose() {
+    _token.cancel();
+    super.dispose();
   }
 
   SkillStepResult? _repairTarget() {
