@@ -129,7 +129,7 @@ class _SkillEditPageState extends State<SkillEditPage> {
         maxLlmCalls: _int(_maxLlmCalls.text, 10),
         maxSideEffects: _int(_maxSideEffects.text, 10),
         maxItems: _int(_maxItems.text, 1),
-        maxDurationMs: _int(_maxDuration.text, 120000),
+        maxDurationMs: _int(_maxDuration.text, 300000),
         pacingMs: _int(_pacing.text, 0),
         uniqueTarget: _uniqueTarget,
         uniqueContent: _uniqueContent,

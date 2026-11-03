@@ -6,6 +6,7 @@ import '../models/llm_config.dart';
 import '../models/macro_workflow.dart';
 import '../models/skill.dart';
 import '../utils/cancellation.dart';
+import '../utils/extracted_data.dart';
 import '../utils/prompt_builder.dart';
 import '../utils/url_utils.dart';
 import 'execution_guard.dart';
@@ -60,6 +61,9 @@ class AgentRunner {
   bool _batchLimitReached = false;
   String? _pendingItemContextKey;
   String? _pendingItemUrl;
+
+  /// How long a hand-off CAPTCHA waits for the user before the task stops.
+  static const Duration _captchaWait = Duration(minutes: 5);
 
   AgentRunner({LlmService? llmService})
       : _llmService = llmService ?? LlmService();
@@ -155,18 +159,7 @@ class AgentRunner {
           return;
         }
 
-        while (_isPaused) {
-          await Future.delayed(const Duration(milliseconds: 300));
-          if (_isCancelled) {
-            _addLog('任务已由用户手动停止');
-            _emit(_state.copyWith(
-              status: AgentStatus.idle,
-              clearCurrentAction: true,
-            ));
-            await webView.clearHighlights();
-            return;
-          }
-        }
+        if (!await _waitWhilePaused(webView, generation)) return;
 
         step++;
         _emit(_state.copyWith(
@@ -229,14 +222,26 @@ class AgentRunner {
               .notifyCaptchaDetected(snapshot.captchaType!);
 
           _captchaCompleter = Completer<bool>();
-          final passed = await _captchaCompleter!.future;
+          // Do not wait forever: the user may have walked away after the
+          // notification, and the task would otherwise hang until stopped.
+          final passed = await _captchaCompleter!.future.timeout(
+            _captchaWait,
+            onTimeout: () => false,
+          );
           _captchaCompleter = null;
           if (generation != _generation) return;
 
           if (!passed || _isCancelled) {
-            _addLog('验证码处理取消，任务中止');
+            final timedOut = !passed && !_isCancelled;
+            _addLog(
+              timedOut ? '等待人机验证超时，任务已停止' : '验证码处理取消，任务中止',
+              isError: timedOut,
+            );
             _emit(_state.copyWith(
-              status: AgentStatus.idle,
+              status: timedOut ? AgentStatus.error : AgentStatus.idle,
+              errorMessage: timedOut
+                  ? '等待人机验证超过 ${_captchaWait.inMinutes} 分钟，任务已停止。'
+                  : null,
               clearCaptchaType: true,
               clearCurrentAction: true,
             ));
@@ -405,6 +410,10 @@ class AgentRunner {
           return;
         }
 
+        // The user may have paused while the model was thinking. Honour it
+        // before the action touches the page, not after.
+        if (!await _waitWhilePaused(webView, generation)) return;
+
         _emit(_state.copyWith(
           currentThought: _safeThought(action),
           currentAction: action,
@@ -483,16 +492,25 @@ class AgentRunner {
 
         // 3. Handle Data Extraction Event
         if (action.extractedData != null) {
-          _emit(_state.copyWith(extractedData: action.extractedData));
+          // Accumulate instead of replace: a second page reports only its new
+          // records, and overwriting here used to drop everything before it.
+          final merged = mergeExtractedData(
+            _state.extractedData,
+            action.extractedData,
+          );
+          _emit(_state.copyWith(extractedData: merged));
           _addLog('成功解析结构化数据', detail: '已暂存数据，可随时在控制台复制查看');
         }
 
         // 4. Handle Completion
         if (action.action == ActionType.finish) {
+          final finalData = action.extractedData == null
+              ? _state.extractedData
+              : mergeExtractedData(_state.extractedData, action.extractedData);
           final decision = FinishVerifier.verify(
             goal: userGoal,
             summary: action.summary ?? '',
-            extractedData: action.extractedData ?? _state.extractedData,
+            extractedData: finalData,
             step: step,
             navigateCount: _navigateCount,
             pageHasContent: snapshot.textTree.trim().isNotEmpty,
@@ -518,7 +536,7 @@ class AgentRunner {
 
           _emit(_state.copyWith(
             status: AgentStatus.completed,
-            extractedData: action.extractedData ?? _state.extractedData,
+            extractedData: finalData,
             recordedMacroSteps: List.unmodifiable(macroSteps),
           ));
           _addLog('任务顺利完成', detail: action.summary);
@@ -1211,6 +1229,34 @@ class AgentRunner {
       default:
         return false;
     }
+  }
+
+  /// Blocks while the user has paused the task.
+  ///
+  /// Returns false when the run was stopped or superseded. It is called at the
+  /// top of a step and again right after the model answers: pressing pause
+  /// while the model is thinking must still keep the pending click from
+  /// running, otherwise "pause" only takes effect after the side effect.
+  Future<bool> _waitWhilePaused(
+    WebViewControllerWrapper webView,
+    int generation,
+  ) async {
+    if (!_isPaused) return true;
+    while (_isPaused) {
+      await Future.delayed(const Duration(milliseconds: 300));
+      if (generation != _generation) return false;
+      if (_isCancelled) {
+        _addLog('任务已由用户手动停止');
+        _emit(_state.copyWith(
+          status: AgentStatus.idle,
+          clearCurrentAction: true,
+        ));
+        await webView.clearHighlights();
+        return false;
+      }
+    }
+    _emit(_state.copyWith(status: AgentStatus.executing));
+    return true;
   }
 
   /// Returns a task to idle and releases this task's page decorations.

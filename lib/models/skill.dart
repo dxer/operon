@@ -357,7 +357,9 @@ class SkillPolicy {
     this.maxLlmCalls = 10,
     this.maxSideEffects = 10,
     this.maxItems = 1,
-    this.maxDurationMs = 120000,
+    // A single model call may take up to 3 minutes, so a shorter skill budget
+    // would fail right after a slow but successful call.
+    this.maxDurationMs = 300000,
     this.pacingMs = 0,
     this.uniqueTarget = false,
     this.uniqueContent = false,
@@ -397,7 +399,7 @@ class SkillPolicy {
       maxLlmCalls: (json['maxLlmCalls'] as num?)?.toInt() ?? 10,
       maxSideEffects: (json['maxSideEffects'] as num?)?.toInt() ?? 10,
       maxItems: (json['maxItems'] as num?)?.toInt() ?? 1,
-      maxDurationMs: (json['maxDurationMs'] as num?)?.toInt() ?? 120000,
+      maxDurationMs: (json['maxDurationMs'] as num?)?.toInt() ?? 300000,
       pacingMs: (json['pacingMs'] as num?)?.toInt() ?? 0,
       uniqueTarget: json['uniqueTarget'] == true,
       uniqueContent: json['uniqueContent'] == true,

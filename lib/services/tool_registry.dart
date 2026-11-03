@@ -852,8 +852,10 @@ class ToolRegistry {
       }
     }));
 
+    // A nested agent makes its own model calls, each of which may use the full
+    // 3-minute request budget; the wall clock ceiling has to clear one of them.
     final state = await completer.future.timeout(
-      const Duration(seconds: 120),
+      const Duration(minutes: 6),
       onTimeout: () {
         if (!stopped) {
           stopped = true;
@@ -861,7 +863,7 @@ class ToolRegistry {
         }
         return const AgentState(
           status: AgentStatus.error,
-          errorMessage: '子任务超时（120 秒）',
+          errorMessage: '子任务超时（6 分钟）',
         );
       },
     );

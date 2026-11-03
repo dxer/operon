@@ -84,7 +84,7 @@ $catalog
     "maxLlmCalls": 2,
     "maxSideEffects": 0,
     "maxItems": 1,
-    "maxDurationMs": 180000,
+    "maxDurationMs": 300000,
     "pacingMs": 0,
     "uniqueTarget": false,
     "uniqueContent": false,

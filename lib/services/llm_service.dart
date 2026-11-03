@@ -14,18 +14,65 @@ class LlmCancelledException implements Exception {
   String toString() => '大模型请求已取消';
 }
 
+/// A network-level failure with a message that is already user facing.
+///
+/// Keeping it separate from a generic `Exception` lets callers rethrow it
+/// unchanged instead of wrapping it in "连接大模型服务失败: Exception: ...".
+class LlmRequestException implements Exception {
+  final String message;
+
+  const LlmRequestException(this.message);
+
+  @override
+  String toString() => message;
+}
+
+class _Completion {
+  final String content;
+  final String? finishReason;
+
+  const _Completion(this.content, this.finishReason);
+
+  /// The provider stopped because it hit the token limit, so the JSON is
+  /// almost certainly cut in half rather than genuinely malformed.
+  bool get truncated => finishReason == 'length';
+}
+
 class LlmService {
   final http.Client _client;
+  final Duration _requestTimeout;
+  final Duration _retryBackoff;
 
-  LlmService({http.Client? client}) : _client = client ?? http.Client();
+  LlmService({
+    http.Client? client,
+    Duration? requestTimeout,
+    Duration? retryBackoff,
+  })  : _client = client ?? http.Client(),
+        _requestTimeout = requestTimeout ?? const Duration(minutes: 3),
+        _retryBackoff = retryBackoff ?? const Duration(milliseconds: 800);
 
-  static const Duration _requestTimeout = Duration(seconds: 45);
-  static const int _maxRetries = 1;
+  /// Transient failures get two extra attempts.
+  static const int _maxRetries = 2;
+
+  /// A timeout already waited the full request budget, so it is retried once
+  /// at most: two attempts are the ceiling before the user is told it failed.
+  static const int _maxTimeoutRetries = 1;
+
+  String get _timeoutLabel {
+    final seconds = _requestTimeout.inSeconds;
+    return seconds >= 60
+        ? '${(seconds / 60).ceil()} 分钟'
+        : '$seconds 秒';
+  }
+
+  String get _timeoutMessage =>
+      '大模型请求超时（$_timeoutLabel），请稍后重试或换一个更快的模型';
 
   /// Sends a JSON POST with abort support and bounded retries.
   ///
-  /// Retries only transient connection resets and 429/5xx responses. Timeouts
-  /// fail fast (one 45s wait) so the user is not left waiting for minutes.
+  /// Retries connection resets, 429/5xx responses and timeouts. A 45s budget
+  /// was too tight for reasoning models, which legitimately take minutes on a
+  /// hard page; the budget is now three minutes and a timeout gets one retry.
   Future<http.Response> _postJson({
     required Uri uri,
     required Map<String, String> headers,
@@ -35,12 +82,14 @@ class LlmService {
   }) async {
     Object? lastError;
     final maxAttempts = retry ? _maxRetries + 1 : 1;
+    var timeoutRetries = 0;
 
     for (var attempt = 0; attempt < maxAttempts; attempt++) {
       if (cancelToken?.isCancelled == true) {
         throw const LlmCancelledException();
       }
 
+      final isLastAttempt = attempt >= maxAttempts - 1;
       final abort = Completer<void>();
       void abortNow() {
         if (!abort.isCompleted) abort.complete();
@@ -61,8 +110,7 @@ class LlmService {
         final streamed = await _client.send(request);
         final response = await http.Response.fromStream(streamed);
 
-        if (attempt < maxAttempts - 1 &&
-            _isRetryableStatus(response.statusCode)) {
+        if (!isLastAttempt && _isRetryableStatus(response.statusCode)) {
           timer.cancel();
           await Future.delayed(_retryDelay(response, attempt));
           continue;
@@ -74,18 +122,26 @@ class LlmService {
         if (cancelToken?.isCancelled == true) {
           throw const LlmCancelledException();
         }
-        throw Exception(
-          '大模型请求超时（${_requestTimeout.inSeconds} 秒），请检查网络后重试',
-        );
+        if (isLastAttempt || timeoutRetries >= _maxTimeoutRetries) {
+          throw LlmRequestException(_timeoutMessage);
+        }
+        timeoutRetries++;
+        lastError = 'timeout';
+        await Future.delayed(_retryBackoff * (attempt + 1));
+        continue;
       } catch (e) {
         timer.cancel();
         if (cancelToken?.isCancelled == true) {
           throw const LlmCancelledException();
         }
         if (e is TimeoutException) {
-          throw Exception(
-            '大模型请求超时（${_requestTimeout.inSeconds} 秒），请检查网络后重试',
-          );
+          if (isLastAttempt || timeoutRetries >= _maxTimeoutRetries) {
+            throw LlmRequestException(_timeoutMessage);
+          }
+          timeoutRetries++;
+          lastError = 'timeout';
+          await Future.delayed(_retryBackoff * (attempt + 1));
+          continue;
         }
         if (e is http.ClientException) {
           lastError = e;
@@ -94,12 +150,12 @@ class LlmService {
         }
       }
 
-      if (attempt < maxAttempts - 1) {
-        await Future.delayed(Duration(milliseconds: 800 * (attempt + 1)));
+      if (!isLastAttempt) {
+        await Future.delayed(_retryBackoff * (attempt + 1));
       }
     }
 
-    throw Exception('大模型请求失败: $lastError');
+    throw LlmRequestException('大模型请求失败（已重试 ${maxAttempts - 1} 次）: $lastError');
   }
 
   bool _isRetryableStatus(int status) =>
@@ -114,83 +170,174 @@ class LlmService {
     if (retryAfter != null && retryAfter > 0) {
       return Duration(seconds: retryAfter.clamp(1, 5));
     }
-    return Duration(milliseconds: 800 * (attempt + 1));
+    return _retryBackoff * (attempt + 1);
   }
 
-  /// Sends the prompt to the configured LLM and returns the parsed AgentAction
+  /// Providers known to reject `response_format`. Re-sending it on every call
+  /// burns a round trip and can surface a confusing error.
+  static final Set<String> _jsonModeUnsupported = <String>{};
+
+  static String _providerKey(LlmConfig config) =>
+      '${config.baseUrl.trim()}|${config.model.trim()}';
+
+  static String _endpointOf(LlmConfig config) {
+    final base = config.baseUrl.trim();
+    if (base.endsWith('/chat/completions')) return base;
+    if (base.endsWith('/')) return '${base}chat/completions';
+    return '$base/chat/completions';
+  }
+
+  static String _clip(String text, [int max = 600]) =>
+      text.length > max ? '${text.substring(0, max)}…' : text;
+
+  /// Sends the prompt to the configured LLM and returns the parsed AgentAction.
+  ///
+  /// A single malformed reply used to end the whole task, throwing away every
+  /// step already taken. It now gets one repair round with the bad output and
+  /// a format reminder, which is much cheaper than restarting the run.
   Future<AgentAction> getNextAction({
     required LlmConfig config,
     required List<Map<String, String>> messages,
     CancellationToken? cancelToken,
   }) async {
+    final first = await _complete(
+      config: config,
+      messages: messages,
+      jsonMode: true,
+      cancelToken: cancelToken,
+    );
+    final parsed = _parseAction(first.content);
+    if (parsed != null && parsed.action != ActionType.unknown) return parsed;
+
+    final hint = first.truncated
+        ? '你上一条回复因为过长被截断。请只输出一个短小的 JSON 动作，不要任何解释。'
+        : parsed != null
+            ? '动作类型 "${_clip(first.content, 120)}" 不受支持。可用动作：'
+                'click、type、press_key、select_option、hover、scroll、navigate、'
+                'go_back、wait、extract_data、finish。请只输出一个合法 JSON。'
+            : '你上一条回复不是合法的动作 JSON：\n${_clip(first.content)}\n'
+                '请只输出一个 JSON 对象，不要 Markdown，不要解释。';
+
+    final repaired = await _complete(
+      config: config,
+      messages: [
+        ...messages,
+        {'role': 'assistant', 'content': _clip(first.content)},
+        {'role': 'user', 'content': hint},
+      ],
+      // Format compliance matters more than variety here.
+      temperature: 0,
+      jsonMode: true,
+      cancelToken: cancelToken,
+    );
+
+    final action = _parseAction(repaired.content);
+    if (action != null && action.action != ActionType.unknown) return action;
+
+    throw Exception(
+      repaired.truncated
+          ? '模型输出连续被截断，无法得到完整动作。请换一个上下文更长的模型，或把目标拆小。'
+          : '未能从模型回复中解析出合法 Action JSON: ${_clip(repaired.content)}',
+    );
+  }
+
+  AgentAction? _parseAction(String content) {
+    final json = JsonParser.extractJson(content);
+    return json == null ? null : AgentAction.fromJson(json);
+  }
+
+  /// General chat completion helper returning raw String content
+  Future<String> chatCompletion({
+    required LlmConfig config,
+    required List<Map<String, String>> messages,
+    double? temperature,
+    bool jsonMode = false,
+    CancellationToken? cancelToken,
+  }) async {
+    final completion = await _complete(
+      config: config,
+      messages: messages,
+      temperature: temperature,
+      jsonMode: jsonMode,
+      cancelToken: cancelToken,
+    );
+    return completion.content;
+  }
+
+  /// One chat completion, including `response_format` negotiation.
+  Future<_Completion> _complete({
+    required LlmConfig config,
+    required List<Map<String, String>> messages,
+    double? temperature,
+    bool jsonMode = false,
+    CancellationToken? cancelToken,
+  }) async {
     if (!config.isValid) {
       throw Exception('请先在设置中配置有效的 API Key 与大模型服务地址。');
     }
-
-    // Normalize endpoint URL
-    String endpoint = config.baseUrl.trim();
-    if (!endpoint.endsWith('/chat/completions')) {
-      if (endpoint.endsWith('/')) {
-        endpoint = '${endpoint}chat/completions';
-      } else {
-        endpoint = '$endpoint/chat/completions';
-      }
+    if (cancelToken?.isCancelled == true) {
+      throw const LlmCancelledException();
     }
 
-    final uri = Uri.parse(endpoint);
+    final uri = Uri.parse(_endpointOf(config));
     final headers = {
       'Content-Type': 'application/json; charset=utf-8',
       'Authorization': 'Bearer ${config.apiKey.trim()}',
     };
+    final key = _providerKey(config);
+    final wantJsonMode = jsonMode && !_jsonModeUnsupported.contains(key);
 
-    final body = jsonEncode({
-      'model': config.model.trim(),
-      'messages': messages,
-      'temperature': config.temperature,
-      // Many modern models support response_format: { type: "json_object" }
-      'response_format': {'type': 'json_object'},
-    });
+    Map<String, dynamic> bodyFor(bool withJsonMode) => {
+          'model': config.model.trim(),
+          'messages': messages,
+          'temperature': temperature ?? config.temperature,
+          if (withJsonMode) 'response_format': {'type': 'json_object'},
+        };
 
     http.Response response;
     try {
       response = await _postJson(
         uri: uri,
         headers: headers,
-        body: body,
+        body: jsonEncode(bodyFor(wantJsonMode)),
         cancelToken: cancelToken,
       );
+    } on LlmCancelledException {
+      rethrow;
+    } on LlmRequestException {
+      rethrow;
     } catch (e) {
-      if (e is LlmCancelledException) rethrow;
       throw Exception('连接大模型服务失败: $e');
     }
 
-    if (response.statusCode != 200) {
-      // Some older models reject response_format. Retry once without it only
-      // for that specific 400 response.
-      if (response.statusCode == 400 &&
-          (response.body.contains('response_format') ||
-              response.body.contains('json_object'))) {
-        try {
-          final fallbackBody = jsonEncode({
-            'model': config.model.trim(),
-            'messages': messages,
-            'temperature': config.temperature,
-          });
-          response = await _postJson(
-            uri: uri,
-            headers: headers,
-            body: fallbackBody,
-            cancelToken: cancelToken,
-            retry: false,
-          );
-        } on LlmCancelledException {
-          rethrow;
-        } catch (_) {}
+    // Some OpenAI-compatible providers reject response_format with 400 or 422,
+    // and the message does not always mention it. Retry once without it and
+    // remember the model so later calls skip the doomed first round trip.
+    if (wantJsonMode &&
+        (response.statusCode == 400 || response.statusCode == 422)) {
+      try {
+        final fallback = await _postJson(
+          uri: uri,
+          headers: headers,
+          body: jsonEncode(bodyFor(false)),
+          cancelToken: cancelToken,
+          retry: false,
+        );
+        if (fallback.statusCode == 200) {
+          _jsonModeUnsupported.add(key);
+          response = fallback;
+        }
+      } on LlmCancelledException {
+        rethrow;
+      } on LlmRequestException {
+        rethrow;
+      } catch (_) {
+        // Keep the original error: it is the more informative one.
       }
     }
 
     if (response.statusCode != 200) {
-      String errDetail = response.body;
+      var errDetail = response.body;
       try {
         final errJson = jsonDecode(response.body);
         if (errJson['error']?['message'] != null) {
@@ -206,91 +353,11 @@ class LlmService {
       throw Exception('模型返回了空响应');
     }
 
-    final content = choices[0]['message']?['content'] as String? ?? '';
-    final actionJson = JsonParser.extractJson(content);
-
-    if (actionJson == null) {
-      throw Exception('未能从模型回复中解析出合法 Action JSON: $content');
-    }
-
-    return AgentAction.fromJson(actionJson);
-  }
-
-  /// General chat completion helper returning raw String content
-  Future<String> chatCompletion({
-    required LlmConfig config,
-    required List<Map<String, String>> messages,
-    double? temperature,
-    bool jsonMode = false,
-    CancellationToken? cancelToken,
-  }) async {
-    if (!config.isValid) {
-      throw Exception('请先在设置中配置有效的 API Key 与大模型服务地址。');
-    }
-    if (cancelToken?.isCancelled == true) {
-      throw const LlmCancelledException();
-    }
-
-    String endpoint = config.baseUrl.trim();
-    if (!endpoint.endsWith('/chat/completions')) {
-      if (endpoint.endsWith('/')) {
-        endpoint = '${endpoint}chat/completions';
-      } else {
-        endpoint = '$endpoint/chat/completions';
-      }
-    }
-
-    final uri = Uri.parse(endpoint);
-    final headers = {
-      'Content-Type': 'application/json; charset=utf-8',
-      'Authorization': 'Bearer ${config.apiKey.trim()}',
-    };
-
-    final body = jsonEncode({
-      'model': config.model.trim(),
-      'messages': messages,
-      'temperature': temperature ?? config.temperature,
-      if (jsonMode) 'response_format': {'type': 'json_object'},
-    });
-
-    var response = await _postJson(
-      uri: uri,
-      headers: headers,
-      body: body,
-      cancelToken: cancelToken,
+    final choice = choices[0];
+    return _Completion(
+      choice['message']?['content'] as String? ?? '',
+      choice['finish_reason'] as String?,
     );
-
-    // Some OpenAI-compatible providers reject response_format. Retry once
-    // without it so JSON authoring still works on those endpoints.
-    if (response.statusCode == 400 &&
-        jsonMode &&
-        (response.body.contains('response_format') ||
-            response.body.contains('json_object'))) {
-      final fallbackBody = jsonEncode({
-        'model': config.model.trim(),
-        'messages': messages,
-        'temperature': temperature ?? config.temperature,
-      });
-      response = await _postJson(
-        uri: uri,
-        headers: headers,
-        body: fallbackBody,
-        cancelToken: cancelToken,
-        retry: false,
-      );
-    }
-
-    if (response.statusCode != 200) {
-      throw Exception('大模型响应错误 (${response.statusCode}): ${response.body}');
-    }
-
-    final decoded = jsonDecode(utf8.decode(response.bodyBytes));
-    final choices = decoded['choices'] as List?;
-    if (choices == null || choices.isEmpty) {
-      throw Exception('模型返回了空响应');
-    }
-
-    return choices[0]['message']?['content'] as String? ?? '';
   }
 
   /// Mobile One-Click Summarizer

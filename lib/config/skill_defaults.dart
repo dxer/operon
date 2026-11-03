@@ -92,7 +92,8 @@ class SkillDefaults {
         maxLlmCalls: 2,
         maxSideEffects: 0,
         maxItems: 1,
-        maxDurationMs: 180000,
+        // Two model calls can each take up to the 3-minute request budget.
+        maxDurationMs: 300000,
       ),
       builtin: true,
       sortOrder: 5,
@@ -240,7 +241,8 @@ class SkillDefaults {
         maxLlmCalls: 1,
         maxSideEffects: 0,
         maxItems: 20,
-        maxDurationMs: 120000,
+        // Long enough for one slow extraction call plus the read step.
+        maxDurationMs: 300000,
       ),
       builtin: true,
       sortOrder: 8,

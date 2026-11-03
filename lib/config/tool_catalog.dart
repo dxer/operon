@@ -328,7 +328,7 @@ class ToolCatalog {
       risk: ToolRisk.read,
       cost: ToolCost.llm,
       availability: ToolAvailability.background,
-      timeout: Duration(seconds: 60),
+      timeout: Duration(minutes: 4),
       params: [
         ToolParam(
           key: 'prompt',
@@ -366,7 +366,7 @@ class ToolCatalog {
       risk: ToolRisk.read,
       cost: ToolCost.llm,
       availability: ToolAvailability.background,
-      timeout: Duration(seconds: 60),
+      timeout: Duration(minutes: 4),
       params: [
         ToolParam(
           key: 'prompt',
@@ -397,7 +397,7 @@ class ToolCatalog {
       cost: ToolCost.llm,
       idempotent: false,
       requiresConfirmation: true,
-      timeout: Duration(minutes: 3),
+      timeout: Duration(minutes: 6),
       params: [
         ToolParam(
           key: 'goal',
