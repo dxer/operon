@@ -124,19 +124,98 @@ void _moreTests() {
     expect(field.controller?.text, isEmpty);
   });
 
-  testWidgets('completing a task clears its untouched composer text',
+  testWidgets('while running the composer becomes a control bar',
       (tester) async {
     await tester.pumpWidget(_sheet(
       state: const AgentState(
         status: AgentStatus.thinking,
         goal: '正在执行的任务',
+        currentStep: 3,
+        maxSteps: 15,
       ),
     ));
     await tester.pump();
 
-    var field = tester.widget<TextField>(find.byType(TextField));
-    expect(field.controller?.text, '正在执行的任务');
+    // The disabled composer used to sit in the thumb area while the actual
+    // controls lived inside the scroll view. The bar replaces both.
+    expect(find.byType(TextField), findsNothing);
+    expect(find.text('正在执行的任务'), findsOneWidget);
+    expect(find.text('3/15'), findsOneWidget);
+    expect(find.byTooltip('暂停'), findsOneWidget);
+    expect(find.byTooltip('停止运行'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 
+  testWidgets('a paused task offers resume and stop', (tester) async {
+    await tester.pumpWidget(_sheet(
+      state: const AgentState(
+        status: AgentStatus.paused,
+        goal: '每日签到',
+        currentStep: 2,
+        maxSteps: 10,
+      ),
+    ));
+    await tester.pump();
+
+    expect(find.text('每日签到'), findsOneWidget);
+    expect(find.text('2/10'), findsOneWidget);
+    expect(find.byTooltip('继续'), findsOneWidget);
+    expect(find.byTooltip('停止运行'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('the empty panel suggests goals and fills the composer',
+      (tester) async {
+    await tester.pumpWidget(_sheet());
+    await tester.pump();
+
+    expect(find.text('试试'), findsOneWidget);
+    expect(find.text('GitHub 热榜'), findsOneWidget);
+
+    await tester.tap(find.text('GitHub 热榜'));
+    await tester.pump();
+
+    final field = tester.widget<TextField>(find.byType(TextField));
+    expect(field.controller?.text, '打开 GitHub 热榜并总结前 5 个项目');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('run bar fits a 320px screen with a long goal',
+      (tester) async {
+    tester.view.physicalSize = const Size(320, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(_sheet(
+      state: const AgentState(
+        status: AgentStatus.executing,
+        goal: '在页面里找到所有包含人工智能关键词的文章并逐条总结要点',
+        currentStep: 12,
+        maxSteps: 30,
+      ),
+    ));
+    await tester.pump();
+
+    expect(find.byTooltip('停止运行'), findsOneWidget);
+    expect(find.text('12/30'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('example chips wrap on a narrow screen', (tester) async {
+    tester.view.physicalSize = const Size(320, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(_sheet());
+    await tester.pump();
+
+    expect(find.text('试试'), findsOneWidget);
+    expect(find.text('Hacker News'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('completing a task clears its untouched composer text',
+      (tester) async {
     await tester.pumpWidget(_sheet(
       state: const AgentState(
         status: AgentStatus.completed,
@@ -145,7 +224,7 @@ void _moreTests() {
     ));
     await tester.pump();
 
-    field = tester.widget<TextField>(find.byType(TextField));
+    final field = tester.widget<TextField>(find.byType(TextField));
     expect(field.controller?.text, isEmpty);
   });
 

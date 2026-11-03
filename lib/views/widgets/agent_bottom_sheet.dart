@@ -12,6 +12,7 @@ import '../../services/skill_from_task.dart';
 import '../../services/skill_service.dart';
 import '../../services/webview_controller_wrapper.dart';
 import '../../services/skill_validator.dart';
+import '../../utils/agent_text.dart';
 import '../../utils/skill_template.dart';
 import '../../utils/url_utils.dart';
 import '../settings/skill_editor_page.dart';
@@ -27,6 +28,14 @@ typedef AgentStartHandler = void Function(
 );
 
 enum _SheetAction { logs, macros, skills, close }
+
+/// A one-tap prompt suggestion shown in the empty panel.
+class _ExampleGoal {
+  final String label;
+  final String goal;
+
+  const _ExampleGoal(this.label, this.goal);
+}
 
 class AgentBottomSheet extends StatefulWidget {
   final AgentState state;
@@ -90,10 +99,11 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
     return policy.maxItems > 1 ? ' · 批量 ×${policy.maxItems}' : ' · 单条';
   }
   bool _showLogs = false;
-  final bool _showExtractedData = true;
   bool _resultExpanded = false;
   bool _hasDraft = false;
   bool _discardDialogOpen = false;
+  final ScrollController _scrollController = ScrollController();
+  final FocusNode _goalFocus = FocusNode();
 
   bool get _isTaskActive =>
       widget.state.isRunning || widget.state.status == AgentStatus.paused;
@@ -171,6 +181,28 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
     }
     if (widget.safeMode != oldWidget.safeMode) {
       _safeMode = widget.safeMode;
+    }
+    // A confirmation or CAPTCHA card is inserted at the top of the scroll
+    // area. If the user was reading logs further down they would never see
+    // it, so snap back to the top as soon as the task blocks.
+    final becameWaiting = widget.state.status != oldWidget.state.status &&
+        (widget.state.status == AgentStatus.waitingConfirmation ||
+            widget.state.status == AgentStatus.waitingCaptcha);
+    if (becameWaiting) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !_scrollController.hasClients) return;
+        final reduceMotion =
+            MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+        if (reduceMotion) {
+          _scrollController.jumpTo(0);
+        } else {
+          _scrollController.animateTo(
+            0,
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOutCubic,
+          );
+        }
+      });
     }
     // A failure is the moment logs matter most, so surface them immediately.
     if (oldWidget.state.status != AgentStatus.error &&
@@ -291,6 +323,8 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
   void dispose() {
     _goalController.removeListener(_syncDraftState);
     _goalController.dispose();
+    _scrollController.dispose();
+    _goalFocus.dispose();
     super.dispose();
   }
 
@@ -673,6 +707,7 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
 
   bool _hasResultCard(AgentState state) {
     if (state.currentThought.trim().isNotEmpty) return true;
+    if (state.isRunning && state.currentAction != null) return true;
     return state.status == AgentStatus.completed ||
         state.status == AgentStatus.error ||
         state.status == AgentStatus.maxStepsReached;
@@ -772,12 +807,25 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
         break;
       default:
         color = copper;
-        icon = Icons.auto_awesome_rounded;
-        title = 'AI 思路';
         finished = false;
+        // While a step runs, the concrete action is more useful than the
+        // model's reasoning, which is kept as a muted second line.
+        if (state.currentAction != null) {
+          icon = Icons.touch_app_rounded;
+          title = '正在执行';
+        } else {
+          icon = Icons.auto_awesome_rounded;
+          title = 'AI 思路';
+        }
+        break;
     }
 
-    final text = _resultText(state);
+    final actionText = finished
+        ? ''
+        : agentActionLabel(state.currentAction).trim();
+    final hasAction = actionText.isNotEmpty;
+    final text = hasAction ? actionText : _resultText(state);
+    final secondary = hasAction ? _resultText(state) : '';
     final maxLines = finished ? 3 : 2;
     final needsToggle = text.length > (finished ? 84 : 56) ||
         text.split('\n').length > maxLines;
@@ -827,6 +875,15 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
               color: onSurface.withValues(alpha: 0.88),
             ),
           ),
+          if (secondary.isNotEmpty) ...[
+            const SizedBox(height: 3),
+            Text(
+              secondary,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 11, height: 1.4, color: muted),
+            ),
+          ],
           if (needsToggle)
             Align(
               alignment: Alignment.centerLeft,
@@ -1182,8 +1239,8 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
         ),
       ],
       child: SizedBox(
-        width: 34,
-        height: 34,
+        width: 44,
+        height: 44,
         child: Icon(
           Icons.more_horiz_rounded,
           size: 20,
@@ -1281,6 +1338,7 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
             children: [
               Flexible(
                 child: SingleChildScrollView(
+                  controller: _scrollController,
                   keyboardDismissBehavior:
                       ScrollViewKeyboardDismissBehavior.onDrag,
                   padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
@@ -1302,6 +1360,28 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
                       const SizedBox(height: 10),
 
                       _buildHeader(state: state, isRunning: isRunning),
+
+                      // A thin progress line gives an at-a-glance answer to
+                      // "how far along is this?" without another text row.
+                      if (isRunning && state.maxSteps > 0) ...[
+                        const SizedBox(height: 8),
+                        Semantics(
+                          label:
+                              '任务进度 ${state.currentStep}/${state.maxSteps}',
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(2),
+                            child: LinearProgressIndicator(
+                              value: (state.currentStep / state.maxSteps)
+                                  .clamp(0.0, 1.0),
+                              minHeight: 3,
+                              backgroundColor: hairline,
+                              valueColor: const AlwaysStoppedAnimation<Color>(
+                                AppTheme.primary,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
 
                       // Full-auto is a risky state, so keep a visible warning
                       // instead of hiding it behind the compact chip.
@@ -1460,7 +1540,7 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
                       ],
 
                       // Extracted data: compact key/value preview, full view on demand.
-                      if (hasExtractedData && _showExtractedData) ...[
+                      if (hasExtractedData) ...[
                         const SizedBox(height: 8),
                         _buildExtractedCard(
                           data: state.extractedData,
@@ -1509,9 +1589,9 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
                                     style: TextStyle(fontSize: 11.5)),
                                 style: TextButton.styleFrom(
                                   foregroundColor: AppTheme.primary,
-                                  minimumSize: const Size(0, 28),
+                                  minimumSize: const Size(0, 44),
                                   padding:
-                                      const EdgeInsets.symmetric(horizontal: 6),
+                                      const EdgeInsets.symmetric(horizontal: 8),
                                 ),
                               ),
                           ],
@@ -1557,9 +1637,9 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
                                 }),
                                 style: TextButton.styleFrom(
                                   foregroundColor: muted,
-                                  minimumSize: const Size(0, 24),
+                                  minimumSize: const Size(0, 44),
                                   padding:
-                                      const EdgeInsets.symmetric(horizontal: 4),
+                                      const EdgeInsets.symmetric(horizontal: 8),
                                 ),
                                 child: const Text(
                                   '清除',
@@ -1570,48 +1650,6 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
                           ),
                         ],
                       ],
-
-                      // Control Action Buttons (when running)
-                      if (isRunning) ...[
-                        const SizedBox(height: 10),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: OutlinedButton.icon(
-                                onPressed: state.status == AgentStatus.paused
-                                    ? widget.onResume
-                                    : widget.onPause,
-                                icon: Icon(
-                                  state.status == AgentStatus.paused
-                                      ? Icons.play_arrow
-                                      : Icons.pause,
-                                  size: 18,
-                                ),
-                                label: Text(state.status == AgentStatus.paused
-                                    ? '恢复'
-                                    : '暂停'),
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: onSurface,
-                                  side: BorderSide(color: hairline),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: ElevatedButton.icon(
-                                onPressed: widget.onStop,
-                                icon: const Icon(Icons.stop, size: 18),
-                                label: const Text('停止运行'),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor:
-                                      AppTheme.danger.withValues(alpha: 0.8),
-                                  foregroundColor: Colors.white,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
                     ],
                   ),
                 ),
@@ -1619,33 +1657,219 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
               Padding(
                 padding: EdgeInsets.fromLTRB(
                   16,
-                  6,
+                  8,
                   16,
                   media.viewPadding.bottom + 12,
                 ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    _buildGoalField(
-                      isRunning: isRunning,
-                      subtle: subtle,
-                    ),
-                    if (_pageHost == null && !_isTaskActive) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        '当前是起始页；可直接在指令里写要打开的网址或搜索目标',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(fontSize: 10.5, color: subtle),
+                // While a task runs the prime thumb area belongs to the run
+                // controls, not to a disabled text field. The composer comes
+                // back as soon as the task is idle or finished.
+                child: _isTaskActive
+                    ? _buildRunBar(
+                        state: state,
+                        surface: surface,
+                        hairline: hairline,
+                        onSurface: onSurface,
+                        muted: muted,
+                      )
+                    : Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          // Collapsing must not make the composer jump while
+                          // the user is typing.
+                          AnimatedSize(
+                            duration:
+                                MediaQuery.maybeDisableAnimationsOf(context) ==
+                                        true
+                                    ? Duration.zero
+                                    : const Duration(milliseconds: 160),
+                            curve: Curves.easeOut,
+                            alignment: Alignment.bottomCenter,
+                            child: _showsExamples
+                                ? Padding(
+                                    padding: const EdgeInsets.only(bottom: 8),
+                                    child: _buildExamples(
+                                      surface: surface,
+                                      hairline: hairline,
+                                      subtle: subtle,
+                                    ),
+                                  )
+                                : const SizedBox(
+                                    width: double.infinity,
+                                    height: 0,
+                                  ),
+                          ),
+                          _buildGoalField(
+                            isRunning: isRunning,
+                            subtle: subtle,
+                          ),
+                          if (_pageHost == null) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              '当前是起始页；可直接在指令里写要打开的网址或搜索目标',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(fontSize: 10.5, color: subtle),
+                            ),
+                          ],
+                        ],
                       ),
-                    ],
-                  ],
-                ),
               ),
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  /// Empty panel: show what the agent can do instead of a bare input box.
+  bool get _showsExamples =>
+      !_isTaskActive &&
+      widget.state.status == AgentStatus.idle &&
+      widget.state.logs.isEmpty &&
+      !_hasDraft;
+
+  List<_ExampleGoal> get _exampleGoals => _pageHost == null
+      ? const [
+          _ExampleGoal('GitHub 热榜', '打开 GitHub 热榜并总结前 5 个项目'),
+          _ExampleGoal('今日 AI 新闻', '搜索今天的 AI 新闻并总结要点'),
+          _ExampleGoal('Hacker News', '打开 Hacker News 看看热门内容'),
+        ]
+      : const [
+          _ExampleGoal('总结这一页', '总结当前页面的主要内容'),
+          _ExampleGoal('提取列表', '提取当前页面列表中的条目'),
+          _ExampleGoal('找出链接', '找出当前页面可以继续点进去的链接'),
+        ];
+
+  /// Fills the composer rather than sending immediately: a suggestion should
+  /// never start a paid task the user did not explicitly confirm.
+  void _useExample(_ExampleGoal example) {
+    HapticService.selection();
+    _goalController.text = example.goal;
+    _goalController.selection =
+        TextSelection.collapsed(offset: example.goal.length);
+    _goalFocus.requestFocus();
+  }
+
+  Widget _buildExamples({
+    required Color surface,
+    required Color hairline,
+    required Color subtle,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          '试试',
+          style: TextStyle(
+            fontSize: 10.5,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 0.4,
+            color: subtle,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          children: [
+            for (final example in _exampleGoals)
+              ActionChip(
+                label: Text(
+                  example.label,
+                  style: const TextStyle(fontSize: 11.5),
+                ),
+                onPressed: () => _useExample(example),
+                backgroundColor: surface,
+                side: BorderSide(color: hairline),
+                visualDensity: VisualDensity.compact,
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  /// Fixed bottom control bar while a task runs.
+  Widget _buildRunBar({
+    required AgentState state,
+    required Color surface,
+    required Color hairline,
+    required Color onSurface,
+    required Color muted,
+  }) {
+    final paused = state.status == AgentStatus.paused;
+    final waiting = state.status == AgentStatus.waitingConfirmation ||
+        state.status == AgentStatus.waitingCaptcha;
+    final accent = paused || waiting ? AppTheme.warning : AppTheme.primary;
+    final goal = state.goal.trim();
+    final label = goal.isEmpty
+        ? (paused ? '已暂停' : waiting ? '等待你的操作' : '正在执行')
+        : goal;
+
+    return Container(
+      constraints: const BoxConstraints(minHeight: 52),
+      padding: const EdgeInsets.only(left: 12, right: 4),
+      decoration: BoxDecoration(
+        color: surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: hairline),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            paused
+                ? Icons.pause_circle_outline_rounded
+                : waiting
+                    ? Icons.shield_outlined
+                    : Icons.bolt_rounded,
+            size: 16,
+            color: accent,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 12,
+                color: onSurface.withValues(alpha: 0.86),
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            '${state.currentStep}/${state.maxSteps}',
+            style: TextStyle(
+              fontSize: 10.5,
+              fontWeight: FontWeight.w600,
+              color: muted,
+            ),
+          ),
+          IconButton(
+            tooltip: paused ? '继续' : '暂停',
+            onPressed: waiting
+                ? null
+                : (paused ? widget.onResume : widget.onPause),
+            icon: Icon(
+              paused ? Icons.play_arrow_rounded : Icons.pause_rounded,
+              size: 20,
+            ),
+            color: paused ? accent : muted,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+          ),
+          IconButton(
+            tooltip: '停止运行',
+            onPressed: widget.onStop,
+            icon: const Icon(Icons.stop_rounded, size: 20),
+            color: AppTheme.danger,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+          ),
+        ],
       ),
     );
   }
@@ -1660,6 +1884,7 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
             widget.state.status == AgentStatus.maxStepsReached);
     return TextField(
       controller: _goalController,
+      focusNode: _goalFocus,
       enabled: !isRunning,
       maxLines: 3,
       minLines: 1,
@@ -1781,7 +2006,7 @@ class _ExtractedDataSheetState extends State<_ExtractedDataSheet> {
                     ),
                     style: TextButton.styleFrom(
                       foregroundColor: AppTheme.accent,
-                      minimumSize: const Size(0, 32),
+                      minimumSize: const Size(0, 44),
                       padding: const EdgeInsets.symmetric(horizontal: 8),
                     ),
                   ),
