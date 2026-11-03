@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../config/app_theme.dart';
+import '../../services/haptic_service.dart';
 
 class BottomToolbar extends StatelessWidget {
   final bool canGoBack;
@@ -14,7 +15,6 @@ class BottomToolbar extends StatelessWidget {
   final VoidCallback onForward;
   final VoidCallback onHome;
   final VoidCallback onOpenTabs;
-  final VoidCallback onOpenAgent;
   final VoidCallback onReload;
   final VoidCallback onStopLoad;
   final VoidCallback onNewTab;
@@ -42,7 +42,6 @@ class BottomToolbar extends StatelessWidget {
     required this.onForward,
     required this.onHome,
     required this.onOpenTabs,
-    required this.onOpenAgent,
     required this.onReload,
     required this.onStopLoad,
     required this.onNewTab,
@@ -71,7 +70,7 @@ class BottomToolbar extends StatelessWidget {
   }
 
   void _showMenu(BuildContext context) {
-    HapticFeedback.selectionClick();
+    HapticService.selection();
     final isDark = Theme.of(context).brightness == Brightness.dark;
     showModalBottomSheet(
       context: context,
@@ -146,44 +145,48 @@ class BottomToolbar extends StatelessWidget {
               ),
               Expanded(
                 child: Center(
-                  child: InkResponse(
-                    onTap: () {
-                      HapticFeedback.selectionClick();
-                      onOpenTabs();
-                    },
-                    radius: 20,
-                    child: Container(
-                      width: 26,
-                      height: 26,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(7),
-                        border: Border.all(
-                          color:
-                              isDark ? AppTheme.darkMuted : AppTheme.lightMuted,
-                          width: 1.4,
-                        ),
-                      ),
-                      child: Text(
-                        '$tabCount',
-                        style: TextStyle(
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w700,
-                          color: isDark
-                              ? AppTheme.darkOnSurface
-                              : AppTheme.lightOnSurface,
+                  child: Semantics(
+                    button: true,
+                    label: '标签页，共 $tabCount 个',
+                    child: InkResponse(
+                      onTap: () {
+                        HapticService.selection();
+                        onOpenTabs();
+                      },
+                      radius: 22,
+                      child: SizedBox(
+                        width: 44,
+                        height: 44,
+                        child: Center(
+                          child: Container(
+                            width: 26,
+                            height: 26,
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(7),
+                              border: Border.all(
+                                color: isDark
+                                    ? AppTheme.darkMuted
+                                    : AppTheme.lightMuted,
+                                width: 1.4,
+                              ),
+                            ),
+                            child: Text(
+                              '$tabCount',
+                              style: TextStyle(
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w700,
+                                color: isDark
+                                    ? AppTheme.darkOnSurface
+                                    : AppTheme.lightOnSurface,
+                              ),
+                            ),
+                          ),
                         ),
                       ),
                     ),
                   ),
                 ),
-              ),
-              _ToolbarButton(
-                icon: Icons.smart_toy_outlined,
-                size: 21,
-                color: AppTheme.accent,
-                tooltip: 'AI 智能体',
-                onTap: onOpenAgent,
               ),
               _ToolbarButton(
                 icon: Icons.menu_rounded,
@@ -218,18 +221,23 @@ class _ToolbarButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Expanded(
-      child: Tooltip(
-        message: tooltip,
-        child: InkResponse(
-          onTap: onTap == null
-              ? null
-              : () {
-                  HapticFeedback.selectionClick();
-                  onTap!();
-                },
-          radius: 24,
-          child: Center(
-            child: Icon(icon, size: size, color: color),
+      child: Semantics(
+        button: true,
+        label: tooltip,
+        excludeSemantics: true,
+        child: Tooltip(
+          message: tooltip,
+          child: InkResponse(
+            onTap: onTap == null
+                ? null
+                : () {
+                    HapticService.selection();
+                    onTap!();
+                  },
+            radius: 24,
+            child: Center(
+              child: Icon(icon, size: size, color: color),
+            ),
           ),
         ),
       ),
@@ -279,7 +287,7 @@ class _ActionMenuSheet extends StatelessWidget {
   });
 
   void _run(BuildContext context, VoidCallback action) {
-    HapticFeedback.selectionClick();
+    HapticService.selection();
     Navigator.of(context).pop();
     action();
   }

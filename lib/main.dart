@@ -5,6 +5,7 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'config/app_constants.dart';
 import 'config/app_theme.dart';
 import 'services/app_version_service.dart';
+import 'services/haptic_service.dart';
 import 'services/storage_service.dart';
 import 'services/theme_service.dart';
 import 'views/browser_page.dart';
@@ -21,7 +22,8 @@ void main() async {
   }
 
   // Pre-initialize storage & theme service
-  await StorageService.getInstance();
+  final storage = await StorageService.getInstance();
+  HapticService.enabled = storage.getHapticsEnabled();
   await AppVersionService.load();
   final themeService = await ThemeService.getInstance();
 

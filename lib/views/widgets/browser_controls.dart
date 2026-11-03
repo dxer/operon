@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import '../../config/app_theme.dart';
+import '../../services/haptic_service.dart';
 
 /// Via-style compact address bar: one quiet row, a pill-shaped input, and a
 /// single AI action. The input selects the whole URL the first time it gains
@@ -74,7 +74,7 @@ class _BrowserControlsState extends State<BrowserControls> {
 
   void _submit() {
     FocusScope.of(context).unfocus();
-    HapticFeedback.selectionClick();
+    HapticService.selection();
     widget.onSubmitUrl(widget.urlController.text);
   }
 
@@ -111,7 +111,7 @@ class _BrowserControlsState extends State<BrowserControls> {
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 180),
                 curve: Curves.easeOut,
-                height: 42,
+                height: 46,
                 decoration: BoxDecoration(
                   color: inputBg,
                   borderRadius: BorderRadius.circular(21),
@@ -163,25 +163,32 @@ class _BrowserControlsState extends State<BrowserControls> {
                       ),
                     ),
                     if (_showClear)
-                      GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onTap: () {
-                          widget.urlController.clear();
-                          _focusNode.requestFocus();
-                        },
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 4),
-                          child: Icon(
-                            Icons.cancel_rounded,
-                            size: 16,
-                            color: isDark ? Colors.white30 : Colors.black26,
+                      Semantics(
+                        button: true,
+                        label: '清空地址栏',
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: () {
+                            widget.urlController.clear();
+                            _focusNode.requestFocus();
+                          },
+                          child: SizedBox(
+                            width: 44,
+                            height: 44,
+                            child: Center(
+                              child: Icon(
+                                Icons.cancel_rounded,
+                                size: 16,
+                                color: isDark ? Colors.white30 : Colors.black26,
+                              ),
+                            ),
                           ),
                         ),
                       ),
                     _AiActionButton(
                       isDark: isDark,
                       onTap: () {
-                        HapticFeedback.selectionClick();
+                        HapticService.selection();
                         widget.onSummarize();
                       },
                     ),
@@ -222,23 +229,33 @@ class _AiActionButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return Semantics(
       button: true,
-      label: 'AI 网页速读',
-      child: InkResponse(
-        onTap: onTap,
-        radius: 18,
-        containedInkWell: true,
-        highlightShape: BoxShape.circle,
-        child: Container(
-          width: 28,
-          height: 28,
-          decoration: BoxDecoration(
-            color: AppTheme.accent.withValues(alpha: isDark ? 0.16 : 0.12),
-            shape: BoxShape.circle,
-          ),
-          child: const Icon(
-            Icons.auto_awesome_rounded,
-            size: 15,
-            color: AppTheme.accent,
+      label: '速读此页',
+      child: Tooltip(
+        message: '速读此页',
+        child: SizedBox(
+          width: 44,
+          height: 44,
+          child: InkResponse(
+            onTap: onTap,
+            radius: 22,
+            containedInkWell: true,
+            highlightShape: BoxShape.circle,
+            child: Center(
+              child: Container(
+                width: 28,
+                height: 28,
+                decoration: BoxDecoration(
+                  color:
+                      AppTheme.accent.withValues(alpha: isDark ? 0.16 : 0.12),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.auto_awesome_rounded,
+                  size: 15,
+                  color: AppTheme.accent,
+                ),
+              ),
+            ),
           ),
         ),
       ),

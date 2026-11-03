@@ -7,6 +7,7 @@ import '../models/skill_run.dart';
 import '../models/tool_descriptor.dart';
 import '../utils/cancellation.dart';
 import '../utils/skill_template.dart';
+import '../utils/url_utils.dart';
 import 'execution_guard.dart';
 import 'llm_service.dart';
 import 'skill_validator.dart';
@@ -85,7 +86,7 @@ class SkillRunner {
 
     final values = inputResult.values;
     final startUrl = await _safeUrl(webView);
-    final startHost = _hostOf(startUrl);
+    final startHost = hostOf(startUrl);
     if (!_hostAllowed(startHost, skill.policy, startHost)) {
       return _finish(
         id: runId,
@@ -282,7 +283,7 @@ class SkillRunner {
 
       if (step.tool == 'page.open') {
         final targetUrl = params['url']?.toString() ?? '';
-        final targetHost = _hostOf(targetUrl);
+        final targetHost = hostOf(targetUrl);
         if (targetHost.isNotEmpty &&
             !_hostAllowed(targetHost, skill.policy, startHost)) {
           return _finish(
@@ -340,7 +341,7 @@ class SkillRunner {
         lastToolResult = toolResult;
         if (toolResult.url != null && toolResult.url!.isNotEmpty) {
           context['env']['url'] = toolResult.url;
-          final resultHost = _hostOf(toolResult.url!);
+          final resultHost = hostOf(toolResult.url!);
           if (!_hostAllowed(resultHost, skill.policy, startHost)) {
             lastError = '页面跳转到了不允许的站点：$resultHost';
             break;
@@ -734,23 +735,14 @@ class SkillRunner {
     return record;
   }
 
-  String _hostOf(String url) {
-    var host = Uri.tryParse(url)?.host.toLowerCase() ?? '';
-    if (host.startsWith('www.')) host = host.substring(4);
-    return host;
-  }
-
   bool _hostAllowed(String host, SkillPolicy policy, String currentHost) {
     if (policy.hostScope == SkillHostScope.any) return true;
-    final normalized = host.toLowerCase().replaceFirst(RegExp(r'^www\.'), '');
+    final normalized = normalizeHost(host);
     if (policy.hostScope == SkillHostScope.currentHost) {
-      final base =
-          currentHost.toLowerCase().replaceFirst(RegExp(r'^www\.'), '');
-      return normalized == base;
+      return normalized == normalizeHost(currentHost);
     }
     for (final allowed in policy.allowedHosts) {
-      final value =
-          allowed.trim().toLowerCase().replaceFirst(RegExp(r'^www\.'), '');
+      final value = normalizeHost(allowed);
       if (value == normalized) return true;
       if (value.startsWith('*.')) {
         final suffix = value.substring(2);

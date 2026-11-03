@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import '../../config/app_theme.dart';
+import '../../services/haptic_service.dart';
 import '../../services/storage_service.dart';
+import 'operon_mark.dart';
 
 class StartPageView extends StatefulWidget {
   final StorageService storageService;
@@ -59,7 +60,7 @@ class _StartPageViewState extends State<StartPageView> {
   void _handleSubmit(String input) {
     final query = input.trim();
     if (query.isEmpty) return;
-    HapticFeedback.selectionClick();
+    HapticService.selection();
     _focusNode.unfocus();
     widget.onOpenUrl(query);
   }
@@ -280,7 +281,7 @@ class _StartPageViewState extends State<StartPageView> {
             borderColor: tileBorder,
             isDark: isDark,
             onTap: () {
-              HapticFeedback.selectionClick();
+              HapticService.selection();
               widget.onOpenUrl(url);
             },
             onLongPress: () => _showShortcutOptions(index),
@@ -305,7 +306,9 @@ class _StartPageViewState extends State<StartPageView> {
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
             child: TweenAnimationBuilder<double>(
               tween: Tween(begin: 0, end: 1),
-              duration: const Duration(milliseconds: 460),
+              duration: MediaQuery.maybeDisableAnimationsOf(context) == true
+                  ? Duration.zero
+                  : const Duration(milliseconds: 460),
               curve: Curves.easeOutCubic,
               builder: (context, value, child) {
                 return Opacity(
@@ -335,9 +338,8 @@ class _StartPageViewState extends State<StartPageView> {
                         width: 0.8,
                       ),
                     ),
-                    child: Icon(
-                      Icons.auto_awesome_rounded,
-                      size: 25,
+                    child: OperonMark(
+                      size: 26,
                       color: isDark
                           ? AppTheme.darkOnSurface
                           : AppTheme.lightOnSurface,
@@ -428,24 +430,33 @@ class _StartPageViewState extends State<StartPageView> {
                             ),
                           ),
                           if (_searchController.text.isNotEmpty)
-                            GestureDetector(
-                              onTap: () {
-                                _searchController.clear();
-                                setState(() {});
-                              },
-                              child: Padding(
-                                padding: const EdgeInsets.all(4),
-                                child: Icon(
-                                  Icons.close_rounded,
-                                  size: 18,
-                                  color: isDark
-                                      ? AppTheme.darkMuted
-                                      : AppTheme.lightMuted,
+                            Semantics(
+                              button: true,
+                              label: '清空搜索框',
+                              child: GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onTap: () {
+                                  _searchController.clear();
+                                  setState(() {});
+                                },
+                                child: SizedBox(
+                                  width: 44,
+                                  height: 44,
+                                  child: Center(
+                                    child: Icon(
+                                      Icons.close_rounded,
+                                      size: 18,
+                                      color: isDark
+                                          ? AppTheme.darkMuted
+                                          : AppTheme.lightMuted,
+                                    ),
+                                  ),
                                 ),
                               ),
                             )
                           else
                             IconButton(
+                              tooltip: '打开',
                               icon: Icon(
                                 Icons.arrow_forward_rounded,
                                 size: 20,
@@ -454,7 +465,10 @@ class _StartPageViewState extends State<StartPageView> {
                                     : AppTheme.lightMuted,
                               ),
                               padding: const EdgeInsets.all(4),
-                              constraints: const BoxConstraints(),
+                              constraints: const BoxConstraints(
+                                minWidth: 44,
+                                minHeight: 44,
+                              ),
                               onPressed: () =>
                                   _handleSubmit(_searchController.text),
                             ),

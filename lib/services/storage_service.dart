@@ -137,6 +137,15 @@ class StorageService {
     await _prefs.setBool(AppConstants.keyDesktopMode, desktop);
   }
 
+  // UI Haptics
+  bool getHapticsEnabled() {
+    return _prefs.getBool(AppConstants.keyHapticsEnabled) ?? true;
+  }
+
+  Future<void> saveHapticsEnabled(bool enabled) async {
+    await _prefs.setBool(AppConstants.keyHapticsEnabled, enabled);
+  }
+
   // Text Zoom (percentage: 100 is default)
   int getTextZoom() {
     return _prefs.getInt(AppConstants.keyTextZoom) ?? 100;

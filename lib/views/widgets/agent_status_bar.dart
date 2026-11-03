@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import '../../config/app_theme.dart';
-import '../../models/agent_action.dart';
 import '../../models/agent_state.dart';
+import '../../utils/agent_text.dart';
+import '../../utils/url_utils.dart';
+import 'elapsed_label.dart';
 
 /// Docked agent status strip shown between the web page and the bottom toolbar.
 /// Because it is part of the layout (not an overlay), it never covers page
@@ -17,6 +19,10 @@ class AgentStatusBar extends StatelessWidget {
   final VoidCallback? onDismiss;
   final bool safeMode;
 
+  /// When the run started. While tasks can sit in a slow model call or page
+  /// load, a ticking counter tells the user the app is still working.
+  final DateTime? startedAt;
+
   const AgentStatusBar({
     super.key,
     required this.state,
@@ -28,6 +34,7 @@ class AgentStatusBar extends StatelessWidget {
     required this.onConfirmAction,
     this.onDismiss,
     this.safeMode = true,
+    this.startedAt,
   });
 
   bool get _isRunning =>
@@ -76,7 +83,7 @@ class AgentStatusBar extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 SizedBox(
-                  height: 42,
+                  height: 48,
                   child: Row(
                     children: [
                       const SizedBox(width: 14),
@@ -94,6 +101,15 @@ class AgentStatusBar extends StatelessWidget {
                           ),
                         ),
                       ),
+                      if (startedAt != null && (_isRunning || _isPaused)) ...[
+                        const SizedBox(width: 6),
+                        ElapsedLabel(
+                          startedAt: startedAt!,
+                          color: onSurface.withValues(alpha: 0.48),
+                          fontSize: 11.5,
+                        ),
+                        const SizedBox(width: 2),
+                      ],
                       if (!safeMode && (_isRunning || _isPaused))
                         Tooltip(
                           message: '已关闭人工授权：AI 会自动执行敏感操作',
@@ -157,7 +173,7 @@ class AgentStatusBar extends StatelessWidget {
     }
     if (_isWaitingCaptcha) {
       return [
-        _TextAction(label: '已通过', color: accent, onTap: onConfirmCaptcha),
+        _TextAction(label: '完成验证', color: accent, onTap: onConfirmCaptcha),
       ];
     }
     if (_isWaitingConfirmation) {
@@ -198,9 +214,9 @@ class AgentStatusBar extends StatelessWidget {
         );
       case AgentStatus.executing:
         return _StatusMeta(
-          _actionLabel(state.currentAction).isEmpty
+          agentActionLabel(state.currentAction).isEmpty
               ? '正在操作网页'
-              : _actionLabel(state.currentAction),
+              : agentActionLabel(state.currentAction),
           Icons.touch_app_outlined,
           AppTheme.primary,
         );
@@ -217,9 +233,9 @@ class AgentStatusBar extends StatelessWidget {
           AppTheme.warning,
         );
       case AgentStatus.waitingConfirmation:
-        final host = _hostOf(state.targetUrl);
+        final host = hostOf(state.targetUrl ?? '');
         final reason =
-            state.confirmationReason ?? _actionLabel(state.currentAction);
+            state.confirmationReason ?? agentActionLabel(state.currentAction);
         return _StatusMeta(
           host.isEmpty ? '敏感操作待授权：$reason' : '敏感操作待授权：$reason · $host',
           Icons.shield_outlined,
@@ -248,21 +264,6 @@ class AgentStatusBar extends StatelessWidget {
     }
   }
 
-  String _actionLabel(AgentAction? action) {
-    if (action == null) return '';
-    if (action.action == ActionType.type) {
-      return '在 [${action.elementId}] 输入内容';
-    }
-    return action.description;
-  }
-
-  String _hostOf(String? url) {
-    if (url == null || url.isEmpty) return '';
-    var host = Uri.tryParse(url)?.host ?? '';
-    host = host.toLowerCase();
-    if (host.startsWith('www.')) host = host.substring(4);
-    return host;
-  }
 }
 
 class _StatusMeta {
@@ -316,7 +317,7 @@ class _IconAction extends StatelessWidget {
       tooltip: tooltip,
       visualDensity: VisualDensity.compact,
       padding: EdgeInsets.zero,
-      constraints: const BoxConstraints(minWidth: 34, minHeight: 34),
+      constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
       onPressed: onTap,
     );
   }
@@ -339,8 +340,8 @@ class _TextAction extends StatelessWidget {
       onPressed: onTap,
       style: TextButton.styleFrom(
         foregroundColor: color,
-        minimumSize: const Size(0, 30),
-        padding: const EdgeInsets.symmetric(horizontal: 10),
+        minimumSize: const Size(0, 44),
+        padding: const EdgeInsets.symmetric(horizontal: 12),
         textStyle: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700),
       ),
       child: Text(label),

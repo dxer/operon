@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../config/app_constants.dart';
 import '../../config/app_theme.dart';
+import '../../services/haptic_service.dart';
 import '../../services/storage_service.dart';
 
 class BrowsingSettingsPage extends StatefulWidget {
@@ -17,6 +18,7 @@ class _BrowsingSettingsPageState extends State<BrowsingSettingsPage> {
   bool _blockImages = false;
   bool _javaScriptEnabled = true;
   bool _desktopMode = false;
+  bool _hapticsEnabled = true;
   final TextEditingController _uaController = TextEditingController();
 
   @override
@@ -36,6 +38,7 @@ class _BrowsingSettingsPageState extends State<BrowsingSettingsPage> {
     _blockImages = _storage.getBlockImages();
     _javaScriptEnabled = _storage.getJavaScriptEnabled();
     _desktopMode = _storage.getDesktopMode();
+    _hapticsEnabled = _storage.getHapticsEnabled();
     _uaController.text = _storage.getUserAgent();
     if (!mounted) return;
     setState(() => _isLoading = false);
@@ -116,6 +119,23 @@ class _BrowsingSettingsPageState extends State<BrowsingSettingsPage> {
                   onChanged: (val) async {
                     setState(() => _desktopMode = val);
                     await _storage.saveDesktopMode(val);
+                  },
+                ),
+                const Divider(height: 1),
+                SwitchListTile(
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                  title: const Text('触感反馈',
+                      style:
+                          TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                  subtitle: const Text('按钮、切换标签和拖动悬浮球时的轻微震动',
+                      style: TextStyle(fontSize: 12, color: AppTheme.neutral)),
+                  value: _hapticsEnabled,
+                  activeThumbColor: AppTheme.primary,
+                  onChanged: (val) async {
+                    setState(() => _hapticsEnabled = val);
+                    HapticService.enabled = val;
+                    await _storage.saveHapticsEnabled(val);
                   },
                 ),
               ],

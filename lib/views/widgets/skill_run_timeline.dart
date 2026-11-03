@@ -11,6 +11,7 @@ class SkillRunTimeline extends StatelessWidget {
   final VoidCallback? onCancel;
   final VoidCallback? onClose;
   final VoidCallback? onRetry;
+  final VoidCallback? onRepair;
   final String? shownMarkdown;
 
   const SkillRunTimeline({
@@ -19,6 +20,7 @@ class SkillRunTimeline extends StatelessWidget {
     this.onCancel,
     this.onClose,
     this.onRetry,
+    this.onRepair,
     this.shownMarkdown,
   });
 
@@ -342,6 +344,12 @@ class SkillRunTimeline extends StatelessWidget {
                       icon: const Icon(Icons.refresh_rounded, size: 16),
                       label: const Text('再运行'),
                     ),
+                  ),
+                if (state.status == SkillRunStatus.failed && onRepair != null)
+                  IconButton(
+                    tooltip: '尝试修复失效的定位器',
+                    onPressed: onRepair,
+                    icon: const Icon(Icons.build_outlined, size: 18),
                   ),
                 if (onClose != null)
                   Expanded(

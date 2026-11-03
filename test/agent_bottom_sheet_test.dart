@@ -52,6 +52,7 @@ Widget _sheet({
   List<Skill> skills = const [],
   Future<void> Function()? onManageSkills,
   VoidCallback? onAllowSite,
+  DateTime? taskStartedAt,
 }) {
   return MaterialApp(
     theme: AppTheme.darkTheme.copyWith(
@@ -61,6 +62,7 @@ Widget _sheet({
       body: AgentBottomSheet(
         state: state,
         currentUrl: currentUrl,
+        taskStartedAt: taskStartedAt,
         safeMode: true,
         skills: skills,
         onManageSkills: onManageSkills,
@@ -170,6 +172,24 @@ void _moreTests() {
 
     expect(find.text('example.com'), findsOneWidget);
     expect(find.textContaining('当前是起始页'), findsNothing);
+  });
+
+  testWidgets('header shows elapsed time while the task runs', (tester) async {
+    await tester.pumpWidget(_sheet(
+      currentUrl: 'https://www.example.com/articles/1',
+      taskStartedAt: DateTime.now().subtract(const Duration(seconds: 42)),
+      state: const AgentState(
+        status: AgentStatus.executing,
+        currentStep: 3,
+      ),
+    ));
+    await tester.pump();
+
+    expect(find.text('0:42'), findsOneWidget);
+    // Status and site share one chip, so the header stays one line.
+    expect(find.text('执行中'), findsOneWidget);
+    expect(find.text('example.com'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('start page shows an empty-context hint', (tester) async {
@@ -489,10 +509,13 @@ void _moreTests() {
     await tester.pump();
 
     expect(find.text('需要人机验证 · 滑动验证'), findsOneWidget);
-    expect(find.text('请在上方网页完成验证，然后点击继续。'), findsOneWidget);
+    expect(
+      find.text('请在上方网页完成验证，然后点击「我已完成验证」。'),
+      findsOneWidget,
+    );
 
     final abort = tester.getCenter(find.text('中止任务'));
-    final proceed = tester.getCenter(find.text('验证完成，继续'));
+    final proceed = tester.getCenter(find.text('我已完成验证'));
     expect((abort.dy - proceed.dy).abs(), lessThan(1));
     expect(tester.takeException(), isNull);
   });

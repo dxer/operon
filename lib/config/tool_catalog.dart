@@ -69,12 +69,6 @@ class ToolCatalog {
           type: ToolParamType.number,
           defaultValue: 12000,
         ),
-        ToolParam(
-          key: 'includeLinks',
-          label: '包含链接',
-          type: ToolParamType.boolean,
-          defaultValue: false,
-        ),
       ],
       outputSchema: {
         'title': 'string',
@@ -357,12 +351,6 @@ class ToolCatalog {
         ),
         ToolParam(key: 'schema', label: 'JSON 结构', type: ToolParamType.json),
         ToolParam(
-          key: 'maxTokens',
-          label: '最多 Token',
-          type: ToolParamType.number,
-          defaultValue: 1200,
-        ),
-        ToolParam(
           key: 'temperature',
           label: '温度',
           type: ToolParamType.number,
@@ -397,12 +385,6 @@ class ToolCatalog {
           label: '字段结构',
           type: ToolParamType.json,
           required: true,
-        ),
-        ToolParam(
-          key: 'maxTokens',
-          label: '最多 Token',
-          type: ToolParamType.number,
-          defaultValue: 1200,
         ),
       ],
       outputSchema: {'json': 'object'},

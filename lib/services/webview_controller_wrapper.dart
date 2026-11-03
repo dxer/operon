@@ -156,15 +156,6 @@ class WebViewControllerWrapper {
     }
   }
 
-  /// Captures current viewport screenshot as PNG bytes for Vision Fallback
-  Future<Uint8List?> takeScreenshot() async {
-    try {
-      return await controller.takeScreenshot();
-    } catch (_) {
-      return null;
-    }
-  }
-
   /// Waits dynamically until DOM mutations cease (stable rendering)
   Future<bool> waitForDomStable({int timeoutMs = 2500}) async {
     try {

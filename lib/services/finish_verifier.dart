@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 class FinishDecision {
   final bool allowed;
   final String? reason;
@@ -101,16 +99,5 @@ class FinishVerifier {
     }
 
     return const FinishDecision(allowed: true);
-  }
-
-  /// Best-effort compact evidence used in the audit log.
-  static String evidenceOf(dynamic extractedData) {
-    if (extractedData == null) return '';
-    try {
-      final raw = jsonEncode(extractedData);
-      return raw.length > 160 ? '${raw.substring(0, 160)}…' : raw;
-    } catch (_) {
-      return '';
-    }
   }
 }

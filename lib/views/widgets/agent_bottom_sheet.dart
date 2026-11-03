@@ -2,25 +2,28 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../config/app_theme.dart';
-import '../../models/agent_action.dart';
 import '../../models/agent_state.dart';
 import '../../models/macro_workflow.dart';
-import '../../models/quick_command.dart';
 import '../../models/skill.dart';
+import '../../services/haptic_service.dart';
 import '../../services/macro_service.dart';
-import '../../services/skill_agent_adapter.dart';
 import '../../services/skill_from_macro.dart';
+import '../../services/skill_from_task.dart';
 import '../../services/skill_service.dart';
 import '../../services/webview_controller_wrapper.dart';
 import '../../services/skill_validator.dart';
 import '../../utils/skill_template.dart';
+import '../../utils/url_utils.dart';
+import '../settings/skill_editor_page.dart';
+import 'agent_confirmation_card.dart';
+import 'elapsed_label.dart';
 import 'macro_dialog.dart';
 import 'skill_run_sheet.dart';
 import 'step_log_view.dart';
 
 typedef AgentStartHandler = void Function(
   String goal,
-  QuickCommandPolicy? policy,
+  SkillPolicy? policy,
 );
 
 enum _SheetAction { logs, macros, skills, close }
@@ -46,6 +49,9 @@ class AgentBottomSheet extends StatefulWidget {
   /// current operating target.
   final String? currentUrl;
 
+  /// When the current task started, so the header can show a live timer.
+  final DateTime? taskStartedAt;
+
   const AgentBottomSheet({
     super.key,
     required this.state,
@@ -64,6 +70,7 @@ class AgentBottomSheet extends StatefulWidget {
     this.onRunSkill,
     this.webView,
     this.currentUrl,
+    this.taskStartedAt,
   });
 
   @override
@@ -75,7 +82,13 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
   late bool _safeMode;
   late List<Skill> _skills;
   Skill? _activeSkill;
-  QuickCommandPolicy? _activePolicy;
+  SkillPolicy? _activePolicy;
+
+  String get _activePolicyLabel {
+    final policy = _activePolicy;
+    if (policy == null) return '';
+    return policy.maxItems > 1 ? ' · 批量 ×${policy.maxItems}' : ' · 单条';
+  }
   bool _showLogs = false;
   final bool _showExtractedData = true;
   bool _resultExpanded = false;
@@ -175,7 +188,7 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
   }
 
   void _toggleSafeMode(bool enabled) {
-    HapticFeedback.selectionClick();
+    HapticService.selection();
     setState(() => _safeMode = enabled);
     widget.onSafeModeChanged(enabled);
   }
@@ -196,7 +209,7 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
   }
 
   void _clearGoal() {
-    HapticFeedback.selectionClick();
+    HapticService.selection();
     _goalController.clear();
     setState(() {
       _activeSkill = null;
@@ -244,7 +257,7 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
     );
     setState(() {
       _activeSkill = skill;
-      _activePolicy = skillPolicyToAgentPolicy(skill.policy);
+      _activePolicy = skill.policy;
       _goalController.text = prompt;
     });
   }
@@ -266,7 +279,7 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
         for (final skill in skills) {
           if (skill.id == activeId) {
             _activeSkill = skill;
-            _activePolicy = skillPolicyToAgentPolicy(skill.policy);
+            _activePolicy = skill.policy;
             break;
           }
         }
@@ -397,7 +410,7 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
           final validation = SkillValidator().validateDraft(
             draft,
             allowWrites: true,
-            currentHost: _hostOf(widget.state.targetUrl ?? ''),
+            currentHost: hostOf(widget.state.targetUrl ?? ''),
           );
           if (validation.hasErrors) {
             if (mounted) {
@@ -430,44 +443,29 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
     titleController.dispose();
   }
 
+  /// Saves the finished task as an editable skill. Recorded actions become a
+  /// deterministic flow; read-only tasks fall back to an instruction skill.
+  Future<void> _saveTaskAsSkill() async {
+    final state = widget.state;
+    final draft = SkillFromTask.draftFor(
+      goal: state.goal,
+      steps: state.recordedMacroSteps,
+      url: state.targetUrl ?? widget.currentUrl ?? '',
+    );
+    final saved = await Navigator.of(context).push<Skill>(
+      MaterialPageRoute(builder: (_) => SkillEditPage(draft: draft)),
+    );
+    if (saved != null && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('已保存为技能，可在「设置 → 技能」继续调整'),
+          backgroundColor: AppTheme.accent,
+        ),
+      );
+    }
+  }
+
   /// Never show typed text (passwords, drafts) in the authorization banner.
-  String _actionLabel(AgentAction? action) {
-    if (action == null) return '';
-    if (action.action == ActionType.type) {
-      return '在 [${action.elementId}] 输入内容';
-    }
-    return action.description;
-  }
-
-  String _hostOf(String? url) {
-    if (url == null || url.isEmpty) return '';
-    var host = Uri.tryParse(url)?.host ?? '';
-    host = host.toLowerCase();
-    if (host.startsWith('www.')) host = host.substring(4);
-    return host;
-  }
-
-  /// Long hosts collapse to their registrable domain so the header keeps room
-  /// for the status and authorization chips. The full host stays in the tooltip.
-  String _compactHost(String host) {
-    if (host.length <= 18) return host;
-    if (host.contains(':')) return host; // IPv6 literal; never split on dots.
-    final labels = host.split('.');
-    if (labels.length <= 2 ||
-        labels.every((label) => int.tryParse(label) != null)) {
-      return host;
-    }
-    final secondLevel = labels[labels.length - 2];
-    final tld = labels.last;
-    final keep = tld.length == 2 &&
-            const ['co', 'com', 'net', 'org', 'gov', 'edu', 'ac', 'or', 'ne']
-                .contains(secondLevel)
-        ? 3
-        : 2;
-    if (labels.length <= keep) return host;
-    return labels.sublist(labels.length - keep).join('.');
-  }
-
   /// Host of the tab the sheet was opened from; null means start page.
   String? get _pageHost {
     final url = widget.currentUrl;
@@ -481,7 +479,9 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
     return host;
   }
 
-  Widget _buildStatusBadge(AgentStatus status) {
+  ({Color color, String label, IconData icon}) _statusMeta(
+    AgentStatus status,
+  ) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final onSurface = Theme.of(context).colorScheme.onSurface;
     final copper = isDark ? const Color(0xFFE08A56) : AppTheme.primary;
@@ -489,127 +489,128 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
     final ochre = isDark ? const Color(0xFFE0A23C) : const Color(0xFF8A5A12);
     final brick = isDark ? const Color(0xFFE06A5E) : AppTheme.danger;
 
-    late Color bg;
-    late Color fg;
-    late String label;
-    late IconData icon;
-
-    void semantic(Color color) {
-      bg = color.withValues(alpha: 0.14);
-      fg = color;
-    }
-
-    switch (status) {
-      case AgentStatus.idle:
-        bg = onSurface.withValues(alpha: 0.08);
-        fg = onSurface.withValues(alpha: 0.62);
-        label = '待命';
-        icon = Icons.stop_circle_outlined;
-        break;
-      case AgentStatus.observing:
-        semantic(copper);
-        label = '读取页面';
-        icon = Icons.visibility_outlined;
-        break;
-      case AgentStatus.thinking:
-        semantic(copper);
-        label = '思考规划';
-        icon = Icons.psychology_outlined;
-        break;
-      case AgentStatus.executing:
-        semantic(copper);
-        label = '执行中';
-        icon = Icons.touch_app_outlined;
-        break;
-      case AgentStatus.waitingConfirmation:
-        semantic(ochre);
-        label = '等待授权';
-        icon = Icons.security_outlined;
-        break;
-      case AgentStatus.waitingCaptcha:
-        semantic(ochre);
-        label = '等待验证';
-        icon = Icons.verified_user_outlined;
-        break;
-      case AgentStatus.paused:
-        semantic(ochre);
-        label = '已暂停';
-        icon = Icons.pause_circle_outline;
-        break;
-      case AgentStatus.completed:
-        semantic(sage);
-        label = '已完成';
-        icon = Icons.check_circle_outline;
-        break;
-      case AgentStatus.maxStepsReached:
-        semantic(ochre);
-        label = '步数上限';
-        icon = Icons.timer_outlined;
-        break;
-      case AgentStatus.error:
-        semantic(brick);
-        label = '执行异常';
-        icon = Icons.error_outline;
-        break;
-    }
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 14, color: fg),
-          const SizedBox(width: 4),
-          Text(
-            label,
-            style:
-                TextStyle(color: fg, fontSize: 12, fontWeight: FontWeight.bold),
-          ),
-        ],
-      ),
-    );
+    return switch (status) {
+      AgentStatus.idle => (
+          color: onSurface.withValues(alpha: 0.55),
+          label: '待命',
+          icon: Icons.stop_circle_outlined,
+        ),
+      AgentStatus.observing => (
+          color: copper,
+          label: '读取页面',
+          icon: Icons.visibility_outlined,
+        ),
+      AgentStatus.thinking => (
+          color: copper,
+          label: '思考规划',
+          icon: Icons.psychology_outlined,
+        ),
+      AgentStatus.executing => (
+          color: copper,
+          label: '执行中',
+          icon: Icons.touch_app_outlined,
+        ),
+      AgentStatus.waitingConfirmation => (
+          color: ochre,
+          label: '等待授权',
+          icon: Icons.security_outlined,
+        ),
+      AgentStatus.waitingCaptcha => (
+          color: ochre,
+          label: '等待验证',
+          icon: Icons.verified_user_outlined,
+        ),
+      AgentStatus.paused => (
+          color: ochre,
+          label: '已暂停',
+          icon: Icons.pause_circle_outline,
+        ),
+      AgentStatus.completed => (
+          color: sage,
+          label: '已完成',
+          icon: Icons.check_circle_outline,
+        ),
+      AgentStatus.maxStepsReached => (
+          color: ochre,
+          label: '步数上限',
+          icon: Icons.timer_outlined,
+        ),
+      AgentStatus.error => (
+          color: brick,
+          label: '执行异常',
+          icon: Icons.error_outline,
+        ),
+    };
   }
 
-  Widget _buildPageChip() {
+  /// One chip carries both the agent state and the site it operates on, so the
+  /// header keeps a single line of context instead of three competing pills.
+  Widget _buildStatusChip(AgentState state) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final meta = _statusMeta(state.status);
     final onSurface = Theme.of(context).colorScheme.onSurface;
     final hairline = isDark ? AppTheme.darkBorder : AppTheme.lightBorder;
-    final surface = isDark ? AppTheme.darkInput : AppTheme.lightInput;
     final host = _pageHost;
-    final displayHost = host == null ? null : _compactHost(host);
-    final fg = host == null
-        ? onSurface.withValues(alpha: 0.55)
-        : onSurface.withValues(alpha: 0.78);
+    final running = state.status == AgentStatus.observing ||
+        state.status == AgentStatus.thinking ||
+        state.status == AgentStatus.executing ||
+        state.status == AgentStatus.paused;
 
     return Tooltip(
-      message: host == null ? '当前在起始页，AI 会按指令打开网页' : 'AI 将在这个站点上操作\n$host',
+      message:
+          host == null ? '当前在起始页，AI 会按指令打开网页' : 'AI 将在这个站点上操作\n$host',
       child: Container(
-        constraints: const BoxConstraints(minWidth: 54, maxWidth: 132),
-        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+        padding: const EdgeInsets.fromLTRB(9, 5, 10, 5),
         decoration: BoxDecoration(
-          color: surface,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: hairline, width: 0.8),
+          color: meta.color.withValues(alpha: isDark ? 0.16 : 0.10),
+          borderRadius: BorderRadius.circular(16),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              host == null ? Icons.public_off : Icons.language,
-              size: 12,
-              color: fg,
-            ),
-            const SizedBox(width: 4),
+            Icon(meta.icon, size: 13, color: meta.color),
+            const SizedBox(width: 5),
             Flexible(
               child: Text(
-                displayHost ?? '起始页',
+                meta.label,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(fontSize: 10.5, color: fg),
+                style: TextStyle(
+                  color: meta.color,
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            if (running && widget.taskStartedAt != null) ...[
+              const SizedBox(width: 6),
+              ElapsedLabel(
+                startedAt: widget.taskStartedAt!,
+                color: meta.color.withValues(alpha: 0.72),
+                fontSize: 10.5,
+              ),
+            ],
+            Container(
+              width: 1,
+              height: 10,
+              margin: const EdgeInsets.symmetric(horizontal: 6),
+              color: hairline,
+            ),
+            Icon(
+              host == null ? Icons.public_off : Icons.language,
+              size: 11,
+              color: onSurface.withValues(alpha: 0.55),
+            ),
+            const SizedBox(width: 3),
+            Flexible(
+              child: Text(
+                host == null ? '起始页' : compactHost(host),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 10.5,
+                  color: onSurface.withValues(alpha: 0.66),
+                ),
               ),
             ),
           ],
@@ -695,7 +696,7 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
   void _copyResult() {
     final text = _resultText(widget.state);
     if (text.isEmpty) return;
-    HapticFeedback.selectionClick();
+    HapticService.selection();
     Clipboard.setData(ClipboardData(text: text));
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('已复制任务结果')),
@@ -708,21 +709,28 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
     required Color color,
     required VoidCallback onTap,
   }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 14, color: color),
-            const SizedBox(width: 4),
-            Text(
-              label,
-              style: TextStyle(fontSize: 11, color: color),
+    return Semantics(
+      button: true,
+      label: label,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 44),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, size: 15, color: color),
+                const SizedBox(width: 4),
+                Text(
+                  label,
+                  style: TextStyle(fontSize: 11.5, color: color),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -847,9 +855,16 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
                   color: muted,
                   onTap: _copyResult,
                 ),
-                if (canSaveMacro)
+                if (state.status == AgentStatus.completed)
                   _smallAction(
                     icon: Icons.bookmark_add_outlined,
+                    label: '存为技能',
+                    color: muted,
+                    onTap: _saveTaskAsSkill,
+                  ),
+                if (canSaveMacro)
+                  _smallAction(
+                    icon: Icons.bolt_rounded,
                     label: '存为宏',
                     color: muted,
                     onTap: _saveAsMacro,
@@ -1095,29 +1110,24 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
   }
 
   Widget _buildHeader({required AgentState state, required bool isRunning}) {
-    // Keep this row to four controls. Logs, macros and skill management move
-    // into the overflow menu so the host chip never collapses to a bare globe.
+    // Status and site share one chip; logs, macros and skill management live
+    // in the overflow menu. That keeps the header to a single context line
+    // instead of three competing pills.
     return MediaQuery.withClampedTextScaling(
       maxScaleFactor: 1.15,
       child: LayoutBuilder(
         builder: (context, constraints) {
-          // On narrow phones drop the authorization label to an icon so a long
-          // host keeps enough room to show its registrable domain.
-          final compact = constraints.maxWidth < 310;
           return Row(
             children: [
               Expanded(
-                child: Row(
-                  children: [
-                    _buildStatusBadge(state.status),
-                    const SizedBox(width: 6),
-                    Flexible(child: _buildPageChip()),
-                    const SizedBox(width: 6),
-                    _buildSafeModeChip(showLabel: !compact),
-                  ],
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: _buildStatusChip(state),
                 ),
               ),
-              const SizedBox(width: 4),
+              const SizedBox(width: 6),
+              _buildSafeModeChip(),
+              const SizedBox(width: 2),
               _buildOverflowMenu(state: state, isRunning: isRunning),
             ],
           );
@@ -1232,7 +1242,6 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
     final subtle = onSurface.withValues(alpha: 0.38);
     final hairline = isDark ? AppTheme.darkBorder : AppTheme.lightBorder;
     final surface = isDark ? AppTheme.darkInput : AppTheme.lightInput;
-    final dangerInk = isDark ? const Color(0xFFE06A5E) : AppTheme.danger;
 
     final media = MediaQuery.of(context);
     final keyboardInset = media.viewInsets.bottom;
@@ -1366,7 +1375,7 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
                               ),
                               const SizedBox(height: 4),
                               Text(
-                                '请在上方网页完成验证，然后点击继续。',
+                                '请在上方网页完成验证，然后点击「我已完成验证」。',
                                 style: TextStyle(
                                   fontSize: 11.5,
                                   height: 1.4,
@@ -1383,7 +1392,7 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
                                     style: OutlinedButton.styleFrom(
                                       foregroundColor: muted,
                                       side: BorderSide(color: hairline),
-                                      minimumSize: const Size(0, 34),
+                                      minimumSize: const Size(0, 44),
                                       padding: const EdgeInsets.symmetric(
                                           horizontal: 10),
                                       textStyle:
@@ -1401,7 +1410,7 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
                                     style: ElevatedButton.styleFrom(
                                       backgroundColor: AppTheme.warning,
                                       foregroundColor: Colors.black,
-                                      minimumSize: const Size(0, 34),
+                                      minimumSize: const Size(0, 44),
                                       padding: const EdgeInsets.symmetric(
                                           horizontal: 10),
                                       textStyle: const TextStyle(
@@ -1412,7 +1421,7 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
                                       tapTargetSize:
                                           MaterialTapTargetSize.shrinkWrap,
                                     ),
-                                    child: const Text('验证完成，继续'),
+                                    child: const Text('我已完成验证'),
                                   ),
                                 ],
                               ),
@@ -1421,173 +1430,17 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
                         ),
                       ],
 
-                      // Human Confirmation Banner
+                      // Sensitive action. This is the same card that pops up
+                      // on its own when the panel is closed, and the only
+                      // surface that can approve a write.
                       if (state.status == AgentStatus.waitingConfirmation) ...[
                         const SizedBox(height: 8),
-                        Container(
-                          padding: const EdgeInsets.fromLTRB(11, 10, 11, 8),
-                          decoration: BoxDecoration(
-                            color: AppTheme.danger.withValues(alpha: 0.10),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: AppTheme.danger.withValues(alpha: 0.38),
-                            ),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              Row(
-                                children: [
-                                  Icon(Icons.shield_outlined,
-                                      size: 15, color: dangerInk),
-                                  const SizedBox(width: 6),
-                                  Expanded(
-                                    child: Text(
-                                      '敏感操作，等待授权',
-                                      style: TextStyle(
-                                        color: dangerInk,
-                                        fontWeight: FontWeight.w600,
-                                        fontSize: 12,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              if (_actionLabel(state.currentAction)
-                                  .isNotEmpty) ...[
-                                const SizedBox(height: 4),
-                                Text(
-                                  '将执行：${_actionLabel(state.currentAction)}',
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    fontSize: 11.5,
-                                    height: 1.4,
-                                    color: onSurface,
-                                  ),
-                                ),
-                              ],
-                              if (state.confirmationReason != null &&
-                                  state.confirmationReason!.isNotEmpty) ...[
-                                const SizedBox(height: 2),
-                                Text(
-                                  '风险类型：${state.confirmationReason}',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: dangerInk,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ],
-                              if (_hostOf(state.targetUrl).isNotEmpty) ...[
-                                const SizedBox(height: 2),
-                                Text(
-                                  '目标站点：${_compactHost(_hostOf(state.targetUrl))}',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(fontSize: 11, color: muted),
-                                ),
-                              ],
-                              if (state.confirmationPayload != null &&
-                                  state.confirmationPayload!.isNotEmpty) ...[
-                                const SizedBox(height: 6),
-                                Container(
-                                  padding: const EdgeInsets.all(7),
-                                  decoration: BoxDecoration(
-                                    color: isDark
-                                        ? Colors.white.withValues(alpha: 0.06)
-                                        : Colors.black.withValues(alpha: 0.05),
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: Text(
-                                    '将发送：${state.confirmationPayload}',
-                                    maxLines: 4,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      fontSize: 11.5,
-                                      height: 1.4,
-                                      color: onSurface,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                              const SizedBox(height: 8),
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.end,
-                                children: [
-                                  OutlinedButton(
-                                    onPressed: () =>
-                                        widget.onConfirmAction(false),
-                                    style: OutlinedButton.styleFrom(
-                                      foregroundColor: muted,
-                                      side: BorderSide(color: hairline),
-                                      minimumSize: const Size(0, 34),
-                                      padding: const EdgeInsets.symmetric(
-                                          horizontal: 10),
-                                      textStyle:
-                                          const TextStyle(fontSize: 11.5),
-                                      visualDensity: VisualDensity.compact,
-                                      tapTargetSize:
-                                          MaterialTapTargetSize.shrinkWrap,
-                                    ),
-                                    child: const Text('取消任务'),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  ElevatedButton(
-                                    onPressed: () =>
-                                        widget.onConfirmAction(true),
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: AppTheme.accent,
-                                      foregroundColor: Colors.black,
-                                      minimumSize: const Size(0, 34),
-                                      padding: const EdgeInsets.symmetric(
-                                          horizontal: 12),
-                                      textStyle: const TextStyle(
-                                        fontSize: 11.5,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                      visualDensity: VisualDensity.compact,
-                                      tapTargetSize:
-                                          MaterialTapTargetSize.shrinkWrap,
-                                    ),
-                                    child: const Text('授权继续'),
-                                  ),
-                                ],
-                              ),
-                              if (widget.onAllowSite != null &&
-                                  _hostOf(state.targetUrl).isNotEmpty)
-                                Align(
-                                  alignment: Alignment.centerRight,
-                                  child: TextButton.icon(
-                                    onPressed: widget.onAllowSite,
-                                    icon: const Icon(
-                                        Icons.verified_user_outlined,
-                                        size: 14),
-                                    label: ConstrainedBox(
-                                      constraints:
-                                          const BoxConstraints(maxWidth: 210),
-                                      child: Text(
-                                        '本站始终允许（${_compactHost(_hostOf(state.targetUrl))}）',
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(fontSize: 11),
-                                      ),
-                                    ),
-                                    style: TextButton.styleFrom(
-                                      foregroundColor: AppTheme.accent,
-                                      minimumSize: const Size(0, 32),
-                                      padding: const EdgeInsets.symmetric(
-                                          horizontal: 6),
-                                      visualDensity: VisualDensity.compact,
-                                      tapTargetSize:
-                                          MaterialTapTargetSize.shrinkWrap,
-                                    ),
-                                  ),
-                                ),
-                            ],
-                          ),
+                        AgentConfirmationCard(
+                          state: state,
+                          compact: true,
+                          onConfirm: () => widget.onConfirmAction(true),
+                          onCancel: () => widget.onConfirmAction(false),
+                          onAllowSite: widget.onAllowSite,
                         ),
                       ],
 
@@ -1688,7 +1541,7 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
                               Expanded(
                                 child: Text(
                                   '已套用：${_activeSkill!.name}'
-                                  '${_activePolicy == null ? '' : ' · ${_activePolicy!.mode.label}'}',
+                                  '$_activePolicyLabel',
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: const TextStyle(

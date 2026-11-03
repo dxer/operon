@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import '../../config/app_theme.dart';
 import '../../models/web_tab.dart';
+import '../../services/haptic_service.dart';
 
 class TabsOverviewSheet extends StatelessWidget {
   final List<WebTab> tabs;
@@ -89,7 +89,7 @@ class TabsOverviewSheet extends StatelessWidget {
                     style:
                         TextButton.styleFrom(foregroundColor: AppTheme.danger),
                     onPressed: () {
-                      HapticFeedback.mediumImpact();
+                      HapticService.medium();
                       onCloseAll();
                     },
                   ),
@@ -105,7 +105,7 @@ class TabsOverviewSheet extends StatelessWidget {
                         borderRadius: BorderRadius.circular(8)),
                   ),
                   onPressed: () {
-                    HapticFeedback.lightImpact();
+                    HapticService.light();
                     Navigator.pop(context);
                     onNewTab();
                   },
@@ -132,7 +132,7 @@ class TabsOverviewSheet extends StatelessWidget {
 
                   return InkWell(
                     onTap: () {
-                      HapticFeedback.selectionClick();
+                      HapticService.selection();
                       Navigator.pop(context);
                       onSelectTab(index);
                     },
@@ -199,7 +199,7 @@ class TabsOverviewSheet extends StatelessWidget {
                                 ),
                               GestureDetector(
                                 onTap: () {
-                                  HapticFeedback.selectionClick();
+                                  HapticService.selection();
                                   onCloseTab(index);
                                 },
                                 child: Container(

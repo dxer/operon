@@ -1,7 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import '../../models/agent_state.dart';
+import '../../services/haptic_service.dart';
+import 'operon_mark.dart';
 
 /// A calm, tactile floating control rather than a glowing "AI orb".
 ///
@@ -28,8 +29,8 @@ class _FloatingAgentBallState extends State<FloatingAgentBall>
     with SingleTickerProviderStateMixin {
   // Keep a 52dp touch target while shrinking the visible puck.
   static const double ballSize = 52.0;
-  static const double ringSize = 46.0;
   static const double puckSize = 40.0;
+  static const double puckRadius = 13.0;
   static const double marginX = 8.0;
 
   static const Color _ink = Color(0xFF15171A);
@@ -37,6 +38,7 @@ class _FloatingAgentBallState extends State<FloatingAgentBall>
   static const Color _bone = Color(0xFFF4F1EA);
   static const Color _warning = Color(0xFFC08A2E);
   static const Color _success = Color(0xFF2A8563);
+  static const Color _copper = Color(0xFFE08A56);
 
   // Position state
   Offset _position = Offset.zero;
@@ -95,7 +97,11 @@ class _FloatingAgentBallState extends State<FloatingAgentBall>
     super.dispose();
   }
 
-  void _snapToNearestEdge(Size screenSize, double bottomInset) {
+  void _snapToNearestEdge(
+    Size screenSize,
+    double bottomInset, {
+    bool reduceMotion = false,
+  }) {
     final double midX = screenSize.width / 2;
     final double targetX = (_position.dx + ballSize / 2 < midX)
         ? marginX
@@ -107,6 +113,13 @@ class _FloatingAgentBallState extends State<FloatingAgentBall>
     final double targetY = _position.dy.clamp(minY, maxY > minY ? maxY : minY);
 
     final targetOffset = Offset(targetX, targetY);
+
+    if (reduceMotion) {
+      HapticService.light();
+      setState(() => _position = targetOffset);
+      _resetIdleTimer();
+      return;
+    }
 
     _snapAnimation = Tween<Offset>(
       begin: _position,
@@ -121,40 +134,21 @@ class _FloatingAgentBallState extends State<FloatingAgentBall>
         });
       });
 
-    HapticFeedback.lightImpact();
+    HapticService.light();
     _snapAnimController.forward(from: 0.0);
     _resetIdleTimer();
   }
 
-  Widget _buildStatusRing({
-    required bool isWaiting,
-    required bool isCompleted,
-  }) {
-    if (!isWaiting && !isCompleted) {
-      return const SizedBox(width: ringSize, height: ringSize);
-    }
-
-    final color = isWaiting ? _warning : _success;
-    return Container(
-      width: ringSize,
-      height: ringSize,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        border: Border.all(
-          color: color.withValues(alpha: 0.85),
-          width: 1.8,
-        ),
-      ),
-    );
-  }
-
   /// Kept inside the puck so it stays visible on both light and dark pages.
-  Widget _buildRunningSpinner() {
+  Widget _buildRunningSpinner({required bool reduceMotion}) {
+    if (reduceMotion) {
+      return const Icon(Icons.hourglass_top_rounded, size: 18, color: _bone);
+    }
     return SizedBox(
-      width: 35,
-      height: 35,
+      width: 30,
+      height: 30,
       child: CircularProgressIndicator(
-        strokeWidth: 1.8,
+        strokeWidth: 1.7,
         strokeCap: StrokeCap.round,
         valueColor: AlwaysStoppedAnimation<Color>(
           _bone.withValues(alpha: 0.92),
@@ -164,47 +158,68 @@ class _FloatingAgentBallState extends State<FloatingAgentBall>
     );
   }
 
-  Widget _buildPuck({required bool isWaiting}) {
+  Widget _buildPuck({
+    required bool isWaiting,
+    required bool isCompleted,
+    required bool isExecuting,
+  }) {
+    final borderColor = isWaiting
+        ? _warning.withValues(alpha: 0.9)
+        : isCompleted
+            ? _success.withValues(alpha: 0.9)
+            : isExecuting
+                ? _copper.withValues(alpha: 0.8)
+                : Colors.white.withValues(alpha: 0.14);
+    final emphasized = isWaiting || isCompleted || isExecuting;
+
     return Container(
+      key: const ValueKey('agent-ball-puck'),
       width: puckSize,
       height: puckSize,
       decoration: BoxDecoration(
-        shape: BoxShape.circle,
+        borderRadius: BorderRadius.circular(puckRadius),
         gradient: const LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [_inkTop, _ink],
         ),
         border: Border.all(
-          color: Colors.white.withValues(alpha: 0.14),
-          width: 1,
+          color: borderColor,
+          width: emphasized ? 1.6 : 1,
         ),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.22),
-            blurRadius: 14,
-            offset: const Offset(0, 5),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
           ),
           if (isWaiting)
             BoxShadow(
-              color: _warning.withValues(alpha: 0.28),
-              blurRadius: 16,
-              spreadRadius: 2,
+              color: _warning.withValues(alpha: 0.24),
+              blurRadius: 14,
+              spreadRadius: 1,
+            ),
+          if (isCompleted)
+            BoxShadow(
+              color: _success.withValues(alpha: 0.20),
+              blurRadius: 14,
+              spreadRadius: 1,
             ),
         ],
       ),
-      child: const Icon(
-        Icons.touch_app_rounded,
-        size: 18.5,
-        color: _bone,
+      child: const Center(
+        child: OperonMark(
+          size: 20,
+          color: _bone,
+        ),
       ),
     );
   }
 
   Widget _buildStepBadge(int step) {
     return Positioned(
-      top: -1,
-      right: -1,
+      top: -2,
+      right: -2,
       child: Container(
         constraints: const BoxConstraints(minWidth: 16),
         padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1.5),
@@ -236,8 +251,8 @@ class _FloatingAgentBallState extends State<FloatingAgentBall>
 
   Widget _buildAlertBadge() {
     return Positioned(
-      top: -1,
-      right: -1,
+      top: -2,
+      right: -2,
       child: Container(
         width: 16,
         height: 16,
@@ -263,8 +278,8 @@ class _FloatingAgentBallState extends State<FloatingAgentBall>
 
   Widget _buildDoneBadge() {
     return Positioned(
-      top: -1,
-      right: -1,
+      top: -2,
+      right: -2,
       child: Container(
         width: 16,
         height: 16,
@@ -285,6 +300,9 @@ class _FloatingAgentBallState extends State<FloatingAgentBall>
   @override
   Widget build(BuildContext context) {
     final screenSize = MediaQuery.of(context).size;
+
+    final reduceMotion =
+        MediaQuery.maybeDisableAnimationsOf(context) ?? false;
     // Keep the orb above the bottom toolbar and the system gesture area.
     final bottomInset = MediaQuery.of(context).padding.bottom + 72;
 
@@ -329,7 +347,11 @@ class _FloatingAgentBallState extends State<FloatingAgentBall>
           setState(() {
             _isDragging = false;
           });
-          _snapToNearestEdge(screenSize, bottomInset);
+          _snapToNearestEdge(
+            screenSize,
+            bottomInset,
+            reduceMotion: reduceMotion,
+          );
         },
         onTapDown: (_) {
           _wakeUp();
@@ -339,13 +361,13 @@ class _FloatingAgentBallState extends State<FloatingAgentBall>
         onTapCancel: () => setState(() => _isPressed = false),
         onTap: () {
           _wakeUp();
-          HapticFeedback.selectionClick();
+          HapticService.selection();
           widget.onTap();
         },
         onLongPress: () {
           _wakeUp();
           setState(() => _isPressed = false);
-          HapticFeedback.mediumImpact();
+          HapticService.medium();
           if (widget.onQuickSummarize != null) {
             widget.onQuickSummarize!();
           } else {
@@ -355,6 +377,8 @@ class _FloatingAgentBallState extends State<FloatingAgentBall>
         child: Semantics(
           button: true,
           excludeSemantics: true,
+          onTap: widget.onTap,
+          onLongPress: widget.onQuickSummarize,
           label: isWaiting
               ? 'AI 等待人工确认'
               : isExecuting
@@ -374,18 +398,19 @@ class _FloatingAgentBallState extends State<FloatingAgentBall>
                 height: ballSize,
                 child: Center(
                   child: SizedBox(
-                    width: ringSize,
-                    height: ringSize,
+                    width: puckSize,
+                    height: puckSize,
                     child: Stack(
                       alignment: Alignment.center,
                       clipBehavior: Clip.none,
                       children: [
-                        _buildStatusRing(
+                        _buildPuck(
                           isWaiting: isWaiting,
                           isCompleted: isCompleted,
+                          isExecuting: isExecuting,
                         ),
-                        _buildPuck(isWaiting: isWaiting),
-                        if (isExecuting) _buildRunningSpinner(),
+                        if (isExecuting)
+                          _buildRunningSpinner(reduceMotion: reduceMotion),
                         if (isExecuting && step > 0)
                           _buildStepBadge(step)
                         else if (isWaiting)
@@ -404,3 +429,4 @@ class _FloatingAgentBallState extends State<FloatingAgentBall>
     );
   }
 }
+

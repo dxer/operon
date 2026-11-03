@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:operon/config/app_theme.dart';
 import 'package:operon/models/agent_state.dart';
 import 'package:operon/views/widgets/floating_agent_ball.dart';
+import 'package:operon/views/widgets/operon_mark.dart';
 
 void main() {
   testWidgets('idle ball is neutral and tappable', (tester) async {
@@ -13,15 +14,21 @@ void main() {
       onTap: () => tapped = true,
     );
 
-    expect(find.byIcon(Icons.touch_app_rounded), findsOneWidget);
+    expect(find.byType(OperonMark), findsOneWidget);
     expect(find.byType(CircularProgressIndicator), findsNothing);
     expect(find.text('!'), findsNothing);
+
+    final puck = tester.widget<Container>(
+      find.byKey(const ValueKey('agent-ball-puck')),
+    );
+    final decoration = puck.decoration! as BoxDecoration;
+    expect(decoration.borderRadius, BorderRadius.circular(13));
 
     await tester.tap(find.byType(FloatingAgentBall));
     expect(tapped, isTrue);
   });
 
-  testWidgets('running ball shows a ring and step badge', (tester) async {
+  testWidgets('running ball shows a spinner and step badge', (tester) async {
     await _pumpBall(
       tester,
       const AgentState(

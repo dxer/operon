@@ -45,6 +45,22 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('running status bar shows elapsed time', (tester) async {
+    await tester.pumpWidget(wrap(AgentStatusBar(
+      state: const AgentState(status: AgentStatus.executing, currentStep: 3),
+      startedAt: DateTime.now().subtract(const Duration(seconds: 12)),
+      onOpen: () {},
+      onPause: () {},
+      onResume: () {},
+      onStop: () {},
+      onConfirmCaptcha: () {},
+      onConfirmAction: () {},
+    )));
+
+    expect(find.text('0:12'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('captcha and confirmation states expose their approve action',
       (tester) async {
     var captchaConfirmed = false;
@@ -58,7 +74,7 @@ void main() {
       onConfirmAction: () {},
     )));
     expect(find.textContaining('人机验证'), findsOneWidget);
-    await tester.tap(find.text('已通过'));
+    await tester.tap(find.text('完成验证'));
     expect(captchaConfirmed, isTrue);
 
     var actionApproved = false;

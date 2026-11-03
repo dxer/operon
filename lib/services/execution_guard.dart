@@ -68,24 +68,6 @@ class ExecutionGuard {
     return handler(request);
   }
 
-  /// Never allow a secret value to reach logs, history or confirmation payloads.
-  String maskSecrets(String text) {
-    var masked = text;
-    masked = masked.replaceAllMapped(
-      RegExp(
-        r'(password|passwd|token|api[_-]?key|cookie|密码|验证码|卡号|安全码)'
-        r'\s*[:=]\s*\S+',
-        caseSensitive: false,
-      ),
-      (match) => '${match.group(1)}: ••••••',
-    );
-    masked = masked.replaceAllMapped(
-      RegExp(r'\bBearer\s+[A-Za-z0-9._-]{8,}', caseSensitive: false),
-      (_) => 'Bearer ••••••',
-    );
-    return masked;
-  }
-
   static String normalizeContent(String text) {
     return text.toLowerCase().replaceAll(RegExp(r'\s+'), ' ').trim();
   }
@@ -94,26 +76,17 @@ class ExecutionGuard {
     final lower = pageText.toLowerCase();
     const patterns = [
       '操作过于频繁',
+      '操作频繁',
+      '访问过于频繁',
       '访问频繁',
       '请求过于频繁',
       '稍后再试',
       'rate limit',
       'too many requests',
+      'temporarily blocked',
+      'unusual activity',
       'try again later',
       'slow down',
-    ];
-    return patterns.any(lower.contains);
-  }
-
-  static bool looksCaptcha(String pageText) {
-    final lower = pageText.toLowerCase();
-    const patterns = [
-      'captcha',
-      '验证码',
-      '人机验证',
-      'verify you are human',
-      'are you a robot',
-      'cloudflare',
     ];
     return patterns.any(lower.contains);
   }

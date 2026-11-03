@@ -44,6 +44,7 @@ class AppConstants {
   static const String keyJavaScriptEnabled = 'pref_js_enabled';
   static const String keyDesktopMode = 'pref_desktop_mode';
   static const String keyTextZoom = 'pref_text_zoom';
+  static const String keyHapticsEnabled = 'pref_haptics_enabled';
 
   // Default Homepage
   static const String defaultHomepage = 'operon://newtab';

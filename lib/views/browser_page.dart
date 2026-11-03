@@ -9,7 +9,6 @@ import '../models/agent_state.dart';
 import '../models/agent_task_record.dart';
 import '../models/llm_config.dart';
 import '../models/macro_workflow.dart';
-import '../models/quick_command.dart';
 import '../models/skill.dart';
 import '../models/skill_run.dart';
 import '../models/web_tab.dart';
@@ -19,7 +18,7 @@ import '../services/agent_runner.dart';
 import '../services/execution_guard.dart';
 import '../services/macro_service.dart';
 import '../services/notification_service.dart';
-import '../services/skill_agent_adapter.dart';
+import '../services/skill_repair_service.dart';
 import '../services/skill_runner.dart';
 import '../services/skill_service.dart';
 import '../services/storage_service.dart';
@@ -29,9 +28,11 @@ import '../services/webview_controller_wrapper.dart';
 import '../utils/cancellation.dart';
 import '../utils/skill_template.dart';
 import 'settings/settings_page.dart';
+import 'settings/skill_editor_page.dart';
 import 'settings/skills_page.dart';
 import 'settings/user_scripts_page.dart';
 import 'widgets/agent_bottom_sheet.dart';
+import 'widgets/agent_confirmation_card.dart';
 import 'widgets/agent_status_bar.dart';
 import 'widgets/browser_controls.dart';
 import 'widgets/floating_agent_ball.dart';
@@ -82,10 +83,14 @@ class _BrowserPageState extends State<BrowserPage> {
   AgentState _agentState = const AgentState();
   List<Skill> _skills = const [];
   bool _statusBarDismissed = false;
+  bool _captchaCheckBusy = false;
   String? _agentTabId;
   DateTime? _taskStartedAt;
   bool _taskRecorded = false;
   bool _permissionDialogOpen = false;
+  bool _agentSheetOpen = false;
+  bool _confirmationCardOpen = false;
+  String? _confirmationShownFor;
 
   bool get _showAgentStatusBar {
     final status = _agentState.status;
@@ -144,6 +149,11 @@ class _BrowserPageState extends State<BrowserPage> {
           _taskStartedAt = null;
         }
       });
+      if (state.status == AgentStatus.waitingConfirmation) {
+        _maybeShowConfirmationCard(state);
+      } else {
+        _confirmationShownFor = null;
+      }
     });
     NotificationService.getInstance().init();
     _initStorage();
@@ -755,7 +765,7 @@ class _BrowserPageState extends State<BrowserPage> {
 
   void _startAgentTask(
     String goal, {
-    QuickCommandPolicy? policy,
+    SkillPolicy? policy,
   }) async {
     if (_wrapper == null) return;
     final config = _storage?.getLlmConfig() ?? LlmConfig.defaultConfig();
@@ -804,7 +814,7 @@ class _BrowserPageState extends State<BrowserPage> {
       );
       _startAgentTask(
         prompt,
-        policy: skillPolicyToAgentPolicy(request.skill.policy),
+        policy: request.skill.policy,
       );
       return;
     }
@@ -1179,10 +1189,116 @@ class _BrowserPageState extends State<BrowserPage> {
     if (mounted) setState(() {});
   }
 
+  /// Confirms a CAPTCHA only after re-checking the page.
+  ///
+  /// Tapping "done" before the challenge is actually solved would otherwise
+  /// resume the agent into the same blocked page.
+  Future<void> _confirmCaptchaSolved() async {
+    if (_captchaCheckBusy) return;
+    final wrapper = _wrapper;
+    if (wrapper == null) {
+      _agentRunner.confirmCaptchaSolved(true);
+      return;
+    }
+    _captchaCheckBusy = true;
+    try {
+      final snapshot = await wrapper.extractPrunedDOM(
+        showBadges: false,
+        includeContent: false,
+      );
+      if (snapshot.hasCaptcha) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('仍未检测到验证通过，请先在网页上完成验证')),
+          );
+        }
+        return;
+      }
+      _agentRunner.confirmCaptchaSolved(true);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('暂时无法确认验证状态，请稍后重试')),
+        );
+      }
+    } finally {
+      _captchaCheckBusy = false;
+    }
+  }
+
+  String _confirmationToken(AgentState state) {
+    return '${state.currentStep}|${state.currentAction?.elementId ?? ''}|'
+        '${state.confirmationPayload ?? ''}';
+  }
+
+  /// Pops the dedicated authorization card as soon as a task stops on a
+  /// sensitive action, so the user never has to hunt for the panel. Once per
+  /// pending action: dismissing it leaves the status strip's "审阅" button.
+  void _maybeShowConfirmationCard(AgentState state) {
+    if (_agentSheetOpen || _confirmationCardOpen) return;
+    final token = _confirmationToken(state);
+    if (_confirmationShownFor == token) return;
+    _confirmationShownFor = token;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && !_agentSheetOpen) _showConfirmationCard();
+    });
+  }
+
+  Future<void> _showConfirmationCard() async {
+    if (_confirmationCardOpen || !mounted) return;
+    _confirmationCardOpen = true;
+    try {
+      await showModalBottomSheet<void>(
+        context: context,
+        backgroundColor: Colors.transparent,
+        isScrollControlled: true,
+        builder: (ctx) {
+          return StreamBuilder<AgentState>(
+            stream: _agentRunner.stateStream,
+            initialData: _agentState,
+            builder: (context, snapshot) {
+              final state = snapshot.data ?? _agentState;
+              if (state.status != AgentStatus.waitingConfirmation) {
+                // The action was approved or the task stopped elsewhere.
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (ctx.mounted) Navigator.of(ctx).maybePop();
+                });
+                return const SizedBox.shrink();
+              }
+              return AgentConfirmationSheet(
+                state: state,
+                onConfirm: () {
+                  Navigator.of(ctx).pop();
+                  _agentRunner.confirmAction(true);
+                },
+                onCancel: () {
+                  Navigator.of(ctx).pop();
+                  _agentRunner.confirmAction(false);
+                },
+                onAllowSite: _allowSiteForTask,
+              );
+            },
+          );
+        },
+      );
+    } finally {
+      _confirmationCardOpen = false;
+    }
+  }
+
   Future<void> _openAgentBottomSheet() async {
     await _loadSkills();
-    if (!mounted) return;
-    showModalBottomSheet(
+    if (!mounted || _agentSheetOpen) return;
+    _agentSheetOpen = true;
+    try {
+      await _showAgentSheet();
+    } finally {
+      _agentSheetOpen = false;
+    }
+  }
+
+  Future<void> _showAgentSheet() {
+    return showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
@@ -1195,6 +1311,7 @@ class _BrowserPageState extends State<BrowserPage> {
             return AgentBottomSheet(
               state: state,
               currentUrl: _currentTab.url,
+              taskStartedAt: _taskStartedAt,
               safeMode: _storage?.getSafeMode() ?? true,
               onSafeModeChanged: _setSafeMode,
               onAllowSite: _allowSiteForTask,
@@ -1211,8 +1328,13 @@ class _BrowserPageState extends State<BrowserPage> {
               onStop: () => _agentRunner.stop(),
               onConfirmAction: (confirmed) =>
                   _agentRunner.confirmAction(confirmed),
-              onConfirmCaptcha: (passed) =>
-                  _agentRunner.confirmCaptchaSolved(passed),
+              onConfirmCaptcha: (passed) {
+                if (passed) {
+                  _confirmCaptchaSolved();
+                } else {
+                  _agentRunner.confirmCaptchaSolved(false);
+                }
+              },
               onRunMacro: (macro) {
                 _runMacro(macro);
                 Navigator.of(ctx).pop();
@@ -1633,15 +1755,15 @@ class _BrowserPageState extends State<BrowserPage> {
                           child: AgentStatusBar(
                             state: _agentState,
                             safeMode: _storage?.getSafeMode() ?? true,
+                            startedAt: _taskStartedAt,
                             onOpen: _openAgentBottomSheet,
                             onPause: () => _agentRunner.pause(),
                             onResume: () => _agentRunner.resume(),
                             onStop: () => _agentRunner.stop(),
-                            onConfirmCaptcha: () =>
-                                _agentRunner.confirmCaptchaSolved(true),
-                            // Open the console instead of approving blindly:
-                            // the sheet shows the exact text/URL to be sent.
-                            onConfirmAction: _openAgentBottomSheet,
+                            onConfirmCaptcha: _confirmCaptchaSolved,
+                            // "审阅" opens the dedicated authorization card,
+                            // which shows the exact text and target site.
+                            onConfirmAction: _showConfirmationCard,
                             onDismiss: () =>
                                 setState(() => _statusBarDismissed = true),
                           ),
@@ -1665,7 +1787,6 @@ class _BrowserPageState extends State<BrowserPage> {
                     onForward: () => _webViewController?.goForward(),
                     onHome: _goHome,
                     onOpenTabs: _openTabOverview,
-                    onOpenAgent: _openAgentBottomSheet,
                     onReload: () => _webViewController?.reload(),
                     onStopLoad: () => _webViewController?.stopLoading(),
                     onNewTab: () => _createNewTab(),
@@ -1722,13 +1843,16 @@ class _SkillRunHost extends StatefulWidget {
 
 class _SkillRunHostState extends State<_SkillRunHost> {
   late SkillRunState _state;
+  late Skill _skill;
   CancellationToken _token = CancellationToken();
   String? _shown;
   bool _running = false;
+  bool _repairing = false;
 
   @override
   void initState() {
     super.initState();
+    _skill = widget.request.skill;
     _state = _initialState();
     WidgetsBinding.instance.addPostFrameCallback((_) => _start());
   }
@@ -1736,11 +1860,10 @@ class _SkillRunHostState extends State<_SkillRunHost> {
   SkillRunState _initialState() {
     return SkillRunState(
       runId: DateTime.now().millisecondsSinceEpoch.toString(),
-      skillId: widget.request.skill.id,
-      skillName: widget.request.skill.name,
+      skillId: _skill.id,
+      skillName: _skill.name,
       status: SkillRunStatus.running,
-      totalSteps:
-          widget.request.skill.steps.where((step) => step.enabled).length,
+      totalSteps: _skill.steps.where((step) => step.enabled).length,
     );
   }
 
@@ -1759,7 +1882,7 @@ class _SkillRunHostState extends State<_SkillRunHost> {
 
     final runner = SkillRunner();
     final record = await runner.run(
-      skill: widget.request.skill,
+      skill: _skill,
       inputs: widget.request.values,
       webView: widget.webView,
       config: widget.config,
@@ -1782,8 +1905,73 @@ class _SkillRunHostState extends State<_SkillRunHost> {
     await storage.addSkillRun(stored);
   }
 
+  SkillStepResult? _repairTarget() {
+    for (final result in _state.results) {
+      if (result.status != SkillStepStatus.failed) continue;
+      final step = _skill.stepById(result.stepId);
+      if (step != null && SkillRepairService.canRepair(step)) return result;
+    }
+    return null;
+  }
+
+  Future<void> _repair() async {
+    final target = _repairTarget();
+    if (target == null || _repairing) return;
+    setState(() => _repairing = true);
+    final service = SkillRepairService();
+    try {
+      final result = await service.repairLocator(
+        skill: _skill,
+        failedStep: target,
+        webView: widget.webView,
+        config: widget.config,
+      );
+      if (!mounted) return;
+      if (result == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('没有生成可用的候选定位器，请手动编辑技能')),
+        );
+        return;
+      }
+      final saved = await Navigator.of(context).push<Skill>(
+        MaterialPageRoute(
+          builder: (_) => SkillEditPage(skill: result.skill),
+        ),
+      );
+      if (saved != null && mounted) {
+        setState(() => _skill = saved);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              result.verified
+                  ? '定位器已修复并保存，可以再运行一次'
+                  : '已保存候选定位器（当前页面未验证通过），请检查后重试',
+            ),
+            backgroundColor:
+                result.verified ? AppTheme.accent : AppTheme.warning,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('修复失败：$e'),
+            backgroundColor: AppTheme.danger,
+          ),
+        );
+      }
+    } finally {
+      service.dispose();
+      if (mounted) setState(() => _repairing = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final canRepair = !_running &&
+        _state.status == SkillRunStatus.failed &&
+        _repairTarget() != null;
     return SkillRunTimeline(
       state: _state,
       shownMarkdown: _shown,
@@ -1794,6 +1982,7 @@ class _SkillRunHostState extends State<_SkillRunHost> {
                   _state.status == SkillRunStatus.cancelled)
           ? _start
           : null,
+      onRepair: canRepair && !_repairing ? _repair : null,
     );
   }
 }

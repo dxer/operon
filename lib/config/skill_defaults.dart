@@ -161,6 +161,91 @@ class SkillDefaults {
       sortOrder: 6,
     ),
     Skill(
+      id: 'skill_list_extract',
+      name: '当前页列表抽取',
+      description: '读取当前页面的重复条目，按字段抽取为结构化数据（只读）。',
+      kind: SkillKind.flow,
+      origin: SkillOrigin.builtin,
+      inputs: [
+        SkillInput(
+          key: 'limit',
+          label: '最多条数',
+          type: SkillInputType.number,
+          defaultValue: '20',
+          required: true,
+        ),
+        SkillInput(
+          key: 'schema',
+          label: '字段结构',
+          type: SkillInputType.multiline,
+          defaultValue:
+              '{"title":"标题","author":"作者","summary":"摘要","url":"链接"}',
+          required: true,
+        ),
+        SkillInput(
+          key: 'prompt',
+          label: '抽取要求',
+          type: SkillInputType.multiline,
+          defaultValue: '按字段从每条内容中抽取；页面没有的字段留空，不要编造。',
+          required: true,
+        ),
+      ],
+      steps: [
+        SkillStep(
+          id: 'list',
+          name: '读取列表条目',
+          tool: 'page.read_region',
+          saveAs: 'list',
+          params: {
+            'locator': {
+              'candidates': [
+                {'type': 'css', 'value': 'main'},
+                {'type': 'css', 'value': 'body'},
+                {'type': 'semantic', 'value': '页面主要内容区域'},
+              ],
+              'requireUnique': true,
+            },
+            'mode': 'items',
+            'limit': '{{inputs.limit}}',
+            'maxChars': 20000,
+          },
+          expect: StepExpectation(type: ExpectationType.dataNotEmpty),
+        ),
+        SkillStep(
+          id: 'extract',
+          name: '结构化抽取',
+          tool: 'ai.extract',
+          saveAs: 'extract',
+          params: {
+            'prompt': '{{inputs.prompt}}',
+            'data': '{{steps.list.data}}',
+            'schema': '{{inputs.schema}}',
+          },
+        ),
+        SkillStep(
+          id: 'show',
+          name: '展示结果',
+          tool: 'ui.show',
+          params: {
+            'title': '列表抽取结果',
+            'markdown': '{{steps.extract.data.text}}',
+          },
+        ),
+      ],
+      output: {
+        'extracted': '{{steps.extract.data.text}}',
+      },
+      policy: SkillPolicy(
+        maxSteps: 6,
+        maxLlmCalls: 1,
+        maxSideEffects: 0,
+        maxItems: 20,
+        maxDurationMs: 120000,
+      ),
+      builtin: true,
+      sortOrder: 8,
+    ),
+    Skill(
       id: 'skill_page_export',
       name: '页面正文导出',
       description: '读取当前页面正文，原样展示，便于复制或继续处理。',
@@ -174,7 +259,6 @@ class SkillDefaults {
           saveAs: 'page',
           params: {
             'maxChars': 20000,
-            'includeLinks': false,
           },
           expect: StepExpectation(
             type: ExpectationType.dataNotEmpty,

@@ -4,9 +4,11 @@ import '../models/agent_action_result.dart';
 import '../models/agent_state.dart';
 import '../models/llm_config.dart';
 import '../models/macro_workflow.dart';
-import '../models/quick_command.dart';
+import '../models/skill.dart';
 import '../utils/cancellation.dart';
 import '../utils/prompt_builder.dart';
+import '../utils/url_utils.dart';
+import 'execution_guard.dart';
 import 'finish_verifier.dart';
 import 'llm_service.dart';
 import 'notification_service.dart';
@@ -46,7 +48,7 @@ class AgentRunner {
   String? _pendingSideEffectKey;
   String? _lastActionDescription;
   String? _lastConfirmedCaptchaKey;
-  QuickCommandPolicy? _policy;
+  SkillPolicy? _policy;
   Set<String>? _allowedTools;
   final Set<String> _sentContents = {};
   final List<String> _sentContentPreviews = [];
@@ -91,7 +93,7 @@ class AgentRunner {
     int maxSteps = 15,
     bool safeMode = true,
     bool Function(String host)? isSiteAllowed,
-    QuickCommandPolicy? policy,
+    SkillPolicy? policy,
     Set<String>? allowedTools,
   }) async {
     _isCancelled = false;
@@ -633,27 +635,25 @@ class AgentRunner {
             (_pendingItemContextKey != null && _pendingItemUrl == snapshot.url)
                 ? _pendingItemContextKey!
                 : elementContextKey;
-        final targetHost = _hostOf(snapshot.url);
+        final targetHost = hostOf(snapshot.url);
         final siteAllowed =
             isSensitive && (_isSiteAllowed?.call(targetHost) ?? false);
 
         final mustConfirm = isSensitive &&
             !openerOnly &&
             !siteAllowed &&
-            (_safeMode || (_policy?.confirmBeforeSideEffect ?? false));
+            (_safeMode || (_policy?.confirmWrites ?? false));
 
         if (mustConfirm) {
           _emit(_state.copyWith(
             status: AgentStatus.waitingConfirmation,
             confirmationReason: riskReason ?? _actionLogDescription(action),
             targetUrl: snapshot.url,
-            confirmationPayload: (_policy?.showPayloadInConfirmation ?? true)
-                ? _confirmationPayload(
-                    action,
-                    elementRisk,
-                    secret: secretTyping,
-                  )
-                : null,
+            confirmationPayload: _confirmationPayload(
+              action,
+              elementRisk,
+              secret: secretTyping,
+            ),
           ));
           _addLog(
             '检测到敏感操作，等待人工授权...',
@@ -829,21 +829,22 @@ class AgentRunner {
                   }
                 }
               }
-              _completedSideEffects++;
-              if (submitKey != null) {
-                _processedSideEffectKeys.add(submitKey);
-              }
-              final policy = _policy;
-              if (policy != null &&
-                  policy.isBatch &&
-                  policy.maxItems > 0 &&
-                  _completedSideEffects >= policy.maxItems) {
-                _batchLimitReached = true;
-                _addLog(
-                  '已达到本次批量上限',
-                  detail: '已完成 $_completedSideEffects 条，请汇总结果并 finish。',
-                );
-              }
+            }
+            // Count every completed write, including deletes/follows that carry
+            // no text. Content dedupe only applies when there is content.
+            _completedSideEffects++;
+            if (submitKey != null) {
+              _processedSideEffectKeys.add(submitKey);
+            }
+            final policy = _policy;
+            if (policy != null &&
+                policy.maxItems > 1 &&
+                _completedSideEffects >= policy.maxItems) {
+              _batchLimitReached = true;
+              _addLog(
+                '已达到本次批量上限',
+                detail: '已完成 $_completedSideEffects 条，请汇总结果并 finish。',
+              );
             }
             // Do not reuse this text for the next target.
             _lastTypedText = null;
@@ -1099,25 +1100,13 @@ class AgentRunner {
   /// the first part of the visible tree, so an article *about* rate limits
   /// further down the page will not stop the task.
   bool _isRateLimited(DOMSnapshot snapshot) {
-    const phrases = [
-      'rate limit',
-      'too many requests',
-      'temporarily blocked',
-      'unusual activity',
-      '操作过于频繁',
-      '操作频繁',
-      '请求过于频繁',
-      '访问过于频繁',
-      '稍后再试',
-    ];
-    final title = snapshot.title.toLowerCase();
-    if (phrases.any(title.contains)) return true;
+    if (ExecutionGuard.looksRateLimited(snapshot.title)) return true;
     // Long articles usually mention these words as part of their content.
     // Only inspect the first part of short/error-like pages.
     final tree = snapshot.textTree.toLowerCase();
     if (tree.length > 4000) return false;
     final head = tree.length > 1500 ? tree.substring(0, 1500) : tree;
-    return phrases.any(head.contains);
+    return ExecutionGuard.looksRateLimited(head);
   }
 
   /// Detects actions that can create a post/message, so duplicate submissions
@@ -1224,14 +1213,6 @@ class AgentRunner {
     }
   }
 
-  /// Returns a normalized host used for the per-site allowlist.
-  String _hostOf(String url) {
-    var host = Uri.tryParse(url)?.host ?? '';
-    host = host.toLowerCase();
-    if (host.startsWith('www.')) host = host.substring(4);
-    return host;
-  }
-
   /// Returns a task to idle and releases this task's page decorations.
   /// Stale runs (a newer task already started) are ignored.
   Future<void> _abortTask(
@@ -1296,8 +1277,6 @@ class AgentRunner {
     }
   }
 
-  void confirmCaptcha(bool proceed) => confirmCaptchaSolved(proceed);
-
   void pause() {
     _isPaused = true;
     _emit(_state.copyWith(status: AgentStatus.paused));
@@ -1339,8 +1318,6 @@ class AgentRunner {
       clearConfirmationContext: true,
     ));
   }
-
-  void cancel() => stop();
 
   void dispose() {
     stop();

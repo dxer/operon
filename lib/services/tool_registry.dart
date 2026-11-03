@@ -760,7 +760,6 @@ class ToolRegistry {
       'data': params['data'],
       'schema': params['schema'],
       'format': 'json',
-      if (params['maxTokens'] != null) 'maxTokens': params['maxTokens'],
       if (params['temperature'] != null) 'temperature': params['temperature'],
     });
     if (!result.ok) return result;

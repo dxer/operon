@@ -614,11 +614,20 @@ class _SkillEditPageState extends State<SkillEditPage> {
               _numberField(_maxSteps, '最大步数'),
               _numberField(_maxLlmCalls, 'AI 调用上限'),
               _numberField(_maxSideEffects, '写入上限'),
-              _numberField(_maxItems, '批量上限'),
+              if (_kind == SkillKind.instruction)
+                _numberField(_maxItems, '批量上限'),
               _numberField(_maxDuration, '最长毫秒'),
               _numberField(_pacing, '步骤间隔毫秒'),
             ],
           ),
+          if (_kind == SkillKind.instruction)
+            Padding(
+              padding: const EdgeInsets.only(top: 2, bottom: 4),
+              child: Text(
+                '批量上限大于 1 时，Agent 会在当前页逐条处理不同目标，并套用下方的重复目标/内容拦截。',
+                style: TextStyle(fontSize: 10.5, height: 1.4, color: muted),
+              ),
+            ),
           const SizedBox(height: 8),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
