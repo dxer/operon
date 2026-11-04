@@ -73,9 +73,9 @@ class _AppearanceSettingsPageState extends State<AppearanceSettingsPage> {
                   style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 6),
-                const Text(
+                Text(
                   '控制浏览器外壳、主页及菜单色彩',
-                  style: TextStyle(fontSize: 12, color: AppTheme.neutral),
+                  style: TextStyle(fontSize: 12, color: AppTheme.neutralOf(isDark)),
                 ),
                 const SizedBox(height: 14),
                 SegmentedButton<ThemeMode>(
@@ -121,10 +121,10 @@ class _AppearanceSettingsPageState extends State<AppearanceSettingsPage> {
                   const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
               title: const Text('强制网页夜间模式 (Force Dark)',
                   style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-              subtitle: const Text('对不支持深色主题的网页进行内核级智能反色渲染',
-                  style: TextStyle(fontSize: 12, color: AppTheme.neutral)),
+              subtitle: Text('对不支持深色主题的网页进行内核级智能反色渲染',
+                  style: TextStyle(fontSize: 12, color: AppTheme.neutralOf(isDark))),
               value: _webDarkMode,
-              activeThumbColor: AppTheme.primary,
+              activeThumbColor: AppTheme.primaryOf(isDark),
               onChanged: (val) async {
                 setState(() => _webDarkMode = val);
                 await _storage.saveWebDarkMode(val);
@@ -152,10 +152,10 @@ class _AppearanceSettingsPageState extends State<AppearanceSettingsPage> {
                         style: TextStyle(
                             fontSize: 14, fontWeight: FontWeight.w600)),
                     Text('$_textZoom%',
-                        style: const TextStyle(
+                        style: TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.bold,
-                            color: AppTheme.primary)),
+                            color: AppTheme.primaryOf(isDark))),
                   ],
                 ),
                 const SizedBox(height: 8),
@@ -165,7 +165,7 @@ class _AppearanceSettingsPageState extends State<AppearanceSettingsPage> {
                   max: 200,
                   divisions: 15,
                   label: '$_textZoom%',
-                  activeColor: AppTheme.primary,
+                  activeColor: AppTheme.primaryOf(isDark),
                   onChanged: (val) {
                     setState(() => _textZoom = val.round());
                   },

@@ -38,6 +38,7 @@ class _SkillRunsPageState extends State<SkillRunsPage> {
   }
 
   Future<void> _clear() async {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -50,7 +51,7 @@ class _SkillRunsPageState extends State<SkillRunsPage> {
           ),
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('清空', style: TextStyle(color: AppTheme.danger)),
+            child: Text('清空', style: TextStyle(color: AppTheme.dangerOf(isDark))),
           ),
         ],
       ),
@@ -88,17 +89,18 @@ class _SkillRunsPageState extends State<SkillRunsPage> {
   }
 
   Color _statusColor(SkillRunStatus status) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     switch (status) {
       case SkillRunStatus.idle:
-        return AppTheme.neutral;
+        return AppTheme.neutralOf(isDark);
       case SkillRunStatus.running:
-        return AppTheme.primary;
+        return AppTheme.primaryOf(isDark);
       case SkillRunStatus.completed:
-        return AppTheme.accent;
+        return AppTheme.accentOf(isDark);
       case SkillRunStatus.failed:
-        return AppTheme.danger;
+        return AppTheme.dangerOf(isDark);
       case SkillRunStatus.cancelled:
-        return AppTheme.neutral;
+        return AppTheme.neutralOf(isDark);
     }
   }
 

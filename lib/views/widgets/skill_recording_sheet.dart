@@ -104,6 +104,7 @@ class _SkillRecordingSheetState extends State<SkillRecordingSheet> {
   }
 
   Future<void> _precheck() async {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final draft = _result?.draft;
     final webView = widget.webView;
     if (draft == null || webView == null) return;
@@ -138,10 +139,10 @@ class _SkillRecordingSheetState extends State<SkillRecordingSheet> {
                                       : Icons.help_outline),
                               size: 15,
                               color: item.found
-                                  ? AppTheme.accent
+                                  ? AppTheme.accentOf(isDark)
                                   : (item.ambiguous
-                                      ? AppTheme.warning
-                                      : AppTheme.danger),
+                                      ? AppTheme.warningOf(isDark)
+                                      : AppTheme.dangerOf(isDark)),
                             ),
                             const SizedBox(width: 6),
                             Expanded(
@@ -226,8 +227,8 @@ class _SkillRecordingSheetState extends State<SkillRecordingSheet> {
           const SizedBox(height: 12),
           Row(
             children: [
-              const Icon(Icons.fiber_manual_record_outlined,
-                  size: 18, color: AppTheme.primary),
+              Icon(Icons.fiber_manual_record_outlined,
+                  size: 18, color: AppTheme.primaryOf(isDark)),
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
@@ -293,8 +294,8 @@ class _SkillRecordingSheetState extends State<SkillRecordingSheet> {
                   const SizedBox(height: 6),
                   Row(
                     children: [
-                      const Icon(Icons.warning_amber_rounded,
-                          size: 13, color: AppTheme.warning),
+                      Icon(Icons.warning_amber_rounded,
+                          size: 13, color: AppTheme.warningOf(isDark)),
                       const SizedBox(width: 4),
                       Expanded(
                         child: Text(
@@ -309,7 +310,7 @@ class _SkillRecordingSheetState extends State<SkillRecordingSheet> {
                     const SizedBox(height: 10),
                     LinearProgressIndicator(
                       minHeight: 2,
-                      color: AppTheme.primary,
+                      color: AppTheme.primaryOf(isDark),
                       backgroundColor: hairline,
                     ),
                     const SizedBox(height: 6),
@@ -319,9 +320,9 @@ class _SkillRecordingSheetState extends State<SkillRecordingSheet> {
                     const SizedBox(height: 10),
                     Text(
                       _error!,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 11.5,
-                        color: AppTheme.danger,
+                        color: AppTheme.dangerOf(isDark),
                         height: 1.4,
                       ),
                     ),

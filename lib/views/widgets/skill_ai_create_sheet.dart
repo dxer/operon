@@ -161,7 +161,7 @@ class _SkillAuthoringSheetState extends State<SkillAuthoringSheet> {
           const SizedBox(height: 12),
           Row(
             children: [
-              const Icon(Icons.auto_awesome, size: 18, color: AppTheme.primary),
+              Icon(Icons.auto_awesome, size: 18, color: AppTheme.primaryOf(isDark)),
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
@@ -224,7 +224,7 @@ class _SkillAuthoringSheetState extends State<SkillAuthoringSheet> {
                     const SizedBox(height: 12),
                     LinearProgressIndicator(
                       minHeight: 2,
-                      color: AppTheme.primary,
+                      color: AppTheme.primaryOf(isDark),
                       backgroundColor:
                           isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
                     ),
@@ -235,9 +235,9 @@ class _SkillAuthoringSheetState extends State<SkillAuthoringSheet> {
                     const SizedBox(height: 10),
                     Text(
                       _error!,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 11.5,
-                        color: AppTheme.danger,
+                        color: AppTheme.dangerOf(isDark),
                         height: 1.4,
                       ),
                     ),

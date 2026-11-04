@@ -29,10 +29,26 @@ class MainActivity : FlutterActivity() {
                     // this an activity re-create would replay the same share.
                     setIntent(Intent(Intent.ACTION_MAIN))
                 }
+                "shareText" -> {
+                    val text = call.argument<String>("text").orEmpty()
+                    result.success(shareText(text))
+                }
                 else -> result.notImplemented()
             }
         }
         channel = created
+    }
+
+    /** Opens the system share sheet. Returns false when there is nothing to send. */
+    private fun shareText(text: String): Boolean {
+        if (text.isBlank()) return false
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, text)
+        }
+        val chooser = Intent.createChooser(send, null)
+        startActivity(chooser)
+        return true
     }
 
     override fun onNewIntent(intent: Intent) {

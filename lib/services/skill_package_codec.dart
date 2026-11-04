@@ -4,7 +4,7 @@ import 'package:yaml/yaml.dart';
 
 import '../config/tool_catalog.dart';
 import '../models/skill.dart';
-import '../utils/skill_placeholder_inputs.dart';
+import 'skill_inputs.dart';
 import '../utils/url_utils.dart';
 
 /// The two files that make up an Operon skill package.
@@ -120,13 +120,12 @@ class SkillPackageCodec {
     }
 
     final rawInputs = front['inputs'] ?? metadata['operon-inputs'];
-    final inputs = <SkillInput>[];
+    final declaredInputs = <SkillInput>[];
     if (rawInputs is List) {
       for (final raw in rawInputs) {
-        if (raw is Map) inputs.add(_decodeInput(_asMap(raw)));
+        if (raw is Map) declaredInputs.add(_decodeInput(_asMap(raw)));
       }
     }
-    _addAutoInputs(inputs, body, steps);
 
     final rawPolicy = front['policy'] ?? metadata['operon-policy'];
     var policy = _baselinePolicyForKind(kind, steps);
@@ -171,23 +170,27 @@ class SkillPackageCodec {
     final updatedAt =
         DateTime.tryParse(metadata['operon-updated-at']?.toString() ?? '');
 
-    return Skill(
+    final output = _stringMap(front['output'] ?? metadata['operon-output']);
+
+    final skill = Skill(
       id: id,
       name: displayName,
       description: (front['description']?.toString() ?? '').trim(),
       kind: kind,
       origin: origin,
       version: _int(metadata['operon-version'], 1),
-      inputs: inputs,
+      inputs: declaredInputs,
       instructions:
           kind == SkillKind.instruction ? body.trim() : _section(body, '说明'),
       steps: steps,
-      output: _stringMap(front['output'] ?? metadata['operon-output']),
+      output: output,
       policy: policy,
       builtin: builtin,
       sortOrder: _int(metadata['operon-sort-order'], 0),
       updatedAt: updatedAt,
     );
+    // Placeholders decide which inputs exist; declarations only decorate them.
+    return SkillInputs.normalize(skill);
   }
 
   /// The directory name is the skill id when it is already filesystem-safe.
@@ -386,30 +389,6 @@ class SkillPackageCodec {
           ? rawHosts.map((item) => item.toString()).toList()
           : base.allowedHosts,
     );
-  }
-
-  /// Adds inputs for placeholders the author used but did not declare.
-  static void _addAutoInputs(
-    List<SkillInput> inputs,
-    String body,
-    List<SkillStep> steps,
-  ) {
-    final text = StringBuffer(body);
-    for (final step in steps) {
-      try {
-        text.write(jsonEncode(step.params));
-        if (step.expect != null) text.write(jsonEncode(step.expect!.toJson()));
-      } catch (_) {
-        // A non-encodable param is a validation problem, not a decode problem.
-      }
-    }
-    final merged = SkillPlaceholderInputs.merge(
-      text.toString(),
-      existing: inputs,
-    );
-    inputs
-      ..clear()
-      ..addAll(merged);
   }
 
   static List<String> _parseHosts(dynamic raw) {

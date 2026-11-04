@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import '../../config/app_theme.dart';
 import '../../models/agent_state.dart';
 import '../../services/haptic_service.dart';
 import 'operon_mark.dart';
@@ -33,12 +34,12 @@ class _FloatingAgentBallState extends State<FloatingAgentBall>
   static const double puckRadius = 13.0;
   static const double marginX = 8.0;
 
-  static const Color _ink = Color(0xFF15171A);
-  static const Color _inkTop = Color(0xFF343840);
-  static const Color _bone = Color(0xFFF4F1EA);
-  static const Color _warning = Color(0xFFC08A2E);
-  static const Color _success = Color(0xFF2A8563);
-  static const Color _copper = Color(0xFFE08A56);
+  static const Color _ink = Color(0xFF1F1F1F);
+  static const Color _inkTop = Color(0xFF3D3D3D);
+  static const Color _bone = Color(0xFFF3F2F1);
+  static const Color _warning = Color(0xFFF0B429);
+  static const Color _success = Color(0xFF6CCB5F);
+  static const Color _accent = AppTheme.primaryDark;
 
   // Position state
   Offset _position = Offset.zero;
@@ -168,7 +169,7 @@ class _FloatingAgentBallState extends State<FloatingAgentBall>
         : isCompleted
             ? _success.withValues(alpha: 0.9)
             : isExecuting
-                ? _copper.withValues(alpha: 0.8)
+                ? _accent.withValues(alpha: 0.8)
                 : Colors.white.withValues(alpha: 0.14);
     final emphasized = isWaiting || isCompleted || isExecuting;
 

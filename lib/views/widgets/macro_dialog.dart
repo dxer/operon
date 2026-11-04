@@ -40,15 +40,16 @@ class _MacroDialogState extends State<MacroDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final muted =
         Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5);
     return AlertDialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      title: const Row(
+      title: Row(
         children: [
-          Icon(Icons.bolt, color: AppTheme.warning, size: 22),
-          SizedBox(width: 8),
-          Text('零 Token 快捷宏库', style: TextStyle(fontSize: 16)),
+          Icon(Icons.bolt, color: AppTheme.warningOf(isDark), size: 22),
+          const SizedBox(width: 8),
+          const Text('零 Token 快捷宏库', style: TextStyle(fontSize: 16)),
         ],
       ),
       content: SizedBox(
@@ -87,8 +88,8 @@ class _MacroDialogState extends State<MacroDialog> {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             IconButton(
-                              icon: const Icon(Icons.play_circle_fill,
-                                  color: AppTheme.accent),
+                              icon: Icon(Icons.play_circle_fill,
+                                  color: AppTheme.accentOf(isDark)),
                               onPressed: () {
                                 Navigator.of(context).pop();
                                 widget.onRunMacro(m);

@@ -40,4 +40,24 @@ class ShareIntentService {
       return null;
     }
   }
+
+  /// Opens the system share sheet with [text].
+  ///
+  /// Returns false when nothing was shared: an empty string, or a platform
+  /// without the native handler (desktop/web). Callers show their own feedback.
+  Future<bool> shareText(String text) async {
+    final value = text.trim();
+    if (value.isEmpty) return false;
+    try {
+      final ok = await channel.invokeMethod<bool>(
+        'shareText',
+        {'text': value},
+      );
+      return ok ?? false;
+    } on PlatformException {
+      return false;
+    } on MissingPluginException {
+      return false;
+    }
+  }
 }

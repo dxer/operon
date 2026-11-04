@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:operon/models/macro_workflow.dart';
 import 'package:operon/models/skill.dart';
+import 'package:operon/services/skill_from_macro.dart';
 import 'package:operon/services/skill_from_task.dart';
 
 void main() {
@@ -168,5 +169,40 @@ void main() {
 
     expect(draft.name.endsWith('…'), isTrue);
     expect(draft.name.length, lessThan(goal.length));
+  });
+
+  test('withContentInput upgrades a raw macro draft', () {
+    // The task-history screen builds its draft straight from SkillFromMacro and
+    // used to skip the demo-text rewrite, so every replay reposted one sentence.
+    final flow = SkillFromMacro.fromMacro(
+      MacroWorkflow(
+        id: 'm1',
+        title: '回复',
+        initialUrl: 'https://x.com/home',
+        createdAt: DateTime(2026, 1, 1),
+        steps: [
+          const MacroStep(
+            action: 'type',
+            selector: 'textarea',
+            text: '这条是演示内容',
+            description: '输入回复',
+          ),
+          const MacroStep(
+            action: 'click',
+            selector: '#send',
+            description: '发布',
+            nonIdempotent: true,
+          ),
+        ],
+      ),
+    );
+
+    expect(flow, isNotNull);
+    // Raw conversion bakes the literal text in.
+    expect(flow!.steps.first.params['text'], '这条是演示内容');
+
+    final upgraded = SkillFromTask.withContentInput(flow);
+    expect(upgraded.steps.first.params['text'], '{{inputs.content}}');
+    expect(upgraded.inputs.single.key, 'content');
   });
 }

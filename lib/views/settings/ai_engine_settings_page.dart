@@ -97,6 +97,7 @@ class _AiEngineSettingsPageState extends State<AiEngineSettingsPage> {
   }
 
   Future<void> _testConnection() async {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final config = LlmConfig(
       baseUrl: _baseUrlController.text.trim(),
       apiKey: _apiKeyController.text.trim(),
@@ -136,9 +137,9 @@ class _AiEngineSettingsPageState extends State<AiEngineSettingsPage> {
           builder: (ctx) => AlertDialog(
             shape:
                 RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            title: const Text('API 连通性测试通过',
+            title: Text('API 连通性测试通过',
                 style: TextStyle(
-                    color: AppTheme.accent,
+                    color: AppTheme.accentOf(isDark),
                     fontSize: 16,
                     fontWeight: FontWeight.bold)),
             content: Text(
@@ -162,9 +163,9 @@ class _AiEngineSettingsPageState extends State<AiEngineSettingsPage> {
           builder: (ctx) => AlertDialog(
             shape:
                 RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            title: const Text('API 连通测试失败',
+            title: Text('API 连通测试失败',
                 style: TextStyle(
-                    color: AppTheme.danger,
+                    color: AppTheme.dangerOf(isDark),
                     fontSize: 16,
                     fontWeight: FontWeight.bold)),
             content: Text(
@@ -212,7 +213,7 @@ class _AiEngineSettingsPageState extends State<AiEngineSettingsPage> {
         title: const Text('AI 智能体引擎'),
         actions: [
           IconButton(
-            icon: const Icon(Icons.check_rounded, color: AppTheme.accent),
+            icon: Icon(Icons.check_rounded, color: AppTheme.accentOf(isDark)),
             tooltip: '保存配置',
             onPressed: _saveConfig,
           ),
@@ -251,11 +252,11 @@ class _AiEngineSettingsPageState extends State<AiEngineSettingsPage> {
                       label: Text(preset['label']!,
                           style: const TextStyle(fontSize: 12)),
                       backgroundColor: isCurrent
-                          ? AppTheme.primary.withValues(alpha: 0.15)
+                          ? AppTheme.primaryOf(isDark).withValues(alpha: 0.15)
                           : null,
                       side: isCurrent
-                          ? const BorderSide(
-                              color: AppTheme.primary, width: 1.2)
+                          ? BorderSide(
+                              color: AppTheme.primaryOf(isDark), width: 1.2)
                           : null,
                       onPressed: () => _applyPreset(preset),
                     );
@@ -337,10 +338,10 @@ class _AiEngineSettingsPageState extends State<AiEngineSettingsPage> {
                         style: TextStyle(
                             fontSize: 13, fontWeight: FontWeight.w500)),
                     Text(_temperature.toStringAsFixed(2),
-                        style: const TextStyle(
+                        style: TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.bold,
-                            color: AppTheme.primary)),
+                            color: AppTheme.primaryOf(isDark))),
                   ],
                 ),
                 Slider(
@@ -349,7 +350,7 @@ class _AiEngineSettingsPageState extends State<AiEngineSettingsPage> {
                   max: 1.0,
                   divisions: 20,
                   label: _temperature.toStringAsFixed(2),
-                  activeColor: AppTheme.primary,
+                  activeColor: AppTheme.primaryOf(isDark),
                   onChanged: (val) {
                     setState(() => _temperature = val);
                   },

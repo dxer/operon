@@ -17,7 +17,7 @@ Skill _instruction() {
     description: '总结当前页面。',
     kind: SkillKind.instruction,
     inputs: [_input],
-    instructions: '读取当前页面，总结成三点。\n不要点击任何按钮。',
+    instructions: '读取当前页面，按 {{inputs.content}} 的要求总结成三点。\n不要点击任何按钮。',
     policy: SkillPolicy(maxSteps: 8, maxItems: 1),
     output: {'summary': '{{steps.read.data}}'},
     builtin: true,
@@ -210,7 +210,8 @@ metadata:
 
     final decoded = SkillPackageCodec.decode(files, dirName: 'reply');
     expect(decoded.inputs.single.key, 'tone');
-    expect(decoded.inputs.single.required, isTrue);
+    // The author never declared it, so it stays optional rather than blocking.
+    expect(decoded.inputs.single.required, isFalse);
   });
 
   test('hosts are portable and drive matchesHost', () {

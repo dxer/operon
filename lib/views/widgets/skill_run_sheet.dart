@@ -4,6 +4,7 @@ import '../../config/app_theme.dart';
 import '../../config/tool_catalog.dart';
 import '../../models/skill.dart';
 import '../../models/tool_descriptor.dart';
+import '../../services/skill_inputs.dart';
 import '../../services/skill_precheck_service.dart';
 import '../../services/webview_controller_wrapper.dart';
 import '../../utils/skill_template.dart';
@@ -40,17 +41,21 @@ class SkillRunSheet extends StatefulWidget {
 }
 
 class _SkillRunSheetState extends State<SkillRunSheet> {
+  late final List<SkillInput> _inputs;
   late final Map<String, String> _values;
   bool _dryRun = false;
   bool _checking = false;
+  bool _showOptional = false;
 
   @override
   void initState() {
     super.initState();
+    // Placeholders, not the stored declaration, decide what to ask for.
+    _inputs = SkillInputs.effective(widget.skill);
     _values = {
-      for (final input in widget.skill.inputs) input.key: input.defaultValue,
+      for (final input in _inputs) input.key: input.defaultValue,
     };
-    for (final input in widget.skill.inputs) {
+    for (final input in _inputs) {
       if (input.type == SkillInputType.select &&
           input.options.isNotEmpty &&
           !input.options.contains(_values[input.key])) {
@@ -78,6 +83,18 @@ class _SkillRunSheetState extends State<SkillRunSheet> {
   List<SkillStep> get _enabledSteps =>
       widget.skill.steps.where((step) => step.enabled).toList();
 
+  /// Inputs worth showing up front: required, or with nothing to fall back on.
+  ///
+  /// Everything else has a usable default and lives behind "更多参数", so a
+  /// skill with several optional fields does not open as a wall of boxes.
+  List<SkillInput> get _primaryInputs => _inputs
+      .where((input) => input.required || input.defaultValue.trim().isEmpty)
+      .toList();
+
+  List<SkillInput> get _optionalInputs => _inputs
+      .where((input) => !input.required && input.defaultValue.trim().isNotEmpty)
+      .toList();
+
   String _riskLabel(ToolRisk risk) {
     switch (risk) {
       case ToolRisk.read:
@@ -91,18 +108,18 @@ class _SkillRunSheetState extends State<SkillRunSheet> {
     }
   }
 
+  bool get _isDark => Theme.of(context).brightness == Brightness.dark;
+
   Color _riskColor(ToolRisk risk) {
     switch (risk) {
       case ToolRisk.read:
         return Theme.of(context).colorScheme.onSurfaceVariant;
       case ToolRisk.navigate:
-        return AppTheme.primary;
+        return AppTheme.primaryOf(_isDark);
       case ToolRisk.write:
-        return Theme.of(context).brightness == Brightness.dark
-            ? AppTheme.warning
-            : const Color(0xFF8A5A12);
+        return AppTheme.warningOf(_isDark);
       case ToolRisk.destructive:
-        return AppTheme.danger;
+        return AppTheme.dangerOf(_isDark);
     }
   }
 
@@ -130,7 +147,7 @@ class _SkillRunSheetState extends State<SkillRunSheet> {
   }
 
   bool _validateInputs() {
-    for (final input in widget.skill.inputs) {
+    for (final input in _inputs) {
       final raw = (_values[input.key] ?? '').trim();
       final value = raw.isEmpty ? input.defaultValue.trim() : raw;
       if (input.required && value.isEmpty) {
@@ -155,6 +172,7 @@ class _SkillRunSheetState extends State<SkillRunSheet> {
   }
 
   Future<void> _checkLocators() async {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final webView = widget.webView;
     if (webView == null) {
       _toast('当前没有可检查的页面');
@@ -165,7 +183,7 @@ class _SkillRunSheetState extends State<SkillRunSheet> {
       name: widget.skill.name,
       description: widget.skill.description,
       kind: widget.skill.kind,
-      inputs: widget.skill.inputs,
+      inputs: _inputs,
       instructions: widget.skill.instructions,
       steps: widget.skill.steps,
       policy: widget.skill.policy,
@@ -203,10 +221,10 @@ class _SkillRunSheetState extends State<SkillRunSheet> {
                                       : Icons.help_outline),
                               size: 15,
                               color: item.found
-                                  ? AppTheme.accent
+                                  ? AppTheme.accentOf(isDark)
                                   : (item.ambiguous
-                                      ? AppTheme.warning
-                                      : AppTheme.danger),
+                                      ? AppTheme.warningOf(isDark)
+                                      : AppTheme.dangerOf(isDark)),
                             ),
                             const SizedBox(width: 6),
                             Expanded(
@@ -301,7 +319,7 @@ class _SkillRunSheetState extends State<SkillRunSheet> {
                     ? Icons.account_tree_outlined
                     : Icons.auto_awesome,
                 size: 18,
-                color: AppTheme.primary,
+                color: AppTheme.primaryOf(isDark),
               ),
               const SizedBox(width: 6),
               Expanded(
@@ -319,14 +337,14 @@ class _SkillRunSheetState extends State<SkillRunSheet> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
-                  color: AppTheme.primary.withValues(alpha: 0.12),
+                  color: AppTheme.primaryOf(isDark).withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Text(
                   widget.skill.kind.label,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 10,
-                    color: AppTheme.primary,
+                    color: AppTheme.primaryOf(isDark),
                     fontWeight: FontWeight.w700,
                   ),
                 ),
@@ -355,15 +373,48 @@ class _SkillRunSheetState extends State<SkillRunSheet> {
           const SizedBox(height: 10),
           Flexible(
             child: SingleChildScrollView(
+              // A floating label used to be clipped by the viewport edge; the
+              // labels now live in the layout, and this padding keeps the first
+              // field's outline clear of the boundary.
+              padding: const EdgeInsets.only(top: 2),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  ...widget.skill.inputs.map(
+                  ..._primaryInputs.map(
                     (input) => Padding(
                       padding: const EdgeInsets.only(bottom: 10),
                       child: _buildInput(input, isDark, surface, onSurface),
                     ),
                   ),
+                  if (_optionalInputs.isNotEmpty) ...[
+                    TextButton.icon(
+                      onPressed: () =>
+                          setState(() => _showOptional = !_showOptional),
+                      icon: Icon(
+                        _showOptional
+                            ? Icons.expand_less
+                            : Icons.expand_more,
+                        size: 16,
+                      ),
+                      label: Text(
+                        '更多参数 (${_optionalInputs.length})',
+                        style: const TextStyle(fontSize: 11.5),
+                      ),
+                      style: TextButton.styleFrom(
+                        foregroundColor: muted,
+                        alignment: Alignment.centerLeft,
+                        padding: EdgeInsets.zero,
+                        minimumSize: const Size(0, 36),
+                      ),
+                    ),
+                    if (_showOptional)
+                      ..._optionalInputs.map(
+                        (input) => Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: _buildInput(input, isDark, surface, onSurface),
+                        ),
+                      ),
+                  ],
                   if (widget.skill.isFlow) ...[
                     if (widget.webView != null)
                       Align(
@@ -433,14 +484,14 @@ class _SkillRunSheetState extends State<SkillRunSheet> {
                               height: 20,
                               alignment: Alignment.center,
                               decoration: BoxDecoration(
-                                color: AppTheme.primary.withValues(alpha: 0.12),
+                                color: AppTheme.primaryOf(isDark).withValues(alpha: 0.12),
                                 borderRadius: BorderRadius.circular(6),
                               ),
                               child: Text(
                                 '${entry.key + 1}',
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontSize: 10,
-                                  color: AppTheme.primary,
+                                  color: AppTheme.primaryOf(isDark),
                                   fontWeight: FontWeight.w700,
                                 ),
                               ),
@@ -562,17 +613,45 @@ class _SkillRunSheetState extends State<SkillRunSheet> {
     Color onSurface,
   ) {
     final value = _values[input.key] ?? input.defaultValue;
+    // An explicit label above the field, not `labelText`. With `isDense` and
+    // tight content padding the floating label is painted outside the field's
+    // own box, so at the top of a scroll view it gets clipped in half.
     final decoration = InputDecoration(
-      labelText: input.label,
       hintText: input.hint,
       border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
       isDense: true,
     );
 
+    if (input.type == SkillInputType.toggle) {
+      final enabled = value == '是' || value == 'true';
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+        decoration: BoxDecoration(
+          color: surface,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
+          ),
+        ),
+        child: SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          dense: true,
+          title: Text(
+            input.label,
+            style: TextStyle(fontSize: 12.5, color: onSurface),
+          ),
+          value: enabled,
+          activeThumbColor: AppTheme.accentOf(isDark),
+          onChanged: (next) => _setValue(input.key, next ? '是' : '否'),
+        ),
+      );
+    }
+
+    final Widget field;
     switch (input.type) {
       case SkillInputType.multiline:
-        return TextFormField(
+        field = TextFormField(
           key: ValueKey('${widget.skill.id}_${input.key}'),
           initialValue: value,
           minLines: 2,
@@ -582,7 +661,7 @@ class _SkillRunSheetState extends State<SkillRunSheet> {
           onChanged: (text) => _setValue(input.key, text),
         );
       case SkillInputType.number:
-        return TextFormField(
+        field = TextFormField(
           key: ValueKey('${widget.skill.id}_${input.key}'),
           initialValue: value,
           keyboardType: TextInputType.number,
@@ -591,7 +670,7 @@ class _SkillRunSheetState extends State<SkillRunSheet> {
           onChanged: (text) => _setValue(input.key, text),
         );
       case SkillInputType.secret:
-        return TextFormField(
+        field = TextFormField(
           key: ValueKey('${widget.skill.id}_${input.key}'),
           initialValue: '',
           obscureText: true,
@@ -604,7 +683,7 @@ class _SkillRunSheetState extends State<SkillRunSheet> {
             ? <String>[input.defaultValue]
             : input.options;
         final selected = options.contains(value) ? value : options.first;
-        return InputDecorator(
+        field = InputDecorator(
           decoration: decoration,
           child: DropdownButtonHideUnderline(
             child: DropdownButton<String>(
@@ -629,30 +708,9 @@ class _SkillRunSheetState extends State<SkillRunSheet> {
           ),
         );
       case SkillInputType.toggle:
-        final enabled = value == '是' || value == 'true';
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
-          decoration: BoxDecoration(
-            color: surface,
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-            ),
-          ),
-          child: SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            dense: true,
-            title: Text(
-              input.label,
-              style: TextStyle(fontSize: 12.5, color: onSurface),
-            ),
-            value: enabled,
-            activeThumbColor: AppTheme.accent,
-            onChanged: (next) => _setValue(input.key, next ? '是' : '否'),
-          ),
-        );
-      case SkillInputType.text:
-        return TextFormField(
+        // Handled above; listed so the switch stays exhaustive.
+        field = const SizedBox.shrink();      case SkillInputType.text:
+        field = TextFormField(
           key: ValueKey('${widget.skill.id}_${input.key}'),
           initialValue: value,
           style: const TextStyle(fontSize: 12.5),
@@ -660,5 +718,23 @@ class _SkillRunSheetState extends State<SkillRunSheet> {
           onChanged: (text) => _setValue(input.key, text),
         );
     }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(left: 2, bottom: 4),
+          child: Text(
+            input.label,
+            style: TextStyle(
+              fontSize: 11,
+              color: AppTheme.primaryOf(isDark),
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+        field,
+      ],
+    );
   }
 }

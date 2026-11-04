@@ -89,6 +89,12 @@ class SkillFromTask {
   /// Only when there is exactly one literal text: a search term plus a reply
   /// body are different things, and collapsing both into one field would make
   /// the skill send the wrong value to one of them.
+  ///
+  /// Public because every path that turns a recording into a flow skill must
+  /// apply it — the task-history import builds its draft through
+  /// [SkillFromMacro] directly and would otherwise bake in the demo text.
+  static SkillDraft withContentInput(SkillDraft draft) => _withContentInput(draft);
+
   static SkillDraft _withContentInput(SkillDraft draft) {
     final literals = draft.steps.where((step) {
       if (step.tool != 'page.type') return false;

@@ -86,6 +86,15 @@ Open the reply box and write a reply.
 
   test('exportPackages returns a package for every skill', () async {
     final service = await SkillService.getInstance();
+    // Nothing ships any more, so the library starts empty.
+    expect(service.getSkills(), isEmpty);
+
+    await service.saveSkill(const Skill(
+      id: 'exported_one',
+      name: '导出示例',
+      kind: SkillKind.instruction,
+      instructions: '总结当前页面。',
+    ));
     final exported = service.exportPackages();
 
     expect(exported, isNotEmpty);

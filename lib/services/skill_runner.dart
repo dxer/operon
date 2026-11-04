@@ -10,6 +10,7 @@ import '../utils/skill_template.dart';
 import '../utils/url_utils.dart';
 import 'execution_guard.dart';
 import 'llm_service.dart';
+import 'skill_inputs.dart';
 import 'skill_validator.dart';
 import 'tool_registry.dart';
 import 'webview_controller_wrapper.dart';
@@ -641,8 +642,13 @@ class SkillRunner {
   }
 
   _InputResult _validateInputs(Skill skill, Map<String, String> provided) {
-    final values = <String, String>{};
-    for (final input in skill.inputs) {
+    // Start from what the caller supplied so a placeholder-derived value is
+    // never dropped, then apply the declared defaults and rules on top.
+    final values = <String, String>{
+      for (final entry in provided.entries)
+        if (entry.key.trim().isNotEmpty) entry.key.trim(): entry.value,
+    };
+    for (final input in SkillInputs.effective(skill)) {
       final raw = (provided[input.key] ?? '').trim();
       final value = raw.isEmpty ? input.defaultValue.trim() : raw;
       if (input.required && value.isEmpty) {
@@ -675,13 +681,14 @@ class SkillRunner {
   }
 
   Map<String, String> _redactInputs(Skill skill, Map<String, String> values) {
-    final result = <String, String>{};
-    for (final input in skill.inputs) {
-      final value = values[input.key] ?? '';
-      result[input.key] =
-          input.type == SkillInputType.secret ? '••••••' : value;
-    }
-    return result;
+    final secretKeys = {
+      for (final input in SkillInputs.effective(skill))
+        if (input.type == SkillInputType.secret) input.key,
+    };
+    return {
+      for (final entry in values.entries)
+        entry.key: secretKeys.contains(entry.key) ? '••••••' : entry.value,
+    };
   }
 
   SkillRunRecord _finish({

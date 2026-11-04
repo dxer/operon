@@ -64,7 +64,7 @@ class AgentStatusBar extends StatelessWidget {
         : Colors.black.withValues(alpha: 0.06);
     final onSurface = theme.colorScheme.onSurface;
 
-    final meta = _metaFor(state);
+    final meta = _metaFor(state, isDark);
 
     return Material(
       color: bg,
@@ -118,20 +118,21 @@ class AgentStatusBar extends StatelessWidget {
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 6, vertical: 2),
                             decoration: BoxDecoration(
-                              color: AppTheme.danger.withValues(alpha: 0.14),
+                              color: AppTheme.dangerOf(isDark)
+                                  .withValues(alpha: 0.14),
                               borderRadius: BorderRadius.circular(6),
                             ),
-                            child: const Text(
+                            child: Text(
                               '自主',
                               style: TextStyle(
                                 fontSize: 9.5,
                                 fontWeight: FontWeight.w700,
-                                color: AppTheme.danger,
+                                color: AppTheme.dangerOf(isDark),
                               ),
                             ),
                           ),
                         ),
-                      ..._buildActions(meta.color),
+                      ..._buildActions(meta.color, isDark),
                       const SizedBox(width: 6),
                     ],
                   ),
@@ -153,7 +154,7 @@ class AgentStatusBar extends StatelessWidget {
     );
   }
 
-  List<Widget> _buildActions(Color accent) {
+  List<Widget> _buildActions(Color accent, bool isDark) {
     if (_isRunning) {
       return [
         _IconAction(icon: Icons.pause_rounded, tooltip: '暂停', onTap: onPause),
@@ -165,7 +166,7 @@ class AgentStatusBar extends StatelessWidget {
         _IconAction(
           icon: Icons.play_arrow_rounded,
           tooltip: '继续',
-          color: AppTheme.primary,
+          color: AppTheme.primaryOf(isDark),
           onTap: onResume,
         ),
         _IconAction(icon: Icons.stop_rounded, tooltip: '停止', onTap: onStop),
@@ -195,22 +196,22 @@ class AgentStatusBar extends StatelessWidget {
     return const [];
   }
 
-  _StatusMeta _metaFor(AgentState state) {
+  _StatusMeta _metaFor(AgentState state, bool isDark) {
     switch (state.status) {
       case AgentStatus.idle:
-        return const _StatusMeta(
-            'AI 待命', Icons.auto_awesome_rounded, AppTheme.neutral);
+        return _StatusMeta(
+            'AI 待命', Icons.auto_awesome_rounded, AppTheme.neutralOf(isDark));
       case AgentStatus.observing:
         return _StatusMeta(
           '正在读取页面 (${state.currentStep}/${state.maxSteps})',
           Icons.visibility_outlined,
-          AppTheme.primary,
+          AppTheme.primaryOf(isDark),
         );
       case AgentStatus.thinking:
         return _StatusMeta(
           'AI 正在规划下一步 (${state.currentStep}/${state.maxSteps})',
           Icons.psychology_outlined,
-          AppTheme.primary,
+          AppTheme.primaryOf(isDark),
         );
       case AgentStatus.executing:
         return _StatusMeta(
@@ -218,19 +219,19 @@ class AgentStatusBar extends StatelessWidget {
               ? '正在操作网页'
               : agentActionLabel(state.currentAction),
           Icons.touch_app_outlined,
-          AppTheme.primary,
+          AppTheme.primaryOf(isDark),
         );
       case AgentStatus.paused:
-        return const _StatusMeta(
+        return _StatusMeta(
           '已暂停 · 点击继续',
           Icons.pause_circle_outline_rounded,
-          AppTheme.warning,
+          AppTheme.warningOf(isDark),
         );
       case AgentStatus.waitingCaptcha:
         return _StatusMeta(
           '需完成人机验证 (${state.captchaType ?? "验证码"})',
           Icons.verified_user_outlined,
-          AppTheme.warning,
+          AppTheme.warningOf(isDark),
         );
       case AgentStatus.waitingConfirmation:
         final host = hostOf(state.targetUrl ?? '');
@@ -239,19 +240,19 @@ class AgentStatusBar extends StatelessWidget {
         return _StatusMeta(
           host.isEmpty ? '敏感操作待授权：$reason' : '敏感操作待授权：$reason · $host',
           Icons.shield_outlined,
-          AppTheme.warning,
+          AppTheme.warningOf(isDark),
         );
       case AgentStatus.completed:
-        return const _StatusMeta(
+        return _StatusMeta(
           '任务已完成 · 点击查看结果',
           Icons.check_circle_outline_rounded,
-          AppTheme.accent,
+          AppTheme.accentOf(isDark),
         );
       case AgentStatus.maxStepsReached:
-        return const _StatusMeta(
+        return _StatusMeta(
           '已达步数上限 · 任务未完成',
           Icons.timer_outlined,
-          AppTheme.warning,
+          AppTheme.warningOf(isDark),
         );
       case AgentStatus.error:
         return _StatusMeta(
@@ -259,7 +260,7 @@ class AgentStatusBar extends StatelessWidget {
               ? '任务异常：${state.errorMessage}'
               : '任务发生异常 · 点击查看',
           Icons.error_outline_rounded,
-          AppTheme.danger,
+          AppTheme.dangerOf(isDark),
         );
     }
   }

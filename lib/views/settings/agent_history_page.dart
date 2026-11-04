@@ -3,6 +3,7 @@ import '../../config/app_theme.dart';
 import '../../models/agent_task_record.dart';
 import '../../models/macro_workflow.dart';
 import '../../services/skill_from_macro.dart';
+import '../../services/skill_from_task.dart';
 import '../../services/skill_validator.dart';
 import '../../services/storage_service.dart';
 import 'skill_editor_page.dart';
@@ -32,6 +33,7 @@ class _AgentHistoryPageState extends State<AgentHistoryPage> {
   List<AgentTaskRecord> get _records => _storage.getAgentTaskHistory();
 
   void _clearAll() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -48,7 +50,7 @@ class _AgentHistoryPageState extends State<AgentHistoryPage> {
               if (ctx.mounted) Navigator.pop(ctx);
               if (mounted) setState(() {});
             },
-            child: const Text('清空', style: TextStyle(color: AppTheme.danger)),
+            child: Text('清空', style: TextStyle(color: AppTheme.dangerOf(isDark))),
           ),
         ],
       ),
@@ -68,11 +70,24 @@ class _AgentHistoryPageState extends State<AgentHistoryPage> {
       createdAt: record.startedAt,
       steps: record.recordedMacroSteps,
     );
-    final draft = SkillFromMacro.fromMacro(macro);
-    if (draft == null) {
+    final converted = SkillFromMacro.fromMacro(macro);
+    if (converted == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('这条记录没有可转换的动作'),
+          backgroundColor: AppTheme.danger,
+        ),
+      );
+      return;
+    }
+    // Same rule as saving from the live task: a recorded demo text becomes an
+    // input, otherwise replaying the skill would keep posting the same words.
+    final draft = SkillFromTask.withContentInput(converted);
+    if (!draft.steps.any((step) => SkillFromMacro.isWrite(step.tool))) {
+      // Navigation-only recordings do not make a useful flow skill.
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('这条记录没有实际写入动作，无法存为可重放的流程'),
           backgroundColor: AppTheme.danger,
         ),
       );
@@ -198,11 +213,9 @@ class _RecordTile extends StatelessWidget {
     required this.onSaveAsSkill,
   });
 
-  Color get _successColor =>
-      isDark ? const Color(0xFF6FC7A3) : const Color(0xFF237A5A);
-  Color get _warningColor =>
-      isDark ? const Color(0xFFE0A23C) : const Color(0xFF8A5A12);
-  Color get _dangerColor => isDark ? const Color(0xFFE06A5E) : AppTheme.danger;
+  Color get _successColor => AppTheme.accentOf(isDark);
+  Color get _warningColor => AppTheme.warningOf(isDark);
+  Color get _dangerColor => AppTheme.dangerOf(isDark);
   Color get _neutralColor => isDark ? AppTheme.darkMuted : AppTheme.lightMuted;
 
   Color get _statusColor {
@@ -298,7 +311,7 @@ class _RecordTile extends StatelessWidget {
               alignment: Alignment.centerLeft,
               child: Text(
                 record.errorMessage!,
-                style: const TextStyle(fontSize: 12, color: AppTheme.danger),
+                style: TextStyle(fontSize: 12, color: AppTheme.dangerOf(isDark)),
               ),
             ),
             const SizedBox(height: 8),
@@ -387,7 +400,7 @@ class _RecordTile extends StatelessWidget {
               icon: const Icon(Icons.delete_outline, size: 15),
               label: const Text('删除这条记录', style: TextStyle(fontSize: 11.5)),
               style: TextButton.styleFrom(
-                foregroundColor: AppTheme.danger,
+                foregroundColor: AppTheme.dangerOf(isDark),
                 minimumSize: const Size(0, 30),
               ),
             ),

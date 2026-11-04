@@ -47,4 +47,40 @@ void main() {
     expect(received, ['https://example.com/b']);
     await sub.cancel();
   });
+
+  test('shareText forwards the url to the system sheet', () async {
+    String? sent;
+    messenger.setMockMethodCallHandler(ShareIntentService.channel, (call) async {
+      if (call.method == 'shareText') {
+        sent = (call.arguments as Map)['text'] as String?;
+        return true;
+      }
+      return null;
+    });
+
+    expect(
+      await ShareIntentService.instance.shareText('https://example.com/a'),
+      isTrue,
+    );
+    expect(sent, 'https://example.com/a');
+  });
+
+  test('shareText refuses blank text without calling native', () async {
+    var called = false;
+    messenger.setMockMethodCallHandler(ShareIntentService.channel, (call) async {
+      called = true;
+      return true;
+    });
+
+    expect(await ShareIntentService.instance.shareText('   '), isFalse);
+    expect(called, isFalse);
+  });
+
+  test('shareText reports false when the platform cannot share', () async {
+    // No mock registered: the channel is missing, as on desktop/web.
+    expect(
+      await ShareIntentService.instance.shareText('https://example.com/a'),
+      isFalse,
+    );
+  });
 }

@@ -24,35 +24,35 @@ class SkillRunTimeline extends StatelessWidget {
     this.shownMarkdown,
   });
 
-  Color _statusColor(SkillRunStatus status) {
+  Color _statusColor(SkillRunStatus status, bool isDark) {
     switch (status) {
       case SkillRunStatus.idle:
-        return AppTheme.neutral;
+        return AppTheme.neutralOf(isDark);
       case SkillRunStatus.running:
-        return AppTheme.primary;
+        return AppTheme.primaryOf(isDark);
       case SkillRunStatus.completed:
-        return AppTheme.accent;
+        return AppTheme.accentOf(isDark);
       case SkillRunStatus.failed:
-        return AppTheme.danger;
+        return AppTheme.dangerOf(isDark);
       case SkillRunStatus.cancelled:
-        return AppTheme.neutral;
+        return AppTheme.neutralOf(isDark);
     }
   }
 
-  Color _stepColor(SkillStepStatus status) {
+  Color _stepColor(SkillStepStatus status, bool isDark) {
     switch (status) {
       case SkillStepStatus.pending:
-        return AppTheme.neutral;
+        return AppTheme.neutralOf(isDark);
       case SkillStepStatus.running:
-        return AppTheme.primary;
+        return AppTheme.primaryOf(isDark);
       case SkillStepStatus.succeeded:
-        return AppTheme.accent;
+        return AppTheme.accentOf(isDark);
       case SkillStepStatus.failed:
-        return AppTheme.danger;
+        return AppTheme.dangerOf(isDark);
       case SkillStepStatus.skipped:
-        return AppTheme.neutral;
+        return AppTheme.neutralOf(isDark);
       case SkillStepStatus.cancelled:
-        return AppTheme.neutral;
+        return AppTheme.neutralOf(isDark);
     }
   }
 
@@ -81,7 +81,7 @@ class SkillRunTimeline extends StatelessWidget {
     final onSurface = Theme.of(context).colorScheme.onSurface;
     final muted = onSurface.withValues(alpha: isDark ? 0.72 : 0.6);
     final hairline = isDark ? AppTheme.darkBorder : AppTheme.lightBorder;
-    final statusColor = _statusColor(state.status);
+    final statusColor = _statusColor(state.status, isDark);
 
     return Container(
       constraints: BoxConstraints(
@@ -164,17 +164,17 @@ class SkillRunTimeline extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: AppTheme.danger.withValues(alpha: 0.08),
+                color: AppTheme.dangerOf(isDark).withValues(alpha: 0.08),
                 borderRadius: BorderRadius.circular(9),
                 border: Border.all(
-                  color: AppTheme.danger.withValues(alpha: 0.3),
+                  color: AppTheme.dangerOf(isDark).withValues(alpha: 0.3),
                 ),
               ),
               child: Text(
                 state.error!,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 11.5,
-                  color: AppTheme.danger,
+                  color: AppTheme.dangerOf(isDark),
                   height: 1.4,
                 ),
               ),
@@ -187,7 +187,7 @@ class SkillRunTimeline extends StatelessWidget {
               children: [
                 ...state.results.asMap().entries.map((entry) {
                   final result = entry.value;
-                  final color = _stepColor(result.status);
+                  final color = _stepColor(result.status, isDark);
                   return Container(
                     margin: const EdgeInsets.only(bottom: 7),
                     decoration: BoxDecoration(
@@ -226,9 +226,9 @@ class SkillRunTimeline extends StatelessWidget {
                               alignment: Alignment.centerLeft,
                               child: Text(
                                 result.errorMessage!,
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontSize: 11,
-                                  color: AppTheme.danger,
+                                  color: AppTheme.dangerOf(isDark),
                                 ),
                               ),
                             ),
@@ -332,7 +332,7 @@ class SkillRunTimeline extends StatelessWidget {
                     icon: const Icon(Icons.stop_circle_outlined, size: 16),
                     label: const Text('停止'),
                     style: OutlinedButton.styleFrom(
-                      foregroundColor: AppTheme.danger,
+                      foregroundColor: AppTheme.dangerOf(isDark),
                     ),
                   ),
                 ),

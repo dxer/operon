@@ -86,16 +86,16 @@ class _AiPolicySettingsPageState extends State<AiPolicySettingsPage> {
                         style: TextStyle(
                             fontSize: 14, fontWeight: FontWeight.w600)),
                     Text('$_maxSteps 步',
-                        style: const TextStyle(
+                        style: TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.bold,
-                            color: AppTheme.primary)),
+                            color: AppTheme.primaryOf(isDark))),
                   ],
                 ),
                 const SizedBox(height: 6),
-                const Text(
+                Text(
                   '防止模型在复杂页面寻路陷入死循环，步数耗尽将自动挂起',
-                  style: TextStyle(fontSize: 12, color: AppTheme.neutral),
+                  style: TextStyle(fontSize: 12, color: AppTheme.neutralOf(isDark)),
                 ),
                 const SizedBox(height: 8),
                 Slider(
@@ -104,7 +104,7 @@ class _AiPolicySettingsPageState extends State<AiPolicySettingsPage> {
                   max: 30,
                   divisions: 25,
                   label: '$_maxSteps',
-                  activeColor: AppTheme.primary,
+                  activeColor: AppTheme.primaryOf(isDark),
                   onChanged: (val) {
                     setState(() => _maxSteps = val.round());
                   },
@@ -130,11 +130,11 @@ class _AiPolicySettingsPageState extends State<AiPolicySettingsPage> {
                   const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
               title: const Text('敏感操作人工授权 (Safe Mode)',
                   style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-              subtitle: const Text(
+              subtitle: Text(
                   '开启：支付、发布、删除等高危操作会暂停并等待你确认。关闭：AI 将自动执行全部操作，不再询问。',
-                  style: TextStyle(fontSize: 12, color: AppTheme.neutral)),
+                  style: TextStyle(fontSize: 12, color: AppTheme.neutralOf(isDark))),
               value: _safeMode,
-              activeThumbColor: AppTheme.primary,
+              activeThumbColor: AppTheme.primaryOf(isDark),
               onChanged: (val) async {
                 setState(() => _safeMode = val);
                 await _storage.saveSafeMode(val);
@@ -168,7 +168,7 @@ class _AiPolicySettingsPageState extends State<AiPolicySettingsPage> {
                       TextButton(
                         onPressed: _clearSites,
                         style: TextButton.styleFrom(
-                          foregroundColor: AppTheme.danger,
+                          foregroundColor: AppTheme.dangerOf(isDark),
                           minimumSize: const Size(0, 28),
                           padding: const EdgeInsets.symmetric(horizontal: 6),
                         ),
@@ -177,10 +177,10 @@ class _AiPolicySettingsPageState extends State<AiPolicySettingsPage> {
                   ],
                 ),
                 const SizedBox(height: 4),
-                const Text(
+                Text(
                   '这些站点上的敏感操作会直接执行，不再弹出授权确认。仅在你完全信任的网站上添加。',
                   style: TextStyle(
-                      fontSize: 12, color: AppTheme.neutral, height: 1.4),
+                      fontSize: 12, color: AppTheme.neutralOf(isDark), height: 1.4),
                 ),
                 const SizedBox(height: 8),
                 if (_allowedSites.isEmpty)
@@ -200,8 +200,8 @@ class _AiPolicySettingsPageState extends State<AiPolicySettingsPage> {
                       padding: const EdgeInsets.only(bottom: 4),
                       child: Row(
                         children: [
-                          const Icon(Icons.verified_user_outlined,
-                              size: 15, color: AppTheme.accent),
+                          Icon(Icons.verified_user_outlined,
+                              size: 15, color: AppTheme.accentOf(isDark)),
                           const SizedBox(width: 6),
                           Expanded(
                             child: Text(
@@ -233,18 +233,18 @@ class _AiPolicySettingsPageState extends State<AiPolicySettingsPage> {
               ),
             ),
             padding: const EdgeInsets.all(16),
-            child: const Column(
+            child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
+                const Text(
                   '手动暂停与接管',
                   style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
                 ),
-                SizedBox(height: 6),
+                const SizedBox(height: 6),
                 Text(
                   'AI 执行时，触摸或滚动网页不会自动暂停任务，你可以正常浏览页面。需要接管时，点击底部 AI 状态条上的暂停按钮；任务会在当前动作完成后停住，恢复后从下一步继续。',
                   style: TextStyle(
-                      fontSize: 12, color: AppTheme.neutral, height: 1.5),
+                      fontSize: 12, color: AppTheme.neutralOf(isDark), height: 1.5),
                 ),
               ],
             ),

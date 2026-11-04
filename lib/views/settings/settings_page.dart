@@ -195,6 +195,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     if (_isLoading) {
       return const Scaffold(
         body: Center(child: CircularProgressIndicator()),
@@ -228,7 +229,7 @@ class _SettingsPageState extends State<SettingsPage> {
           _buildSection('AI 与自动化', [
             _buildSettingRow(
               icon: Icons.auto_awesome_rounded,
-              iconColor: AppTheme.primary,
+              iconColor: AppTheme.primaryOf(isDark),
               title: 'AI 智能体引擎',
               subtitle:
                   modelName.isEmpty ? '配置模型与 API 密钥' : '$modelName · 快速预设与连通测试',
@@ -241,7 +242,7 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
             _buildSettingRow(
               icon: Icons.policy_rounded,
-              iconColor: AppTheme.accent,
+              iconColor: AppTheme.accentOf(isDark),
               title: 'AI 策略与自主权限',
               subtitle: '单次 $maxSteps 步 · '
                   '${safeMode ? "人工授权已开启" : "完全自主模式"}',
@@ -256,7 +257,7 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
             _buildSettingRow(
               icon: Icons.bolt_rounded,
-              iconColor: AppTheme.primary,
+              iconColor: AppTheme.primaryOf(isDark),
               title: '技能',
               subtitle: _skillCount == 0
                   ? 'AI 创建 · 工具编排 · 暂无技能'
@@ -265,7 +266,7 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
             _buildSettingRow(
               icon: Icons.history_rounded,
-              iconColor: AppTheme.neutral,
+              iconColor: AppTheme.neutralOf(isDark),
               title: '任务历史与审计',
               subtitle: historyCount == 0
                   ? '查看执行记录、授权与风险日志'
@@ -274,13 +275,13 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
             _buildSettingRow(
               icon: Icons.play_circle_outline_rounded,
-              iconColor: AppTheme.primary,
+              iconColor: AppTheme.primaryOf(isDark),
               title: '快捷宏工作流',
               subtitle: '录制、管理与一键回放网页动作',
-              trailing: const Icon(
+              trailing: Icon(
                 Icons.play_circle_outline_rounded,
                 size: 20,
-                color: AppTheme.primary,
+                color: AppTheme.primaryOf(isDark),
               ),
               onTap: _openMacroDialog,
             ),
@@ -288,7 +289,7 @@ class _SettingsPageState extends State<SettingsPage> {
           _buildSection('浏览与外观', [
             _buildSettingRow(
               icon: Icons.tune_rounded,
-              iconColor: AppTheme.neutral,
+              iconColor: AppTheme.neutralOf(isDark),
               title: '通用与搜索',
               subtitle: '搜索引擎：$searchEngine · 主页与缓存',
               onTap: () => Navigator.push(
@@ -300,7 +301,7 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
             _buildSettingRow(
               icon: Icons.palette_outlined,
-              iconColor: const Color(0xFF8C6A4F),
+              iconColor: AppTheme.primaryOf(isDark),
               title: '外观与个性化',
               subtitle: '主题：$themeStr · 字号 ${_storage.getTextZoom()}%',
               onTap: () => Navigator.push(
@@ -312,7 +313,7 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
             _buildSettingRow(
               icon: Icons.security_rounded,
-              iconColor: AppTheme.accent,
+              iconColor: AppTheme.accentOf(isDark),
               title: '浏览与隐私保护',
               subtitle: '${blockImages ? "无图模式" : "加载图片"} · '
                   '${jsEnabled ? "JS 已启用" : "JS 已禁用"}',
@@ -325,7 +326,7 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
             _buildSettingRow(
               icon: Icons.extension_rounded,
-              iconColor: AppTheme.neutral,
+              iconColor: AppTheme.neutralOf(isDark),
               title: '用户脚本',
               subtitle: '自定义注入脚本与免登录插件',
               onTap: () => Navigator.push(
@@ -337,7 +338,7 @@ class _SettingsPageState extends State<SettingsPage> {
           _buildSection('其他', [
             _buildSettingRow(
               icon: Icons.info_outline_rounded,
-              iconColor: AppTheme.neutral,
+              iconColor: AppTheme.neutralOf(isDark),
               title: '关于 Operon',
               subtitle: '${AppVersionService.shortLabel} · 开源 · 极简轻量',
               onTap: () => Navigator.push(

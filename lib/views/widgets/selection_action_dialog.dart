@@ -124,8 +124,8 @@ class _SelectionActionDialogState extends State<SelectionActionDialog> {
           // Title & Selected text preview
           Row(
             children: [
-              const Icon(Icons.touch_app_outlined,
-                  size: 18, color: AppTheme.primary),
+              Icon(Icons.touch_app_outlined,
+                  size: 18, color: AppTheme.primaryOf(isDark)),
               const SizedBox(width: 8),
               const Text('划词 AI 伴随',
                   style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
@@ -167,22 +167,22 @@ class _SelectionActionDialogState extends State<SelectionActionDialog> {
             runSpacing: 6,
             children: [
               ActionChip(
-                avatar: const Icon(Icons.translate,
-                    size: 16, color: AppTheme.primary),
+                avatar: Icon(Icons.translate,
+                    size: 16, color: AppTheme.primaryOf(isDark)),
                 label: const Text('翻译', style: TextStyle(fontSize: 12)),
                 onPressed:
                     _isLoading ? null : () => _executeAction('translate', '翻译'),
               ),
               ActionChip(
-                avatar: const Icon(Icons.lightbulb_outline,
-                    size: 16, color: AppTheme.warning),
+                avatar: Icon(Icons.lightbulb_outline,
+                    size: 16, color: AppTheme.warningOf(isDark)),
                 label: const Text('解释/释义', style: TextStyle(fontSize: 12)),
                 onPressed:
                     _isLoading ? null : () => _executeAction('explain', '通俗解释'),
               ),
               ActionChip(
-                avatar: const Icon(Icons.chat_bubble_outline,
-                    size: 16, color: AppTheme.accent),
+                avatar: Icon(Icons.chat_bubble_outline,
+                    size: 16, color: AppTheme.accentOf(isDark)),
                 label: const Text('生成评论回复', style: TextStyle(fontSize: 12)),
                 onPressed:
                     _isLoading ? null : () => _executeAction('reply', '生成回复'),
@@ -217,7 +217,7 @@ class _SelectionActionDialogState extends State<SelectionActionDialog> {
               padding: const EdgeInsets.symmetric(vertical: 12.0),
               child: Text(
                 '执行失败: $_error',
-                style: const TextStyle(color: AppTheme.danger, fontSize: 12),
+                style: TextStyle(color: AppTheme.dangerOf(isDark), fontSize: 12),
               ),
             )
           else if (_resultText != null)
@@ -229,7 +229,7 @@ class _SelectionActionDialogState extends State<SelectionActionDialog> {
                   color: isDark ? AppTheme.darkInput : AppTheme.lightBg,
                   borderRadius: BorderRadius.circular(10),
                   border: Border.all(
-                      color: AppTheme.primary.withValues(alpha: 0.3)),
+                      color: AppTheme.primaryOf(isDark).withValues(alpha: 0.3)),
                 ),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -239,26 +239,26 @@ class _SelectionActionDialogState extends State<SelectionActionDialog> {
                       children: [
                         Text(
                           '$_currentAction结果:',
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.bold,
-                            color: AppTheme.primary,
+                            color: AppTheme.primaryOf(isDark),
                           ),
                         ),
                         const Spacer(),
                         InkWell(
                           onTap: _copyResult,
-                          child: const Padding(
-                            padding: EdgeInsets.symmetric(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
                                 horizontal: 4, vertical: 2),
                             child: Row(
                               children: [
                                 Icon(Icons.copy,
-                                    size: 14, color: AppTheme.accent),
-                                SizedBox(width: 4),
+                                    size: 14, color: AppTheme.accentOf(isDark)),
+                                const SizedBox(width: 4),
                                 Text('复制',
                                     style: TextStyle(
-                                        fontSize: 11, color: AppTheme.accent)),
+                                        fontSize: 11, color: AppTheme.accentOf(isDark))),
                               ],
                             ),
                           ),

@@ -32,7 +32,6 @@ class AgentConfirmationCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final onSurface = Theme.of(context).colorScheme.onSurface;
-    final dangerInk = isDark ? const Color(0xFFE06A5E) : AppTheme.danger;
     final muted = onSurface.withValues(alpha: 0.62);
     final hairline = isDark ? AppTheme.darkBorder : AppTheme.lightBorder;
     final host = hostOf(state.targetUrl ?? '');
@@ -51,10 +50,10 @@ class AgentConfirmationCard extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.fromLTRB(12, 11, 12, 6),
         decoration: BoxDecoration(
-          color: AppTheme.danger.withValues(alpha: isDark ? 0.12 : 0.06),
+          color: AppTheme.dangerOf(isDark).withValues(alpha: isDark ? 0.12 : 0.06),
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
-            color: AppTheme.danger.withValues(alpha: 0.34),
+            color: AppTheme.dangerOf(isDark).withValues(alpha: 0.34),
           ),
         ),
         child: Column(
@@ -62,12 +61,13 @@ class AgentConfirmationCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                Icon(Icons.shield_outlined, size: 15, color: dangerInk),
+                Icon(Icons.shield_outlined,
+                    size: 15, color: AppTheme.dangerOf(isDark)),
                 const SizedBox(width: 6),
                 Text(
                   '敏感操作，等待授权',
                   style: TextStyle(
-                    color: dangerInk,
+                    color: AppTheme.dangerOf(isDark),
                     fontWeight: FontWeight.w600,
                     fontSize: 12,
                   ),
@@ -180,7 +180,7 @@ class AgentConfirmationCard extends StatelessWidget {
                     ),
                   ),
                   style: TextButton.styleFrom(
-                    foregroundColor: AppTheme.accent,
+                    foregroundColor: AppTheme.accentOf(isDark),
                     minimumSize: const Size(0, 36),
                     padding: const EdgeInsets.symmetric(horizontal: 6),
                     visualDensity: VisualDensity.compact,
@@ -197,6 +197,10 @@ class AgentConfirmationCard extends StatelessWidget {
 
 /// Modal shell around [AgentConfirmationCard], presented automatically when a
 /// task pauses on a sensitive action.
+///
+/// The sheet is often raised while the composer still has focus, so it has to
+/// survive the IME: it lifts above the keyboard and scrolls instead of letting
+/// the approve button sit underneath it.
 class AgentConfirmationSheet extends StatelessWidget {
   final AgentState state;
   final VoidCallback onConfirm;
@@ -215,49 +219,65 @@ class AgentConfirmationSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = isDark ? AppTheme.darkCard : AppTheme.lightCard;
+    final media = MediaQuery.of(context);
+    final keyboardInset = media.viewInsets.bottom;
+    final maxHeight =
+        (media.size.height - keyboardInset - media.viewPadding.top - 24)
+            .clamp(240.0, media.size.height)
+            .toDouble();
 
-    return SafeArea(
-      top: false,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
-        child: Container(
-          decoration: BoxDecoration(
-            color: bg,
-            borderRadius: const BorderRadius.vertical(
-              top: Radius.circular(20),
-              bottom: Radius.circular(20),
-            ),
-            boxShadow: const [
-              BoxShadow(
-                color: Colors.black26,
-                blurRadius: 18,
-                offset: Offset(0, -4),
+    return AnimatedPadding(
+      duration: const Duration(milliseconds: 160),
+      curve: Curves.easeOut,
+      padding: EdgeInsets.only(bottom: keyboardInset),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+          child: Container(
+            constraints: BoxConstraints(maxHeight: maxHeight),
+            decoration: BoxDecoration(
+              color: bg,
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(20),
+                bottom: Radius.circular(20),
               ),
-            ],
-          ),
-          padding: const EdgeInsets.fromLTRB(14, 8, 14, 10),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Center(
-                child: Container(
-                  width: 36,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: isDark ? Colors.white24 : Colors.black12,
-                    borderRadius: BorderRadius.circular(2),
+              boxShadow: const [
+                BoxShadow(
+                  color: Colors.black26,
+                  blurRadius: 18,
+                  offset: Offset(0, -4),
+                ),
+              ],
+            ),
+            padding: const EdgeInsets.fromLTRB(14, 8, 14, 10),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: isDark ? Colors.white24 : Colors.black12,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 10),
-              AgentConfirmationCard(
-                state: state,
-                onConfirm: onConfirm,
-                onCancel: onCancel,
-                onAllowSite: onAllowSite,
-              ),
-            ],
+                const SizedBox(height: 10),
+                Flexible(
+                  child: SingleChildScrollView(
+                    child: AgentConfirmationCard(
+                      state: state,
+                      onConfirm: onConfirm,
+                      onCancel: onCancel,
+                      onAllowSite: onAllowSite,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),

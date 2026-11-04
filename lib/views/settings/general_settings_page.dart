@@ -45,56 +45,61 @@ class _GeneralSettingsPageState extends State<GeneralSettingsPage> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: const Text('清除浏览数据与缓存',
-              style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              CheckboxListTile(
-                title: const Text('Cookie 与网站登录状态',
-                    style: TextStyle(fontSize: 14)),
-                value: clearCookies,
-                activeColor: AppTheme.primary,
-                onChanged: (val) =>
-                    setDialogState(() => clearCookies = val ?? false),
+        builder: (context, setDialogState) {
+          final isDark = Theme.of(context).brightness == Brightness.dark;
+          return AlertDialog(
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: const Text('清除浏览数据与缓存',
+                style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CheckboxListTile(
+                  title: const Text('Cookie 与网站登录状态',
+                      style: TextStyle(fontSize: 14)),
+                  value: clearCookies,
+                  activeColor: AppTheme.primaryOf(isDark),
+                  onChanged: (val) =>
+                      setDialogState(() => clearCookies = val ?? false),
+                ),
+                CheckboxListTile(
+                  title: const Text('网页缓存文件 (Cache)',
+                      style: TextStyle(fontSize: 14)),
+                  subtitle: const Text('释放应用占用的图片与静态脚本存储',
+                      style: TextStyle(fontSize: 12)),
+                  value: clearCache,
+                  activeColor: AppTheme.primaryOf(isDark),
+                  onChanged: (val) =>
+                      setDialogState(() => clearCache = val ?? false),
+                ),
+                CheckboxListTile(
+                  title: const Text('本地存储 (LocalStorage / IndexedDB)',
+                      style: TextStyle(fontSize: 14)),
+                  value: clearStorage,
+                  activeColor: AppTheme.primaryOf(isDark),
+                  onChanged: (val) =>
+                      setDialogState(() => clearStorage = val ?? false),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(false),
+                child: const Text('取消'),
               ),
-              CheckboxListTile(
-                title: const Text('网页缓存文件 (Cache)',
-                    style: TextStyle(fontSize: 14)),
-                subtitle: const Text('释放应用占用的图片与静态脚本存储',
-                    style: TextStyle(fontSize: 12)),
-                value: clearCache,
-                activeColor: AppTheme.primary,
-                onChanged: (val) =>
-                    setDialogState(() => clearCache = val ?? false),
-              ),
-              CheckboxListTile(
-                title: const Text('本地存储 (LocalStorage / IndexedDB)',
-                    style: TextStyle(fontSize: 14)),
-                value: clearStorage,
-                activeColor: AppTheme.primary,
-                onChanged: (val) =>
-                    setDialogState(() => clearStorage = val ?? false),
+              ElevatedButton(
+                onPressed: (clearCookies || clearCache || clearStorage)
+                    ? () => Navigator.of(ctx).pop(true)
+                    : null,
+                style:
+                    ElevatedButton.styleFrom(backgroundColor: AppTheme.danger),
+                child:
+                    const Text('确认清除', style: TextStyle(color: Colors.white)),
               ),
             ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(false),
-              child: const Text('取消'),
-            ),
-            ElevatedButton(
-              onPressed: (clearCookies || clearCache || clearStorage)
-                  ? () => Navigator.of(ctx).pop(true)
-                  : null,
-              style: ElevatedButton.styleFrom(backgroundColor: AppTheme.danger),
-              child: const Text('确认清除', style: TextStyle(color: Colors.white)),
-            ),
-          ],
-        ),
+          );
+        },
       ),
     );
 
@@ -168,7 +173,7 @@ class _GeneralSettingsPageState extends State<GeneralSettingsPage> {
                         title:
                             Text(engine, style: const TextStyle(fontSize: 14)),
                         value: engine,
-                        activeColor: AppTheme.primary,
+                        activeColor: AppTheme.primaryOf(isDark),
                         dense: true,
                       );
                     }).toList(),
@@ -196,9 +201,10 @@ class _GeneralSettingsPageState extends State<GeneralSettingsPage> {
                   style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 6),
-                const Text(
+                Text(
                   '新建标签页或点击底栏主页图标时打开的地址',
-                  style: TextStyle(fontSize: 12, color: AppTheme.neutral),
+                  style: TextStyle(
+                      fontSize: 12, color: AppTheme.neutralOf(isDark)),
                 ),
                 const SizedBox(height: 12),
                 TextField(
@@ -238,14 +244,15 @@ class _GeneralSettingsPageState extends State<GeneralSettingsPage> {
             child: ListTile(
               contentPadding:
                   const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-              leading: const Icon(Icons.delete_sweep_rounded,
-                  color: AppTheme.danger),
+              leading: Icon(Icons.delete_sweep_rounded,
+                  color: AppTheme.dangerOf(isDark)),
               title: const Text('清除浏览数据与缓存',
                   style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-              subtitle: const Text('清理 Cookie、LocalStorage 及离线静态资源',
-                  style: TextStyle(fontSize: 12, color: AppTheme.neutral)),
-              trailing: const Icon(Icons.chevron_right_rounded,
-                  color: AppTheme.neutral),
+              subtitle: Text('清理 Cookie、LocalStorage 及离线静态资源',
+                  style: TextStyle(
+                      fontSize: 12, color: AppTheme.neutralOf(isDark))),
+              trailing: Icon(Icons.chevron_right_rounded,
+                  color: AppTheme.neutralOf(isDark)),
               onTap: _showClearBrowsingDataDialog,
             ),
           ),

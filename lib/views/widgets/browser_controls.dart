@@ -12,6 +12,10 @@ class BrowserControls extends StatefulWidget {
   final Function(String url) onSubmitUrl;
   final VoidCallback onSummarize;
 
+  /// Long-press actions on the address pill. `null` hides the entry.
+  final VoidCallback? onCopyUrl;
+  final VoidCallback? onShareUrl;
+
   const BrowserControls({
     super.key,
     required this.urlController,
@@ -19,6 +23,8 @@ class BrowserControls extends StatefulWidget {
     required this.progress,
     required this.onSubmitUrl,
     required this.onSummarize,
+    this.onCopyUrl,
+    this.onShareUrl,
   });
 
   @override
@@ -78,6 +84,41 @@ class _BrowserControlsState extends State<BrowserControls> {
     widget.onSubmitUrl(widget.urlController.text);
   }
 
+  /// Long-press menu for the address pill.
+  ///
+  /// A `GestureDetector` wrapped around the field would fight the text field's
+  /// own long-press selection, so the copy/share entries are added to the
+  /// selection toolbar instead. That keeps cut/paste available and gives the
+  /// URL actions a predictable home.
+  Widget _buildContextMenu(
+    BuildContext context,
+    EditableTextState editableTextState,
+  ) {
+    final items = <ContextMenuButtonItem>[
+      ...editableTextState.contextMenuButtonItems,
+      if (widget.onCopyUrl != null) ...[
+        ContextMenuButtonItem(
+          label: '复制链接',
+          onPressed: () {
+            editableTextState.hideToolbar();
+            widget.onCopyUrl!();
+          },
+        ),
+        ContextMenuButtonItem(
+          label: '分享链接',
+          onPressed: () {
+            editableTextState.hideToolbar();
+            widget.onShareUrl?.call();
+          },
+        ),
+      ],
+    ];
+    return AdaptiveTextSelectionToolbar.buttonItems(
+      anchors: editableTextState.contextMenuAnchors,
+      buttonItems: items,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -85,8 +126,8 @@ class _BrowserControlsState extends State<BrowserControls> {
     final barBg = isDark ? AppTheme.darkBg : AppTheme.lightBg;
     final inputBg = isDark ? AppTheme.darkInput : AppTheme.lightInput;
     final borderColor = isDark
-        ? (_hasFocus ? AppTheme.primary : AppTheme.darkBorder)
-        : (_hasFocus ? AppTheme.primary : AppTheme.lightBorder);
+        ? (_hasFocus ? AppTheme.primaryOf(isDark) : AppTheme.darkBorder)
+        : (_hasFocus ? AppTheme.primaryOf(isDark) : AppTheme.lightBorder);
     final iconColor = isDark ? AppTheme.darkMuted : AppTheme.lightMuted;
     final textColor = isDark ? AppTheme.darkOnSurface : AppTheme.lightOnSurface;
 
@@ -128,7 +169,7 @@ class _BrowserControlsState extends State<BrowserControls> {
                               : Icons.public_rounded),
                       size: 15,
                       color: widget.urlController.text.startsWith('https://')
-                          ? AppTheme.accent
+                          ? AppTheme.accentOf(isDark)
                           : iconColor,
                     ),
                     const SizedBox(width: 8),
@@ -141,7 +182,7 @@ class _BrowserControlsState extends State<BrowserControls> {
                           fontWeight: FontWeight.w400,
                           color: textColor,
                         ),
-                        cursorColor: AppTheme.primary,
+                        cursorColor: AppTheme.primaryOf(isDark),
                         cursorRadius: const Radius.circular(2),
                         decoration: InputDecoration(
                           isDense: true,
@@ -160,6 +201,7 @@ class _BrowserControlsState extends State<BrowserControls> {
                         textInputAction: TextInputAction.go,
                         onSubmitted: (_) => _submit(),
                         onTapOutside: (_) => _focusNode.unfocus(),
+                        contextMenuBuilder: _buildContextMenu,
                       ),
                     ),
                     if (_showClear)
@@ -207,8 +249,8 @@ class _BrowserControlsState extends State<BrowserControls> {
                           : null,
                       minHeight: 2,
                       backgroundColor: Colors.transparent,
-                      valueColor:
-                          const AlwaysStoppedAnimation<Color>(AppTheme.primary),
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                          AppTheme.primaryOf(isDark)),
                     )
                   : null,
             ),
@@ -246,13 +288,14 @@ class _AiActionButton extends StatelessWidget {
                 height: 28,
                 decoration: BoxDecoration(
                   color:
-                      AppTheme.accent.withValues(alpha: isDark ? 0.16 : 0.12),
+                      AppTheme.accentOf(isDark)
+                          .withValues(alpha: isDark ? 0.16 : 0.12),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(
+                child: Icon(
                   Icons.auto_awesome_rounded,
                   size: 15,
-                  color: AppTheme.accent,
+                  color: AppTheme.accentOf(isDark),
                 ),
               ),
             ),

@@ -9,6 +9,7 @@ import '../../services/haptic_service.dart';
 import '../../services/macro_service.dart';
 import '../../services/skill_from_macro.dart';
 import '../../services/skill_from_task.dart';
+import '../../services/skill_inputs.dart';
 import '../../services/skill_service.dart';
 import '../../services/webview_controller_wrapper.dart';
 import '../../services/skill_validator.dart';
@@ -86,6 +87,9 @@ class AgentBottomSheet extends StatefulWidget {
 }
 
 class _AgentBottomSheetState extends State<AgentBottomSheet> {
+  /// Brightness for one-off foreground tints outside a `build` scope.
+  bool get _isDarkTheme => Theme.of(context).brightness == Brightness.dark;
+
   late TextEditingController _goalController;
   late bool _safeMode;
   late List<Skill> _skills;
@@ -251,7 +255,9 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
 
   Future<void> _applySkill(Skill skill) async {
     SkillRunRequest? request;
-    if (skill.inputs.isNotEmpty || skill.isFlow) {
+    // Placeholders decide whether there is anything to ask for.
+    final inputs = SkillInputs.effective(skill);
+    if (inputs.isNotEmpty || skill.isFlow) {
       request = await showModalBottomSheet<SkillRunRequest>(
         context: context,
         isScrollControlled: true,
@@ -272,7 +278,7 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
           SkillRunRequest(
             skill: skill,
             values: {
-              for (final input in skill.inputs) input.key: input.defaultValue,
+              for (final input in inputs) input.key: input.defaultValue,
             },
             execute: skill.isFlow,
           );
@@ -284,7 +290,7 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
     // Fallback for hosts that only provide the composer.
     if (skill.isFlow) return;
     final values = request?.values ??
-        {for (final input in skill.inputs) input.key: input.defaultValue};
+        {for (final input in inputs) input.key: input.defaultValue};
     final prompt = SkillTemplate.renderString(
       skill.instructions,
       {'inputs': values},
@@ -358,12 +364,12 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
       context: context,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Row(
+        title: Row(
           children: [
             Icon(Icons.bookmark_add_outlined,
-                color: AppTheme.warning, size: 20),
-            SizedBox(width: 8),
-            Text('存为快捷宏任务', style: TextStyle(fontSize: 16)),
+                color: AppTheme.warningOf(_isDarkTheme), size: 20),
+            const SizedBox(width: 8),
+            const Text('存为快捷宏任务', style: TextStyle(fontSize: 16)),
           ],
         ),
         content: Column(
@@ -553,12 +559,12 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
   ({Color color, String label, IconData icon}) _statusMeta(
     AgentStatus status,
   ) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final onSurface = Theme.of(context).colorScheme.onSurface;
-    final copper = isDark ? const Color(0xFFE08A56) : AppTheme.primary;
-    final sage = isDark ? const Color(0xFF6FC7A3) : const Color(0xFF237A5A);
-    final ochre = isDark ? const Color(0xFFE0A23C) : const Color(0xFF8A5A12);
-    final brick = isDark ? const Color(0xFFE06A5E) : AppTheme.danger;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final copper = AppTheme.primaryOf(isDark);
+    final sage = AppTheme.accentOf(isDark);
+    final ochre = AppTheme.warningOf(isDark);
+    final brick = AppTheme.dangerOf(isDark);
 
     return switch (status) {
       AgentStatus.idle => (
@@ -691,8 +697,8 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
 
   Widget _buildSafeModeChip({bool showLabel = true}) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final sage = isDark ? const Color(0xFF6FC7A3) : const Color(0xFF237A5A);
-    final ochre = isDark ? AppTheme.warning : const Color(0xFF8A5A12);
+    final sage = AppTheme.accentOf(isDark);
+    final ochre = AppTheme.warningOf(isDark);
     final fg = _safeMode ? sage : ochre;
     return Tooltip(
       message: _safeMode ? '敏感操作需要人工确认，点击切换为全自动' : '全自动模式，点击恢复人工确认',
@@ -750,6 +756,14 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
   }
 
   String _resultText(AgentState state) {
+    // A failure explains itself: the model's last thought is stale by then, and
+    // "see the logs" makes the user dig for the one sentence that matters.
+    final error = state.errorMessage?.trim() ?? '';
+    if (error.isNotEmpty &&
+        (state.status == AgentStatus.error ||
+            state.status == AgentStatus.maxStepsReached)) {
+      return error;
+    }
     final thought = state.currentThought.trim();
     if (thought.isNotEmpty) return thought;
     switch (state.status) {
@@ -816,10 +830,11 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
     required Color muted,
     required bool canSaveMacro,
   }) {
-    final sage = isDark ? const Color(0xFF6FC7A3) : const Color(0xFF237A5A);
-    final ochre = isDark ? const Color(0xFFE0A23C) : const Color(0xFF8A5A12);
-    final brick = isDark ? const Color(0xFFE06A5E) : AppTheme.danger;
-    final copper = isDark ? const Color(0xFFE08A56) : AppTheme.primary;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final sage = AppTheme.accentOf(isDark);
+    final ochre = AppTheme.warningOf(isDark);
+    final brick = AppTheme.dangerOf(isDark);
+    final copper = AppTheme.primaryOf(isDark);
 
     late Color color;
     late IconData icon;
@@ -1053,8 +1068,8 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
         children: [
           Row(
             children: [
-              const Icon(Icons.dataset_outlined,
-                  size: 15, color: AppTheme.accent),
+              Icon(Icons.dataset_outlined,
+                  size: 15, color: AppTheme.accentOf(_isDarkTheme)),
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
@@ -1166,6 +1181,7 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
     required Color hairline,
     required Color muted,
   }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     Widget chipFor(Skill skill) {
       final hosts = skill.policy.allowedHosts;
       final usable = skill.allowsHost(_pageHost);
@@ -1184,7 +1200,7 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
                   : Icons.auto_awesome)
               : Icons.lock_outline,
           size: 14,
-          color: usable ? AppTheme.primary : muted,
+          color: usable ? AppTheme.primaryOf(isDark) : muted,
         ),
         label: Text(
           skill.name,
@@ -1374,6 +1390,9 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
     final subtle = onSurface.withValues(alpha: 0.38);
     final hairline = isDark ? AppTheme.darkBorder : AppTheme.lightBorder;
     final surface = isDark ? AppTheme.darkInput : AppTheme.lightInput;
+    // Warning ink sits on the card, so it has to follow the brightness; the
+    // solid `AppTheme.warning` chip fill stays dark-on-light in both themes.
+    final warnInk = AppTheme.warningOf(isDark);
 
     final media = MediaQuery.of(context);
     final keyboardInset = media.viewInsets.bottom;
@@ -1449,8 +1468,8 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
                                   .clamp(0.0, 1.0),
                               minHeight: 3,
                               backgroundColor: hairline,
-                              valueColor: const AlwaysStoppedAnimation<Color>(
-                                AppTheme.primary,
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                AppTheme.primaryOf(isDark),
                               ),
                             ),
                           ),
@@ -1463,10 +1482,10 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
                         const SizedBox(height: 8),
                         Row(
                           children: [
-                            const Icon(
+                            Icon(
                               Icons.warning_amber_rounded,
                               size: 14,
-                              color: AppTheme.warning,
+                              color: warnInk,
                             ),
                             const SizedBox(width: 6),
                             Expanded(
@@ -1474,9 +1493,7 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
                                 '全自动模式：支付、发布、删除等操作不会暂停确认',
                                 style: TextStyle(
                                   fontSize: 10.5,
-                                  color: isDark
-                                      ? AppTheme.warning
-                                      : const Color(0xFFB45309),
+                                  color: warnInk,
                                 ),
                               ),
                             ),
@@ -1490,10 +1507,10 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
                         Container(
                           padding: const EdgeInsets.fromLTRB(11, 10, 11, 10),
                           decoration: BoxDecoration(
-                            color: AppTheme.warning.withValues(alpha: 0.10),
+                            color: warnInk.withValues(alpha: 0.10),
                             borderRadius: BorderRadius.circular(12),
                             border: Border.all(
-                              color: AppTheme.warning.withValues(alpha: 0.32),
+                              color: warnInk.withValues(alpha: 0.32),
                             ),
                           ),
                           child: Column(
@@ -1503,9 +1520,7 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
                                 children: [
                                   Icon(
                                     Icons.verified_user_outlined,
-                                    color: isDark
-                                        ? AppTheme.warning
-                                        : const Color(0xFF8A5A12),
+                                    color: warnInk,
                                     size: 15,
                                   ),
                                   const SizedBox(width: 6),
@@ -1517,9 +1532,7 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                       style: TextStyle(
-                                        color: isDark
-                                            ? AppTheme.warning
-                                            : const Color(0xFF8A5A12),
+                                        color: warnInk,
                                         fontWeight: FontWeight.w600,
                                         fontSize: 12,
                                       ),
@@ -1643,8 +1656,8 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
                         const SizedBox(height: 12),
                         Row(
                           children: [
-                            const Icon(Icons.auto_awesome,
-                                size: 14, color: AppTheme.primary),
+                            Icon(Icons.auto_awesome,
+                                size: 14, color: AppTheme.primaryOf(isDark)),
                             const SizedBox(width: 4),
                             Text(
                               '技能',
@@ -1662,7 +1675,7 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
                                 label: const Text('管理',
                                     style: TextStyle(fontSize: 11.5)),
                                 style: TextButton.styleFrom(
-                                  foregroundColor: AppTheme.primary,
+                                  foregroundColor: AppTheme.primaryOf(isDark),
                                   minimumSize: const Size(0, 44),
                                   padding:
                                       const EdgeInsets.symmetric(horizontal: 8),
@@ -1686,10 +1699,10 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
                           const SizedBox(height: 2),
                           Row(
                             children: [
-                              const Icon(
+                              Icon(
                                 Icons.check_circle_rounded,
                                 size: 12,
-                                color: AppTheme.accent,
+                                color: AppTheme.accentOf(_isDarkTheme),
                               ),
                               const SizedBox(width: 4),
                               Expanded(
@@ -1698,9 +1711,9 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
                                   '$_activePolicyLabel',
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     fontSize: 11,
-                                    color: AppTheme.accent,
+                                    color: AppTheme.accentOf(_isDarkTheme),
                                   ),
                                 ),
                               ),
@@ -1876,7 +1889,10 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
     final paused = state.status == AgentStatus.paused;
     final waiting = state.status == AgentStatus.waitingConfirmation ||
         state.status == AgentStatus.waitingCaptcha;
-    final accent = paused || waiting ? AppTheme.warning : AppTheme.primary;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final accent = paused || waiting
+        ? AppTheme.warningOf(isDark)
+        : AppTheme.primaryOf(isDark);
     final goal = state.goal.trim();
     final label = goal.isEmpty
         ? (paused
@@ -1942,7 +1958,7 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
             tooltip: '停止运行',
             onPressed: widget.onStop,
             icon: const Icon(Icons.stop_rounded, size: 20),
-            color: AppTheme.danger,
+            color: AppTheme.dangerOf(_isDarkTheme),
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
           ),
@@ -1959,6 +1975,7 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
         (widget.state.status == AgentStatus.completed ||
             widget.state.status == AgentStatus.error ||
             widget.state.status == AgentStatus.maxStepsReached);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return TextField(
       controller: _goalController,
       focusNode: _goalFocus,
@@ -1998,7 +2015,7 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
                         tooltip: canSend ? '开始任务' : '请输入指令',
                         icon: Icon(
                           Icons.arrow_upward,
-                          color: canSend ? AppTheme.primary : subtle,
+                          color: canSend ? AppTheme.primaryOf(isDark) : subtle,
                         ),
                         onPressed: canSend ? _startGoal : null,
                       ),
@@ -2056,8 +2073,8 @@ class _ExtractedDataSheetState extends State<_ExtractedDataSheet> {
               padding: const EdgeInsets.fromLTRB(16, 8, 8, 6),
               child: Row(
                 children: [
-                  const Icon(Icons.dataset_outlined,
-                      size: 16, color: AppTheme.accent),
+                  Icon(Icons.dataset_outlined,
+                      size: 16, color: AppTheme.accentOf(isDark)),
                   const SizedBox(width: 6),
                   Text(
                     '抓取的数据',
@@ -2082,7 +2099,7 @@ class _ExtractedDataSheetState extends State<_ExtractedDataSheet> {
                       style: const TextStyle(fontSize: 11.5),
                     ),
                     style: TextButton.styleFrom(
-                      foregroundColor: AppTheme.accent,
+                      foregroundColor: AppTheme.accentOf(isDark),
                       minimumSize: const Size(0, 44),
                       padding: const EdgeInsets.symmetric(horizontal: 8),
                     ),

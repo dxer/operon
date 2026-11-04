@@ -121,6 +121,7 @@ class _StartPageViewState extends State<StartPageView> {
   }
 
   void _showShortcutOptions(int index) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final item = _shortcuts[index];
     showModalBottomSheet(
       context: context,
@@ -136,13 +137,13 @@ class _StartPageViewState extends State<StartPageView> {
                   style: const TextStyle(fontWeight: FontWeight.bold)),
               subtitle: Text(item['url'] ?? '',
                   style:
-                      const TextStyle(fontSize: 12, color: AppTheme.neutral)),
+                      TextStyle(fontSize: 12, color: AppTheme.neutralOf(isDark))),
             ),
             const Divider(height: 1),
             ListTile(
-              leading: const Icon(Icons.delete_outline, color: AppTheme.danger),
-              title: const Text('删除此快捷方式',
-                  style: TextStyle(color: AppTheme.danger)),
+              leading: Icon(Icons.delete_outline, color: AppTheme.dangerOf(isDark)),
+              title: Text('删除此快捷方式',
+                  style: TextStyle(color: AppTheme.dangerOf(isDark))),
               onTap: () async {
                 Navigator.pop(ctx);
                 final list = widget.storageService.getShortcuts();
@@ -242,7 +243,7 @@ class _StartPageViewState extends State<StartPageView> {
     final bgBottom = isDark ? AppTheme.darkBg : AppTheme.lightBg;
     final inputBg = isDark ? AppTheme.darkInput : AppTheme.lightCard;
     final borderColor = _hasFocus
-        ? AppTheme.primary
+        ? AppTheme.primaryOf(isDark)
         : (isDark ? AppTheme.darkBorder : AppTheme.lightBorder);
     final tileBg = isDark ? AppTheme.darkCard : AppTheme.lightCard;
     final tileBorder = isDark ? AppTheme.darkBorder : AppTheme.lightBorder;
@@ -406,7 +407,7 @@ class _StartPageViewState extends State<StartPageView> {
                               controller: _searchController,
                               focusNode: _focusNode,
                               textAlignVertical: TextAlignVertical.center,
-                              cursorColor: AppTheme.primary,
+                              cursorColor: AppTheme.primaryOf(isDark),
                               style: TextStyle(
                                 fontSize: 15.5,
                                 fontWeight: FontWeight.normal,

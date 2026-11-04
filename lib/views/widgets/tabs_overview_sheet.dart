@@ -69,15 +69,15 @@ class TabsOverviewSheet extends StatelessWidget {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
-                    color: AppTheme.primary.withValues(alpha: 0.15),
+                    color: AppTheme.primaryOf(isDark).withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(6),
                   ),
                   child: Text(
                     '${tabs.length} 个标签页',
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.bold,
-                      color: AppTheme.primary,
+                      color: AppTheme.primaryOf(isDark),
                     ),
                   ),
                 ),
@@ -87,7 +87,7 @@ class TabsOverviewSheet extends StatelessWidget {
                     icon: const Icon(Icons.clear_all, size: 16),
                     label: const Text('全部关闭', style: TextStyle(fontSize: 12)),
                     style:
-                        TextButton.styleFrom(foregroundColor: AppTheme.danger),
+                        TextButton.styleFrom(foregroundColor: AppTheme.dangerOf(isDark)),
                     onPressed: () {
                       HapticService.medium();
                       onCloseAll();
@@ -144,7 +144,7 @@ class TabsOverviewSheet extends StatelessWidget {
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(
                           color: isActive
-                              ? AppTheme.primary
+                              ? AppTheme.primaryOf(isDark)
                               : (isDark
                                   ? AppTheme.darkBorder
                                   : AppTheme.lightBorder),
@@ -154,7 +154,8 @@ class TabsOverviewSheet extends StatelessWidget {
                             ? [
                                 BoxShadow(
                                   color:
-                                      AppTheme.primary.withValues(alpha: 0.25),
+                                      AppTheme.primaryOf(isDark)
+                                          .withValues(alpha: 0.25),
                                   blurRadius: 8,
                                   offset: const Offset(0, 2),
                                 ),
@@ -174,7 +175,7 @@ class TabsOverviewSheet extends StatelessWidget {
                                     : Icons.public,
                                 size: 14,
                                 color: isActive
-                                    ? AppTheme.primary
+                                    ? AppTheme.primaryOf(isDark)
                                     : (isDark
                                         ? Colors.white54
                                         : Colors.black45),
@@ -186,7 +187,7 @@ class TabsOverviewSheet extends StatelessWidget {
                                       horizontal: 5, vertical: 1),
                                   margin: const EdgeInsets.only(right: 4),
                                   decoration: BoxDecoration(
-                                    color: AppTheme.primary,
+                                    color: AppTheme.primaryOf(isDark),
                                     borderRadius: BorderRadius.circular(4),
                                   ),
                                   child: const Text(

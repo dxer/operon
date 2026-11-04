@@ -16,6 +16,7 @@ import '../models/bookmark_item.dart';
 import '../models/history_item.dart';
 import '../services/agent_runner.dart';
 import '../services/execution_guard.dart';
+import '../services/haptic_service.dart';
 import '../services/macro_precondition.dart';
 import '../services/macro_service.dart';
 import '../services/notification_service.dart';
@@ -25,7 +26,6 @@ import '../services/skill_repair_service.dart';
 import '../services/skill_runner.dart';
 import '../services/skill_service.dart';
 import '../services/storage_service.dart';
-import '../services/theme_service.dart';
 import '../services/user_script_service.dart';
 import '../services/webview_controller_wrapper.dart';
 import '../utils/cancellation.dart';
@@ -59,7 +59,6 @@ class BrowserPage extends StatefulWidget {
 class _BrowserPageState extends State<BrowserPage> {
   late AgentRunner _agentRunner;
   StorageService? _storage;
-  ThemeService? _themeService;
   StreamSubscription<AgentState>? _agentSub;
 
   final TextEditingController _urlController = TextEditingController();
@@ -73,7 +72,12 @@ class _BrowserPageState extends State<BrowserPage> {
     return _tabs[index];
   }
 
-  ThemeMode get _themeMode => _themeService?.themeMode ?? ThemeMode.system;
+  /// Whether web pages should be rendered dark.
+  ///
+  /// Only the explicit "force web dark mode" switch counts. The app's own
+  /// light/dark preference is a UI choice and must not invert websites: a user
+  /// who picks a light UI still expects pages to look like the web.
+  bool get _webDarkEnabled => _storage?.getWebDarkMode() ?? false;
 
   InAppWebViewController? get _webViewController => _currentTab.controller;
   WebViewControllerWrapper? get _wrapper => _currentTab.wrapper;
@@ -219,7 +223,6 @@ class _BrowserPageState extends State<BrowserPage> {
 
   Future<void> _initStorage() async {
     _storage = await StorageService.getInstance();
-    _themeService = await ThemeService.getInstance();
     await _loadSkills();
     // Keep the runner aligned with the persisted policy from the very first run.
     _agentRunner.setSafeMode(_storage?.getSafeMode() ?? true);
@@ -434,30 +437,36 @@ class _BrowserPageState extends State<BrowserPage> {
   }
 
   Future<void> _applyThemeToWebPage(InAppWebViewController controller) async {
-    final webDarkMode = _storage?.getWebDarkMode() ?? false;
-    final isSystemDark =
-        WidgetsBinding.instance.platformDispatcher.platformBrightness ==
-            Brightness.dark;
-    final isDark = webDarkMode ||
-        (_themeMode == ThemeMode.dark) ||
-        (_themeMode == ThemeMode.system && isSystemDark);
-
-    // Nudge pages that declare `color-scheme` support. We deliberately avoid
-    // overriding window.matchMedia(), which breaks sites that genuinely react
-    // to prefers-color-scheme.
-    final jsThemeSync = '''
+    // Only nudge pages when the user asked for a dark web. Forcing
+    // `color-scheme: light` would tell sites that support dark themes to stay
+    // light, which is the opposite of leaving the page alone.
+    final jsThemeSync = _webDarkEnabled
+        ? '''
     (function() {
       try {
-        const mode = '${isDark ? 'dark' : 'light'}';
         let meta = document.querySelector('meta[name="color-scheme"]');
         if (!meta) {
           meta = document.createElement('meta');
           meta.name = 'color-scheme';
+          // Tagged so turning the option off removes only our own meta.
+          meta.dataset.operonTheme = '1';
           (document.head || document.documentElement).appendChild(meta);
         }
-        meta.content = mode;
+        meta.content = 'dark';
         if (document.documentElement) {
-          document.documentElement.style.colorScheme = mode;
+          document.documentElement.style.colorScheme = 'dark';
+        }
+      } catch(e) {}
+    })();
+    '''
+        : '''
+    (function() {
+      try {
+        // Remove only what we added; a page's own declaration is left alone.
+        const meta = document.querySelector('meta[name="color-scheme"]');
+        if (meta && meta.dataset.operonTheme === '1') meta.remove();
+        if (document.documentElement) {
+          document.documentElement.style.removeProperty('color-scheme');
         }
       } catch(e) {}
     })();
@@ -474,17 +483,10 @@ class _BrowserPageState extends State<BrowserPage> {
     final userAgent = _currentTab.isDesktopMode
         ? AppConstants.uaDesktopChrome
         : (_storage?.getUserAgent() ?? AppConstants.uaAndroidChrome);
-    final webDarkMode = _storage?.getWebDarkMode() ?? false;
+    final isEffectivelyDark = _webDarkEnabled;
     final blockImages = _storage?.getBlockImages() ?? false;
     final jsEnabled = _storage?.getJavaScriptEnabled() ?? true;
     final textZoom = _storage?.getTextZoom() ?? 100;
-
-    final isSystemDark =
-        WidgetsBinding.instance.platformDispatcher.platformBrightness ==
-            Brightness.dark;
-    final isEffectivelyDark = webDarkMode ||
-        (_themeMode == ThemeMode.dark) ||
-        (_themeMode == ThemeMode.system && isSystemDark);
 
     await _webViewController!.setSettings(
       settings: InAppWebViewSettings(
@@ -633,6 +635,7 @@ class _BrowserPageState extends State<BrowserPage> {
   }
 
   void _showLinkContextMenu(String linkUrl) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
@@ -649,7 +652,8 @@ class _BrowserPageState extends State<BrowserPage> {
                 linkUrl,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 12, color: AppTheme.neutral),
+                style:
+                    TextStyle(fontSize: 12, color: AppTheme.neutralOf(isDark)),
               ),
             ),
             const Divider(height: 1),
@@ -687,6 +691,7 @@ class _BrowserPageState extends State<BrowserPage> {
   }
 
   void _showImageContextMenu(String imageUrl) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
@@ -703,7 +708,8 @@ class _BrowserPageState extends State<BrowserPage> {
                 imageUrl,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 12, color: AppTheme.neutral),
+                style:
+                    TextStyle(fontSize: 12, color: AppTheme.neutralOf(isDark)),
               ),
             ),
             const Divider(height: 1),
@@ -730,6 +736,45 @@ class _BrowserPageState extends State<BrowserPage> {
         ),
       ),
     );
+  }
+
+  /// The URL worth copying/sharing: the loaded page, not whatever is typed in
+  /// the field, and never an internal `operon://` page.
+  String? get _sharableUrl {
+    final url = _currentTab.url.trim();
+    if (url.isEmpty || url.startsWith('operon://')) return null;
+    if (url == 'about:blank') return null;
+    return url;
+  }
+
+  void _copyCurrentUrl() {
+    final url = _sharableUrl;
+    if (url == null) return;
+    HapticService.selection();
+    Clipboard.setData(ClipboardData(text: url));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('已复制网页链接'),
+        duration: Duration(seconds: 1),
+      ),
+    );
+  }
+
+  Future<void> _shareCurrentUrl() async {
+    final url = _sharableUrl;
+    if (url == null) return;
+    HapticService.selection();
+    final ok = await ShareIntentService.instance.shareText(url);
+    if (!ok && mounted) {
+      // No native share on this platform; the clipboard is the fallback.
+      Clipboard.setData(ClipboardData(text: url));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('当前系统不支持分享，已复制链接'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+    }
   }
 
   void _quickSummarize() async {
@@ -1383,6 +1428,11 @@ class _BrowserPageState extends State<BrowserPage> {
   Future<void> _showConfirmationCard() async {
     if (_confirmationCardOpen || !mounted) return;
     _confirmationCardOpen = true;
+    // The sheet usually arrives while the composer still has focus. The IME
+    // would cover the approve button, and the decision is blocking, so let the
+    // keyboard yield instead of squeezing the card. The sheet also lifts and
+    // scrolls as a fallback for hardware keyboards.
+    FocusManager.instance.primaryFocus?.unfocus();
     try {
       await showModalBottomSheet<void>(
         context: context,
@@ -1499,10 +1549,10 @@ class _BrowserPageState extends State<BrowserPage> {
                 color: isDark ? AppTheme.darkInput : AppTheme.lightInput,
                 shape: BoxShape.circle,
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.wifi_off_rounded,
                 size: 48,
-                color: AppTheme.danger,
+                color: AppTheme.dangerOf(isDark),
               ),
             ),
             const SizedBox(height: 20),
@@ -1553,23 +1603,16 @@ class _BrowserPageState extends State<BrowserPage> {
     final userAgent = tab.isDesktopMode
         ? AppConstants.uaDesktopChrome
         : (_storage?.getUserAgent() ?? AppConstants.uaAndroidChrome);
-    final webDarkMode = _storage?.getWebDarkMode() ?? false;
+    final isEffectivelyDark = _webDarkEnabled;
     final blockImages = _storage?.getBlockImages() ?? false;
     final jsEnabled = _storage?.getJavaScriptEnabled() ?? true;
     final textZoom = _storage?.getTextZoom() ?? 100;
-
-    final isSystemDark =
-        WidgetsBinding.instance.platformDispatcher.platformBrightness ==
-            Brightness.dark;
-    final isEffectivelyDark = webDarkMode ||
-        (_themeMode == ThemeMode.dark) ||
-        (_themeMode == ThemeMode.system && isSystemDark);
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
 
     tab.pullToRefresh ??= PullToRefreshController(
       settings: PullToRefreshSettings(
         enabled: true,
-        color: AppTheme.primary,
+        color: AppTheme.primaryOf(isDarkMode),
         backgroundColor: isDarkMode ? AppTheme.darkBg : AppTheme.lightBg,
       ),
       onRefresh: () async {
@@ -1846,6 +1889,8 @@ class _BrowserPageState extends State<BrowserPage> {
                       progress: _progress,
                       onSubmitUrl: _loadUrl,
                       onSummarize: _quickSummarize,
+                      onCopyUrl: _copyCurrentUrl,
+                      onShareUrl: _shareCurrentUrl,
                     ),
                   ),
 
@@ -2039,6 +2084,7 @@ class _SkillRunHostState extends State<_SkillRunHost> {
   }
 
   Future<void> _repair() async {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final target = _repairTarget();
     if (target == null || _repairing) return;
     setState(() => _repairing = true);
@@ -2071,8 +2117,9 @@ class _SkillRunHostState extends State<_SkillRunHost> {
                   ? '定位器已修复并保存，可以再运行一次'
                   : '已保存候选定位器（当前页面未验证通过），请检查后重试',
             ),
-            backgroundColor:
-                result.verified ? AppTheme.accent : AppTheme.warning,
+            backgroundColor: result.verified
+                ? AppTheme.accentOf(isDark)
+                : AppTheme.warningOf(isDark),
           ),
         );
       }

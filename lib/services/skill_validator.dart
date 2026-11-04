@@ -5,6 +5,7 @@ import '../models/skill.dart';
 import '../models/tool_descriptor.dart';
 import '../utils/skill_template.dart';
 import '../utils/url_utils.dart';
+import 'skill_inputs.dart';
 
 enum SkillIssueSeverity { error, warning }
 
@@ -207,7 +208,10 @@ class SkillValidator {
           field: 'description');
     }
 
+    // Input *declarations* are validated as written: a secret with a default
+    // must be rejected even if no placeholder happens to reference it.
     final inputKeys = <String>{};
+    final declaredKeys = <String>{};
     for (final input in skill.inputs) {
       final key = input.key.trim();
       if (key.isEmpty) {
@@ -221,7 +225,7 @@ class SkillValidator {
           field: 'inputs.$key',
         );
       }
-      if (!inputKeys.add(key)) {
+      if (!declaredKeys.add(key)) {
         error(
           SkillIssueCode.inputKeyDuplicate,
           '输入参数 key「$key」重复。',
@@ -252,6 +256,11 @@ class SkillValidator {
           );
         }
       }
+    }
+    // Placeholders, not declarations, decide which keys a reference may use.
+    for (final input in SkillInputs.effective(skill)) {
+      final key = input.key.trim();
+      if (key.isNotEmpty) inputKeys.add(key);
     }
 
     if (skill.kind == SkillKind.instruction) {

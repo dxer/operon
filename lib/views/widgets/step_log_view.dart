@@ -9,6 +9,7 @@ class StepLogView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final theme = Theme.of(context);
     final muted = theme.colorScheme.onSurface.withValues(alpha: 0.6);
     final subtle = theme.colorScheme.onSurface.withValues(alpha: 0.38);
@@ -43,8 +44,8 @@ class StepLogView extends StatelessWidget {
                 height: 22,
                 decoration: BoxDecoration(
                   color: log.isError
-                      ? AppTheme.danger.withValues(alpha: 0.2)
-                      : AppTheme.primary.withValues(alpha: 0.2),
+                      ? AppTheme.dangerOf(isDark).withValues(alpha: 0.2)
+                      : AppTheme.primaryOf(isDark).withValues(alpha: 0.2),
                   shape: BoxShape.circle,
                 ),
                 alignment: Alignment.center,
@@ -53,7 +54,7 @@ class StepLogView extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.bold,
-                    color: log.isError ? AppTheme.danger : AppTheme.primary,
+                    color: log.isError ? AppTheme.dangerOf(isDark) : AppTheme.primaryOf(isDark),
                   ),
                 ),
               ),
@@ -68,7 +69,7 @@ class StepLogView extends StatelessWidget {
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
                         color: log.isError
-                            ? AppTheme.danger
+                            ? AppTheme.dangerOf(isDark)
                             : theme.colorScheme.onSurface,
                       ),
                     ),

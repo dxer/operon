@@ -296,11 +296,11 @@ class SkillAuthoringService {
       return draft.copyWith(
         kind: SkillKind.instruction,
         steps: const [],
-        // An instruction skill is only a prompt: any placeholder it uses is a
-        // runtime input, so the user never has to declare fields by hand.
-        inputs: SkillPlaceholderInputs.merge(
+        // An instruction skill is only a prompt: every placeholder it uses
+        // becomes a runtime input, decorated by whatever the model declared.
+        inputs: SkillPlaceholderInputs.resolve(
           draft.instructions,
-          existing: draft.inputs,
+          declared: draft.inputs,
         ),
         policy: draft.policy.copyWith(
           confirmWrites: true,

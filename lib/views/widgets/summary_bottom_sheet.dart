@@ -130,11 +130,11 @@ class _SummaryBottomSheetState extends State<SummaryBottomSheet> {
               Container(
                 padding: const EdgeInsets.all(6),
                 decoration: BoxDecoration(
-                  color: AppTheme.primary.withValues(alpha: 0.15),
+                  color: AppTheme.primaryOf(isDark).withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child:
-                    const Icon(Icons.bolt, color: AppTheme.primary, size: 20),
+                    Icon(Icons.bolt, color: AppTheme.primaryOf(isDark), size: 20),
               ),
               const SizedBox(width: 10),
               Expanded(
@@ -205,14 +205,14 @@ class _SummaryBottomSheetState extends State<SummaryBottomSheet> {
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Icon(Icons.error_outline,
-                                color: AppTheme.danger, size: 36),
+                            Icon(Icons.error_outline,
+                                color: AppTheme.dangerOf(isDark), size: 36),
                             const SizedBox(height: 12),
                             Text(
                               '提炼失败: $_error',
                               textAlign: TextAlign.center,
-                              style: const TextStyle(
-                                  fontSize: 12, color: AppTheme.danger),
+                              style: TextStyle(
+                                  fontSize: 12, color: AppTheme.dangerOf(isDark)),
                             ),
                             const SizedBox(height: 12),
                             ElevatedButton.icon(

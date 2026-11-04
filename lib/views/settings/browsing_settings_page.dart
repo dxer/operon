@@ -80,10 +80,10 @@ class _BrowsingSettingsPageState extends State<BrowsingSettingsPage> {
                   title: const Text('无图模式 (拦截图片加载)',
                       style:
                           TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                  subtitle: const Text('在弱网环境下大幅缩减流量消耗并加快正文加载',
-                      style: TextStyle(fontSize: 12, color: AppTheme.neutral)),
+                  subtitle: Text('在弱网环境下大幅缩减流量消耗并加快正文加载',
+                      style: TextStyle(fontSize: 12, color: AppTheme.neutralOf(isDark))),
                   value: _blockImages,
-                  activeThumbColor: AppTheme.primary,
+                  activeThumbColor: AppTheme.primaryOf(isDark),
                   onChanged: (val) async {
                     setState(() => _blockImages = val);
                     await _storage.saveBlockImages(val);
@@ -96,10 +96,10 @@ class _BrowsingSettingsPageState extends State<BrowsingSettingsPage> {
                   title: const Text('JavaScript 脚本支持',
                       style:
                           TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                  subtitle: const Text('关闭可彻底防御恶意弹窗，但现代网页功能可能受限',
-                      style: TextStyle(fontSize: 12, color: AppTheme.neutral)),
+                  subtitle: Text('关闭可彻底防御恶意弹窗，但现代网页功能可能受限',
+                      style: TextStyle(fontSize: 12, color: AppTheme.neutralOf(isDark))),
                   value: _javaScriptEnabled,
-                  activeThumbColor: AppTheme.primary,
+                  activeThumbColor: AppTheme.primaryOf(isDark),
                   onChanged: (val) async {
                     setState(() => _javaScriptEnabled = val);
                     await _storage.saveJavaScriptEnabled(val);
@@ -112,10 +112,10 @@ class _BrowsingSettingsPageState extends State<BrowsingSettingsPage> {
                   title: const Text('默认电脑桌面版渲染',
                       style:
                           TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                  subtitle: const Text('新建标签页默认使用 PC 宽屏视口及 Desktop User-Agent',
-                      style: TextStyle(fontSize: 12, color: AppTheme.neutral)),
+                  subtitle: Text('新建标签页默认使用 PC 宽屏视口及 Desktop User-Agent',
+                      style: TextStyle(fontSize: 12, color: AppTheme.neutralOf(isDark))),
                   value: _desktopMode,
-                  activeThumbColor: AppTheme.primary,
+                  activeThumbColor: AppTheme.primaryOf(isDark),
                   onChanged: (val) async {
                     setState(() => _desktopMode = val);
                     await _storage.saveDesktopMode(val);
@@ -128,10 +128,10 @@ class _BrowsingSettingsPageState extends State<BrowsingSettingsPage> {
                   title: const Text('触感反馈',
                       style:
                           TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                  subtitle: const Text('按钮、切换标签和拖动悬浮球时的轻微震动',
-                      style: TextStyle(fontSize: 12, color: AppTheme.neutral)),
+                  subtitle: Text('按钮、切换标签和拖动悬浮球时的轻微震动',
+                      style: TextStyle(fontSize: 12, color: AppTheme.neutralOf(isDark))),
                   value: _hapticsEnabled,
-                  activeThumbColor: AppTheme.primary,
+                  activeThumbColor: AppTheme.primaryOf(isDark),
                   onChanged: (val) async {
                     setState(() => _hapticsEnabled = val);
                     HapticService.enabled = val;
@@ -160,9 +160,9 @@ class _BrowsingSettingsPageState extends State<BrowsingSettingsPage> {
                   style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 6),
-                const Text(
+                Text(
                   '向网站声明的客户端设备身份',
-                  style: TextStyle(fontSize: 12, color: AppTheme.neutral),
+                  style: TextStyle(fontSize: 12, color: AppTheme.neutralOf(isDark)),
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(

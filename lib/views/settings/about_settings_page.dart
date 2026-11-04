@@ -34,11 +34,11 @@ class AboutSettingsPage extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 6),
-                const Text(
+                Text(
                   AppConstants.appSlogan,
                   style: TextStyle(
                       fontSize: 12,
-                      color: AppTheme.neutral,
+                      color: AppTheme.neutralOf(isDark),
                       letterSpacing: 1.0),
                 ),
                 const SizedBox(height: 16),
@@ -46,15 +46,15 @@ class AboutSettingsPage extends StatelessWidget {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                   decoration: BoxDecoration(
-                    color: AppTheme.primary.withValues(alpha: 0.12),
+                    color: AppTheme.primaryOf(isDark).withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(
                     '版本: ${AppVersionService.fullLabel}',
-                    style: const TextStyle(
+                    style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.bold,
-                        color: AppTheme.primary),
+                        color: AppTheme.primaryOf(isDark)),
                   ),
                 ),
               ],
@@ -72,34 +72,34 @@ class AboutSettingsPage extends StatelessWidget {
             ),
             child: Column(
               children: [
-                const ListTile(
+                ListTile(
                   leading:
-                      Icon(Icons.architecture_rounded, color: AppTheme.primary),
-                  title: Text('轻量化设计',
+                      Icon(Icons.architecture_rounded, color: AppTheme.primaryOf(isDark)),
+                  title: const Text('轻量化设计',
                       style:
                           TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
                   subtitle: Text('参考 Via 浏览器的极简设计哲学与单手握持底栏交互，极低内存开销。',
-                      style: TextStyle(fontSize: 12, color: AppTheme.neutral)),
-                ),
-                const Divider(height: 1),
-                const ListTile(
-                  leading:
-                      Icon(Icons.psychology_rounded, color: AppTheme.accent),
-                  title: Text('自主 Agent 引擎',
-                      style:
-                          TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                  subtitle: Text('原生 DOM 语义感知、边缘吸附悬浮球与手动暂停接管。',
-                      style: TextStyle(fontSize: 12, color: AppTheme.neutral)),
+                      style: TextStyle(fontSize: 12, color: AppTheme.neutralOf(isDark))),
                 ),
                 const Divider(height: 1),
                 ListTile(
                   leading:
-                      const Icon(Icons.code_rounded, color: AppTheme.neutral),
+                      Icon(Icons.psychology_rounded, color: AppTheme.accentOf(isDark)),
+                  title: const Text('自主 Agent 引擎',
+                      style:
+                          TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                  subtitle: Text('原生 DOM 语义感知、边缘吸附悬浮球与手动暂停接管。',
+                      style: TextStyle(fontSize: 12, color: AppTheme.neutralOf(isDark))),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading:
+                      Icon(Icons.code_rounded, color: AppTheme.neutralOf(isDark)),
                   title: const Text('开源代码仓库',
                       style:
                           TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                  subtitle: const Text('https://github.com/dxer/operon',
-                      style: TextStyle(fontSize: 12, color: AppTheme.neutral)),
+                  subtitle: Text('https://github.com/dxer/operon',
+                      style: TextStyle(fontSize: 12, color: AppTheme.neutralOf(isDark))),
                   trailing: const Icon(Icons.copy_rounded, size: 18),
                   onTap: () {
                     Clipboard.setData(const ClipboardData(
@@ -113,10 +113,10 @@ class AboutSettingsPage extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 24),
-          const Center(
+          Center(
             child: Text(
               'Operon Browser · 极简 · 智能 · 严谨',
-              style: TextStyle(fontSize: 11, color: AppTheme.neutral),
+              style: TextStyle(fontSize: 11, color: AppTheme.neutralOf(isDark)),
             ),
           ),
         ],

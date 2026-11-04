@@ -20,5 +20,8 @@ android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java
 .DS_Store
 *.log
 
+# CodeGraph local index (11 MB, machine-specific)
+.codegraph/
+
 # Local design notes (kept out of git on purpose)
 docs/skills-design.md

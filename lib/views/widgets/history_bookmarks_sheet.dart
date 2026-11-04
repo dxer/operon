@@ -68,6 +68,7 @@ class _HistoryBookmarksSheetState extends State<HistoryBookmarksSheet>
   }
 
   void _clearAllHistory() async {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -80,7 +81,7 @@ class _HistoryBookmarksSheetState extends State<HistoryBookmarksSheet>
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: TextButton.styleFrom(foregroundColor: AppTheme.danger),
+            style: TextButton.styleFrom(foregroundColor: AppTheme.dangerOf(isDark)),
             child: const Text('清空'),
           ),
         ],
@@ -221,11 +222,11 @@ class _HistoryBookmarksSheetState extends State<HistoryBookmarksSheet>
                         padding: const EdgeInsets.symmetric(horizontal: 8),
                         visualDensity: VisualDensity.compact,
                       ),
-                      icon: const Icon(Icons.delete_outline,
-                          size: 16, color: AppTheme.danger),
-                      label: const Text('清空',
+                      icon: Icon(Icons.delete_outline,
+                          size: 16, color: AppTheme.dangerOf(isDark)),
+                      label: Text('清空',
                           style:
-                              TextStyle(fontSize: 12, color: AppTheme.danger)),
+                              TextStyle(fontSize: 12, color: AppTheme.dangerOf(isDark))),
                       onPressed: _clearAllHistory,
                     ),
                   ],
@@ -263,8 +264,8 @@ class _HistoryBookmarksSheetState extends State<HistoryBookmarksSheet>
                                   color: cardBg,
                                   borderRadius: BorderRadius.circular(8),
                                 ),
-                                child: const Icon(Icons.public,
-                                    size: 18, color: AppTheme.primary),
+                                child: Icon(Icons.public,
+                                    size: 18, color: AppTheme.primaryOf(isDark)),
                               ),
                               title: Text(
                                 item.title.isNotEmpty ? item.title : item.url,
@@ -342,8 +343,8 @@ class _HistoryBookmarksSheetState extends State<HistoryBookmarksSheet>
                                   color: cardBg,
                                   borderRadius: BorderRadius.circular(8),
                                 ),
-                                child: const Icon(Icons.star_rounded,
-                                    size: 20, color: AppTheme.warning),
+                                child: Icon(Icons.star_rounded,
+                                    size: 20, color: AppTheme.warningOf(isDark)),
                               ),
                               title: Text(
                                 item.title.isNotEmpty ? item.title : item.url,

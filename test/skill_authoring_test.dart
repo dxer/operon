@@ -274,6 +274,7 @@ void main() {
     );
     expect(prompt, contains('提示词技能作者'));
     expect(prompt, contains('不要输出 steps'));
+    expect(prompt, contains('最多用 2 个'));
     expect(prompt, isNot(contains('可用工具')));
   });
 
@@ -294,12 +295,14 @@ void main() {
     expect(result.draft?.instructions, contains('回复按钮'));
     expect(result.draft?.policy.hostScope, SkillHostScope.list);
     expect(result.draft?.policy.allowedHosts, ['x.com']);
-    // The prompt references `tone` but never declares it; the service fills it
-    // in so the placeholder cannot render as an empty string.
-    expect(
-      result.draft?.inputs.map((input) => input.key),
-      ['content', 'tone'],
-    );
+    // The prompt references `tone` but never declares it; the service adds it
+    // so the placeholder cannot render as an empty string. Undeclared inputs
+    // stay optional — only the declaration makes a field required.
+    final inputs = result.draft!.inputs;
+    expect(inputs.map((input) => input.key), ['content', 'tone']);
+    expect(inputs.first.required, isTrue);
+    expect(inputs.last.required, isFalse);
+    expect(inputs.last.label, '语气');
   });
 
   test('invalid config fails fast without calling the model', () async {

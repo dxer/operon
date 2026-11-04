@@ -9,6 +9,7 @@ import '../../models/llm_config.dart';
 import '../../models/skill.dart';
 import '../../models/tool_descriptor.dart';
 import '../../services/skill_authoring_service.dart';
+import '../../services/skill_inputs.dart';
 import '../../services/skill_service.dart';
 import '../../services/skill_validator.dart';
 import '../../services/webview_controller_wrapper.dart';
@@ -187,6 +188,7 @@ class _SkillEditPageState extends State<SkillEditPage> {
   }
 
   Future<void> _aiModify() async {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final config = widget.config;
     if (config == null || !config.isValid) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -251,9 +253,9 @@ class _SkillEditPageState extends State<SkillEditPage> {
                 if (result.error != null)
                   Text(
                     result.error!,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 12,
-                      color: AppTheme.danger,
+                      color: AppTheme.dangerOf(isDark),
                     ),
                   ),
                 ...result.validation.errors.take(6).map(
@@ -261,9 +263,9 @@ class _SkillEditPageState extends State<SkillEditPage> {
                         padding: const EdgeInsets.only(top: 6),
                         child: Text(
                           '• ${issue.message}',
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 11.5,
-                            color: AppTheme.danger,
+                            color: AppTheme.dangerOf(isDark),
                           ),
                         ),
                       ),
@@ -286,38 +288,40 @@ class _SkillEditPageState extends State<SkillEditPage> {
     final skill = _buildSkill();
     final result = SkillValidator().validate(skill);
     if (result.hasErrors) {
-      await showDialog<void>(
+      await _showIssues(
+        '技能还不能保存',
+        [for (final issue in result.errors.take(8)) issue.message],
+      );
+      return;
+    }
+
+    // A field the prompt never references would be silently dropped on save.
+    // Ask first, so the author can either use it or remove it deliberately.
+    final unused = SkillInputs.unusedDeclarations(skill);
+    if (unused.isNotEmpty) {
+      final proceed = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: const Text('技能还不能保存'),
-          content: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: result.errors
-                  .take(8)
-                  .map((issue) => Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: Text(
-                          '• ${issue.message}',
-                          style: const TextStyle(
-                            fontSize: 12,
-                            height: 1.4,
-                            color: AppTheme.danger,
-                          ),
-                        ),
-                      ))
-                  .toList(),
-            ),
+          title: const Text('有未使用的输入参数'),
+          content: Text(
+            '${unused.map((key) => '「$key」').join('、')} 没有在提示词或步骤里用到，'
+            '保存后会被移除。\n\n'
+            '如果希望运行时填写它，请在提示词里写上 {{inputs.${unused.first}}}。',
+            style: const TextStyle(fontSize: 12.5, height: 1.5),
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.of(ctx).pop(),
+              onPressed: () => Navigator.of(ctx).pop(false),
               child: const Text('返回修改'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('仍然保存'),
             ),
           ],
         ),
       );
-      return;
+      if (proceed != true) return;
     }
 
     setState(() => _saving = true);
@@ -329,6 +333,40 @@ class _SkillEditPageState extends State<SkillEditPage> {
     } finally {
       if (mounted) setState(() => _saving = false);
     }
+  }
+
+  Future<void> _showIssues(String title, List<String> messages) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: messages
+                .map((message) => Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Text(
+                        '• $message',
+                        style: TextStyle(
+                          fontSize: 12,
+                          height: 1.4,
+                          color: AppTheme.dangerOf(isDark),
+                        ),
+                      ),
+                    ))
+                .toList(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('返回修改'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _addInput([SkillInput? current, int? index]) async {
@@ -456,7 +494,8 @@ class _SkillEditPageState extends State<SkillEditPage> {
             Padding(
               padding: const EdgeInsets.only(top: 6),
               child: Text(
-                '用 {{inputs.名称}} 引用运行时的输入；点击、输入等元素由 Agent 运行时定位。',
+                '用 {{inputs.名称}} 引用运行时的输入，出现过的占位符会自动成为运行前的输入框；'
+                '点击、输入等元素由 Agent 运行时定位。',
                 style: TextStyle(fontSize: 10.5, height: 1.4, color: muted),
               ),
             ),
@@ -478,9 +517,13 @@ class _SkillEditPageState extends State<SkillEditPage> {
     );
   }
 
+  /// Input keys the current text actually references, recomputed as the author
+  /// types so an unused declaration is visible before saving.
+  Set<String> get _usedInputKeys =>
+      {for (final input in SkillInputs.effective(_buildSkill())) input.key};
+
   List<Widget> _advancedSections(bool isDark, Color muted) {
-    return [
-      const SizedBox(height: 4),
+    return [      const SizedBox(height: 4),
       DropdownButtonFormField<SkillKind>(
         key: ValueKey(_kind),
         initialValue: _kind,
@@ -508,13 +551,16 @@ class _SkillEditPageState extends State<SkillEditPage> {
       _sectionTitle('输入参数', muted),
           ..._inputs.asMap().entries.map((entry) {
             final input = entry.value;
+            final unused = !_usedInputKeys.contains(input.key.trim());
             return Card(
               margin: const EdgeInsets.only(bottom: 8),
               elevation: 0,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(10),
                 side: BorderSide(
-                  color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
+                  color: unused
+                      ? AppTheme.warningOf(isDark).withValues(alpha: 0.55)
+                      : (isDark ? AppTheme.darkBorder : AppTheme.lightBorder),
                 ),
               ),
               child: ListTile(
@@ -524,9 +570,14 @@ class _SkillEditPageState extends State<SkillEditPage> {
                   style: const TextStyle(fontSize: 12.5),
                 ),
                 subtitle: Text(
-                  '${input.type.label}${input.required ? ' · 必填' : ''}'
-                  '${input.defaultValue.isEmpty ? '' : ' · 默认 ${input.defaultValue}'}',
-                  style: const TextStyle(fontSize: 10.5),
+                  unused
+                      ? '未在提示词中使用 · 保存时会被移除'
+                      : '${input.type.label}${input.required ? ' · 必填' : ''}'
+                          '${input.defaultValue.isEmpty ? '' : ' · 默认 ${input.defaultValue}'}',
+                  style: TextStyle(
+                    fontSize: 10.5,
+                    color: unused ? AppTheme.warningOf(isDark) : null,
+                  ),
                 ),
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
@@ -574,9 +625,9 @@ class _SkillEditPageState extends State<SkillEditPage> {
                     backgroundColor: AppTheme.primary.withValues(alpha: 0.12),
                     child: Text(
                       '${entry.key + 1}',
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 10,
-                        color: AppTheme.primary,
+                        color: AppTheme.primaryOf(isDark),
                         fontWeight: FontWeight.w700,
                       ),
                     ),
@@ -857,6 +908,7 @@ class _SkillInputDialogState extends State<SkillInputDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return AlertDialog(
       title: Text(widget.input == null ? '添加输入参数' : '编辑输入参数'),
       content: SingleChildScrollView(
@@ -934,8 +986,8 @@ class _SkillInputDialogState extends State<SkillInputDialog> {
                 alignment: Alignment.centerLeft,
                 child: Text(
                   _error!,
-                  style: const TextStyle(
-                    color: AppTheme.danger,
+                  style: TextStyle(
+                    color: AppTheme.dangerOf(isDark),
                     fontSize: 11.5,
                   ),
                 ),
@@ -1305,8 +1357,10 @@ class _SkillStepDialogState extends State<SkillStepDialog> {
               const SizedBox(height: 8),
               Text(
                 _error!,
-                style: const TextStyle(
-                  color: AppTheme.danger,
+                style: TextStyle(
+                  color: AppTheme.dangerOf(
+                    Theme.of(context).brightness == Brightness.dark,
+                  ),
                   fontSize: 11.5,
                 ),
               ),

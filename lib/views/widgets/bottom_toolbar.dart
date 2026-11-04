@@ -300,22 +300,22 @@ class _ActionMenuSheet extends StatelessWidget {
         : Colors.black.withValues(alpha: 0.05);
 
     final actions = <_MenuAction>[
-      _MenuAction(
-          Icons.auto_awesome_rounded, 'AI 速读', AppTheme.accent, onSummarize),
+      _MenuAction(Icons.auto_awesome_rounded, 'AI 速读',
+          AppTheme.accentOf(isDark), onSummarize),
       _MenuAction(
         isCleanMode
             ? Icons.chrome_reader_mode
             : Icons.chrome_reader_mode_outlined,
         isCleanMode ? '退出纯净' : '纯净阅读',
-        AppTheme.accent,
+        AppTheme.accentOf(isDark),
         onCleanPage,
       ),
-      _MenuAction(
-          Icons.code_rounded, '用户脚本', AppTheme.primary, onOpenUserScripts),
+      _MenuAction(Icons.code_rounded, '用户脚本', AppTheme.primaryOf(isDark),
+          onOpenUserScripts),
       _MenuAction(
         isBookmarked ? Icons.star_rounded : Icons.star_border_rounded,
         isBookmarked ? '取消收藏' : '收藏',
-        isBookmarked ? AppTheme.warning : null,
+        isBookmarked ? AppTheme.warningOf(isDark) : null,
         onToggleBookmark,
       ),
       _MenuAction(Icons.history_rounded, '浏览历史', null, onOpenHistory),
@@ -328,8 +328,8 @@ class _ActionMenuSheet extends StatelessWidget {
         null,
         onToggleDesktopMode,
       ),
-      _MenuAction(Icons.center_focus_strong_outlined, '拾取定位器', AppTheme.primary,
-          onPickLocator),
+      _MenuAction(Icons.center_focus_strong_outlined, '拾取定位器',
+          AppTheme.primaryOf(isDark), onPickLocator),
       _MenuAction(Icons.settings_outlined, '设置', null, onOpenSettings),
     ];
 

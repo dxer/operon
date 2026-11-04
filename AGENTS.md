@@ -12,6 +12,42 @@ Shared instructions for every coding agent working in this repository.
 export PATH=/root/sdk347/flutter/bin:$PATH
 ```
 
+## Navigating the code
+
+The repo is indexed by CodeGraph (`.codegraph/`, git-ignored). Prefer it over
+chained `grep` when you need relationships rather than text.
+
+- Before changing a shared symbol, list everything it touches:
+
+```bash
+codegraph impact SkillPolicy        # 29 affected symbols, grouped by file
+codegraph callers effective         # every call site of a method
+codegraph callees SkillRunner.run   # what a method calls
+```
+
+- Find a symbol or read one node with its caller/callee trail:
+
+```bash
+codegraph query "SkillInputs"
+codegraph node SkillInputs.effective
+codegraph explore "how skill inputs reach the run sheet"
+```
+
+- After editing source, list the tests that need to run:
+
+```bash
+codegraph affected $(git diff --name-only)
+```
+
+Notes:
+
+- The index is Dart-aware but not Dart-perfect: a private constructor written
+  as `Foo._()` shows up as a method named `_`, and widget-tree expressions are
+  not symbols. Relationships are reliable; treat "symbol not found" as a hint
+  to fall back to `grep`, not as proof the symbol is unused.
+- Run `codegraph sync` after large refactors; `codegraph status` shows file and
+  node counts. A stale index silently misses call sites.
+
 ## Checks and tests
 
 Always pass `--no-pub` unless `pubspec.yaml` changed. It skips dependency
@@ -46,3 +82,9 @@ Run `flutter pub get` only after changing `pubspec.yaml`; afterwards
 
 CI (`.github/workflows/build-apk.yml`) already runs analyze plus the full test
 suite, so a local full run is mainly for pre-commit confidence.
+
+**Test once, at the end.** Run the suite when the change is complete, not after
+each batch or intermediate edit. A full run takes 70–90s and `flutter analyze`
+can take two minutes cold; repeating them per step dominates the wall clock on
+a small change. If a test fails, debug that single file — do not re-run the
+whole suite to get a clearer listing.

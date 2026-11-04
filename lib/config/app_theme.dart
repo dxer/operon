@@ -1,33 +1,54 @@
 import 'package:flutter/material.dart';
 
-/// Operon's "Operator" palette.
+/// Operon's palette, following the Fluent neutral ramp used by Edge.
 ///
-/// Browser chrome stays neutral graphite/warm paper; a single copper accent is
-/// reserved for the agent and primary actions. Semantic colors are deliberately
-/// desaturated so status is readable without turning the UI into a dashboard.
+/// A browser is a container: the page is the only thing on screen that should
+/// carry colour. Chrome therefore stays a near-colourless grey ladder (white
+/// surfaces on light grey, three greys apart in dark) and a single blue accent
+/// marks actions. Semantic colours are muted so status reads without turning
+/// the UI into a dashboard.
 class AppTheme {
-  // Brand / action
-  static const Color primary = Color(0xFFBA6030); // Operator copper
-  static const Color accent = Color(0xFF2A8563); // Sage success
-  static const Color warning = Color(0xFFB07A24); // Ochre warning
-  static const Color danger = Color(0xFFC0453C); // Brick danger
-  static const Color neutral = Color(0xFF7E786D); // Mid warm grey
+  // Brand / action — Edge Fluent blue.
+  static const Color primary = Color(0xFF0078D4); // Edge accent
+  static const Color primaryDark = Color(0xFF4CA0E0); // lighter, for dark ink
 
-  // Dark Palette
-  static const Color darkBg = Color(0xFF111214);
-  static const Color darkCard = Color(0xFF1A1C20);
-  static const Color darkBorder = Color(0xFF2B2E34);
-  static const Color darkInput = Color(0xFF14161A);
-  static const Color darkOnSurface = Color(0xFFF2EFE8);
-  static const Color darkMuted = Color(0xFFA7A29A);
+  // Semantic inks, per brightness. `X` is the light-mode value; `XDark` is the
+  // same meaning re-tuned to stay legible on #292929.
+  static const Color accent = Color(0xFF107C10); // success
+  static const Color accentDark = Color(0xFF6CCB5F);
+  static const Color warning = Color(0xFF8A5300);
+  static const Color warningDark = Color(0xFFF0B429);
+  static const Color danger = Color(0xFFA4262C);
+  static const Color dangerDark = Color(0xFFF1707B);
+  static const Color neutral = Color(0xFF8A8886);
+  static const Color neutralDark = Color(0xFFA19F9D);
 
-  // Light Palette
-  static const Color lightBg = Color(0xFFF6F4EF);
+  // Dark Palette — Fluent dark neutrals.
+  static const Color darkBg = Color(0xFF1F1F1F);
+  static const Color darkCard = Color(0xFF292929);
+  static const Color darkBorder = Color(0xFF3D3D3D);
+  static const Color darkInput = Color(0xFF252525);
+  static const Color darkOnSurface = Color(0xFFF3F2F1);
+  static const Color darkMuted = Color(0xFFC8C6C4);
+
+  // Light Palette — Fluent light neutrals.
+  static const Color lightBg = Color(0xFFF3F2F1);
   static const Color lightCard = Colors.white;
-  static const Color lightBorder = Color(0xFFE6E2D9);
-  static const Color lightInput = Color(0xFFF1EDE5);
-  static const Color lightOnSurface = Color(0xFF17181A);
-  static const Color lightMuted = Color(0xFF6E6A62);
+  static const Color lightBorder = Color(0xFFE1DFDD);
+  static const Color lightInput = Color(0xFFFAF9F8);
+  static const Color lightOnSurface = Color(0xFF201F1E);
+  static const Color lightMuted = Color(0xFF605E5C);
+
+  // --- Per-brightness resolvers ---
+  //
+  // Widgets draw their own boxes far from [ThemeData], so they need the ink as
+  // a plain value. Resolving through one place keeps the two palettes from
+  // drifting apart.
+  static Color primaryOf(bool isDark) => isDark ? primaryDark : primary;
+  static Color accentOf(bool isDark) => isDark ? accentDark : accent;
+  static Color warningOf(bool isDark) => isDark ? warningDark : warning;
+  static Color dangerOf(bool isDark) => isDark ? dangerDark : danger;
+  static Color neutralOf(bool isDark) => isDark ? neutralDark : neutral;
 
   /// Decoration for text fields that already sit inside a custom-drawn box.
   ///
@@ -65,12 +86,12 @@ class AppTheme {
     pageTransitionsTheme:
         const PageTransitionsTheme(builders: _pageTransitions),
     colorScheme: const ColorScheme.dark(
-      primary: primary,
-      onPrimary: Colors.white,
-      secondary: accent,
+      primary: primaryDark,
+      onPrimary: Colors.black,
+      secondary: accentDark,
       onSecondary: Colors.black,
-      error: danger,
-      onError: Colors.white,
+      error: dangerDark,
+      onError: Colors.black,
       surface: darkCard,
       onSurface: darkOnSurface,
       surfaceContainerHighest: darkInput,
@@ -113,7 +134,7 @@ class AppTheme {
         color: darkOnSurface.withValues(alpha: 0.36),
         fontSize: 13.5,
       ),
-      floatingLabelStyle: const TextStyle(color: primary, fontSize: 13),
+      floatingLabelStyle: const TextStyle(color: primaryDark, fontSize: 13),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
         borderSide: const BorderSide(color: darkBorder),
@@ -124,7 +145,7 @@ class AppTheme {
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: primary, width: 1.4),
+        borderSide: const BorderSide(color: primaryDark, width: 1.4),
       ),
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
     ),
@@ -132,7 +153,7 @@ class AppTheme {
       thumbColor: const WidgetStatePropertyAll(darkOnSurface),
       trackColor: WidgetStateProperty.resolveWith(
         (states) =>
-            states.contains(WidgetState.selected) ? primary : Colors.white24,
+            states.contains(WidgetState.selected) ? primaryDark : Colors.white24,
       ),
       trackOutlineColor: const WidgetStatePropertyAll(Colors.transparent),
     ),
@@ -177,14 +198,14 @@ class AppTheme {
       textColor: darkOnSurface,
     ),
     progressIndicatorTheme: const ProgressIndicatorThemeData(
-      color: primary,
+      color: primaryDark,
       linearTrackColor: Colors.transparent,
       circularTrackColor: Colors.transparent,
     ),
     textSelectionTheme: TextSelectionThemeData(
-      cursorColor: primary,
-      selectionColor: primary.withValues(alpha: 0.35),
-      selectionHandleColor: primary,
+      cursorColor: primaryDark,
+      selectionColor: primaryDark.withValues(alpha: 0.35),
+      selectionHandleColor: primaryDark,
     ),
   );
 

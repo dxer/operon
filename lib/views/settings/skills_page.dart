@@ -51,8 +51,6 @@ class _SkillsPageState extends State<SkillsPage> {
       if (_filter == 'flow' && skill.kind != SkillKind.flow) {
         return false;
       }
-      if (_filter == 'builtin' && !skill.builtin) return false;
-      if (_filter == 'user' && skill.builtin) return false;
       if (keyword.isEmpty) return true;
       return skill.name.toLowerCase().contains(keyword) ||
           skill.description.toLowerCase().contains(keyword) ||
@@ -146,6 +144,7 @@ class _SkillsPageState extends State<SkillsPage> {
   }
 
   Future<void> _delete(Skill skill) async {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -158,36 +157,13 @@ class _SkillsPageState extends State<SkillsPage> {
           ),
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('删除', style: TextStyle(color: AppTheme.danger)),
+            child: Text('删除', style: TextStyle(color: AppTheme.dangerOf(isDark))),
           ),
         ],
       ),
     );
     if (confirmed != true) return;
     await _service!.deleteSkill(skill.id);
-    await _load();
-  }
-
-  Future<void> _restoreDefaults() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('恢复默认技能？'),
-        content: const Text('内置技能会恢复为初始版本，你自己创建的技能会保留。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('取消'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('恢复', style: TextStyle(color: AppTheme.danger)),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
-    await _service!.restoreDefaults();
     await _load();
   }
 
@@ -386,11 +362,6 @@ class _SkillsPageState extends State<SkillsPage> {
             onPressed: _loading ? null : _aiCreate,
           ),
           IconButton(
-            tooltip: '恢复默认',
-            icon: const Icon(Icons.restore_rounded),
-            onPressed: _loading ? null : _restoreDefaults,
-          ),
-          IconButton(
             tooltip: '新建技能',
             icon: const Icon(Icons.add_rounded),
             onPressed: _loading ? null : () => _edit(),
@@ -519,8 +490,6 @@ class _SkillsPageState extends State<SkillsPage> {
   Widget _buildSearchAndFilter(bool isDark) {
     final filters = <String, String>{
       'all': '全部',
-      'user': '我的',
-      'builtin': '内置',
       'instruction': '指令型',
       'flow': '流程型',
     };
@@ -561,7 +530,7 @@ class _SkillsPageState extends State<SkillsPage> {
                       ),
                     ),
                     selected: selected,
-                    selectedColor: AppTheme.primary,
+                    selectedColor: AppTheme.primaryOf(isDark),
                     visualDensity: VisualDensity.compact,
                     onSelected: (_) => setState(() => _filter = entry.key),
                   ),
@@ -626,7 +595,7 @@ class _SkillCard extends StatelessWidget {
         .colorScheme
         .onSurface
         .withValues(alpha: isDark ? 0.7 : 0.58);
-    const accent = AppTheme.primary;
+    final accent = AppTheme.primaryOf(isDark);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
@@ -677,27 +646,6 @@ class _SkillCard extends StatelessWidget {
                               ),
                             ),
                           ),
-                          if (skill.builtin) ...[
-                            const SizedBox(width: 6),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 5,
-                                vertical: 1,
-                              ),
-                              decoration: BoxDecoration(
-                                color: accent.withValues(alpha: 0.12),
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                              child: const Text(
-                                '内置',
-                                style: TextStyle(
-                                  fontSize: 8.5,
-                                  color: accent,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ),
-                          ],
                         ],
                       ),
                       const SizedBox(height: 1),
@@ -745,7 +693,7 @@ class _SkillCard extends StatelessWidget {
                   style: TextButton.styleFrom(
                     minimumSize: const Size(0, 28),
                     padding: const EdgeInsets.symmetric(horizontal: 6),
-                    foregroundColor: AppTheme.danger,
+                    foregroundColor: AppTheme.dangerOf(isDark),
                   ),
                   child: const Text('删除', style: TextStyle(fontSize: 11)),
                 ),
