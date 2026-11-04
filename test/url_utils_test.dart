@@ -18,6 +18,16 @@ void main() {
     expect(normalizeHost('example.com'), 'example.com');
   });
 
+  test('normalizeHostInput accepts pasted URLs and paths', () {
+    expect(
+      normalizeHostInput(' https://WWW.Example.com/path?q=1 '),
+      'example.com',
+    );
+    expect(normalizeHostInput('example.com:443'), 'example.com');
+    expect(normalizeHostInput('sub.example.com/path'), 'sub.example.com');
+    expect(normalizeHostInput(''), '');
+  });
+
   test('extractSharedUrl finds the first link in shared text', () {
     expect(
       extractSharedUrl('一篇好文章 https://example.com/a?b=1 推荐'),

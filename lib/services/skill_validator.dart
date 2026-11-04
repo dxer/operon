@@ -4,6 +4,7 @@ import '../config/tool_catalog.dart';
 import '../models/skill.dart';
 import '../models/tool_descriptor.dart';
 import '../utils/skill_template.dart';
+import '../utils/url_utils.dart';
 
 enum SkillIssueSeverity { error, warning }
 
@@ -48,7 +49,6 @@ class SkillIssueCode {
   static const writeScopeNotRestricted = 'WRITE_SCOPE_NOT_RESTRICTED';
   static const policySteps = 'POLICY_STEPS';
   static const policySideEffects = 'POLICY_SIDE_EFFECTS';
-  static const policyLlmCalls = 'POLICY_LLM_CALLS';
   static const policyItems = 'POLICY_ITEMS';
   static const policyDuration = 'POLICY_DURATION';
   static const policyPacing = 'POLICY_PACING';
@@ -331,7 +331,6 @@ class SkillValidator {
     }
 
     var writeSteps = 0;
-    var llmSteps = 0;
 
     for (var i = 0; i < skill.steps.length; i++) {
       final step = skill.steps[i];
@@ -369,7 +368,6 @@ class SkillValidator {
         );
       }
       if (tool.isWrite) writeSteps++;
-      if (tool.usesLlm) llmSteps++;
 
       if (!allowWrites && tool.isWrite) {
         error(
@@ -509,7 +507,6 @@ class SkillValidator {
     _validatePolicy(
       skill,
       writeSteps: writeSteps,
-      llmSteps: llmSteps,
       restrictToCurrentHost: restrictToCurrentHost,
       error: error,
       warning: warning,
@@ -635,10 +632,10 @@ class SkillValidator {
               field: 'url',
             );
           } else if (restrictToCurrentHost) {
-            final targetHost = uri.host.toLowerCase();
+            final targetHost = normalizeHost(uri.host);
             final allowed = currentHost != null &&
                 currentHost.isNotEmpty &&
-                targetHost == currentHost.toLowerCase();
+                targetHost == normalizeHost(currentHost);
             if (!allowed) {
               error(
                 SkillIssueCode.urlOutsideScope,
@@ -956,7 +953,6 @@ class SkillValidator {
   void _validatePolicy(
     Skill skill, {
     required int writeSteps,
-    required int llmSteps,
     required bool restrictToCurrentHost,
     required void Function(String, String, {String? stepId, String? field})
         error,
@@ -972,16 +968,6 @@ class SkillValidator {
       error(
         SkillIssueCode.policySteps,
         'maxSteps (${policy.maxSteps}) 小于步骤数 ($enabledSteps)。',
-        field: 'policy',
-      );
-    }
-    if (policy.maxLlmCalls < 0) {
-      error(SkillIssueCode.policyLlmCalls, 'maxLlmCalls 不能为负数。',
-          field: 'policy');
-    } else if (llmSteps > 0 && policy.maxLlmCalls < llmSteps) {
-      warning(
-        SkillIssueCode.policyLlmCalls,
-        'maxLlmCalls (${policy.maxLlmCalls}) 小于 AI 步骤数 ($llmSteps)。',
         field: 'policy',
       );
     }

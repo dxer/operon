@@ -194,4 +194,43 @@ void main() {
       isFalse,
     );
   });
+
+  test('confirmDestructive=false stops pinning destructive actions', () async {
+    var asked = 0;
+    final guard = ExecutionGuard(
+      safeMode: false,
+      confirmDestructive: false,
+      onConfirm: (_) async {
+        asked++;
+        return true;
+      },
+    );
+    await guard.confirm(const ConfirmationRequest(
+      title: '支付',
+      reason: '购买',
+      target: '支付按钮',
+      risk: ToolRisk.destructive,
+    ));
+    expect(asked, 0);
+  });
+
+  test('a required confirmation still asks with safe mode off', () async {
+    var asked = 0;
+    final guard = ExecutionGuard(
+      safeMode: false,
+      confirmDestructive: false,
+      onConfirm: (_) async {
+        asked++;
+        return true;
+      },
+    );
+    await guard.confirm(const ConfirmationRequest(
+      title: '确认回放宏',
+      reason: '宏回放不会逐步确认',
+      target: '宏',
+      risk: ToolRisk.destructive,
+      required: true,
+    ));
+    expect(asked, 1);
+  });
 }

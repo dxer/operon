@@ -12,6 +12,20 @@ String normalizeHost(String host) {
   return lower.startsWith('www.') ? lower.substring(4) : lower;
 }
 
+/// Normalizes a user-entered host or URL down to a bare host.
+///
+/// Used by skill hosts, where authors may paste `https://www.example.com/path`
+/// instead of `example.com`.
+String normalizeHostInput(String value) {
+  var host = value.trim().toLowerCase();
+  if (host.isEmpty) return '';
+  if (host.contains('://')) {
+    host = Uri.tryParse(host)?.host ?? host;
+  }
+  host = host.split('/').first.split(':').first;
+  return normalizeHost(host);
+}
+
 /// Collapses a long host to its registrable domain so compact chips keep the
 /// part that identifies the site (`example.co.uk`). The full host belongs in a
 /// tooltip, never in the chip itself.

@@ -8,30 +8,23 @@ void main() {
 
     expect(budget.maxSteps, 7);
     for (var i = 0; i < 100; i++) {
-      budget.recordLlmCall();
       budget.recordSideEffect();
     }
-    expect(budget.canCallLlm(), isTrue);
+    expect(budget.canContinue(), isTrue);
     expect(budget.canStartSideEffect(), isTrue);
     expect(budget.timedOut, isFalse);
   });
 
-  test('LLM and side-effect caps are independent', () {
+  test('there is no separate model-call cap', () {
+    // Each step is at most one model call, so the step limit is the only
+    // budget. An instruction skill with many steps must not stop early.
     final budget = RunBudget.fromPolicy(
-      const SkillPolicy(
-        maxSteps: 10,
-        maxLlmCalls: 2,
-        maxSideEffects: 3,
-        maxItems: 2,
-      ),
+      const SkillPolicy(maxSteps: 40, maxSideEffects: 3, maxItems: 2),
       fallbackMaxSteps: 5,
     );
 
-    expect(budget.canCallLlm(), isTrue);
-    budget.recordLlmCall();
-    budget.recordLlmCall();
-    expect(budget.llmLimitReached, isTrue);
-    expect(budget.canCallLlm(), isFalse);
+    expect(budget.maxSteps, 40);
+    expect(budget.canContinue(), isTrue);
     expect(budget.sideEffectLimitReached, isFalse);
 
     budget.recordSideEffect();
@@ -71,29 +64,26 @@ void main() {
 
     now = now.add(const Duration(milliseconds: 1001));
     expect(budget.timedOut, isTrue);
-    expect(budget.canCallLlm(), isFalse);
+    expect(budget.canContinue(), isFalse);
     expect(budget.canStartSideEffect(), isFalse);
   });
 
   test('reset clears counters and the clock', () {
     var now = DateTime(2024, 1, 1);
     final budget = RunBudget.fromPolicy(
-      const SkillPolicy(maxLlmCalls: 1, maxSideEffects: 1),
+      const SkillPolicy(maxSideEffects: 1),
       fallbackMaxSteps: 5,
       now: () => now,
     );
 
-    budget.recordLlmCall();
     budget.recordSideEffect();
-    expect(budget.llmLimitReached, isTrue);
     expect(budget.sideEffectLimitReached, isTrue);
 
     now = now.add(const Duration(hours: 1));
     budget.reset();
-    expect(budget.llmCalls, 0);
     expect(budget.sideEffects, 0);
     expect(budget.elapsed, Duration.zero);
-    expect(budget.canCallLlm(), isTrue);
+    expect(budget.canContinue(), isTrue);
     expect(budget.canStartSideEffect(), isTrue);
   });
 }

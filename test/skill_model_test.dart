@@ -47,7 +47,6 @@ void main() {
       ],
       policy: SkillPolicy(
         maxSteps: 8,
-        maxLlmCalls: 2,
         maxSideEffects: 0,
         maxItems: 10,
         hostScope: SkillHostScope.currentHost,

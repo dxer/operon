@@ -71,7 +71,6 @@ SkillDraft _validDraft() {
     ],
     policy: SkillPolicy(
       maxSteps: 12,
-      maxLlmCalls: 2,
       maxSideEffects: 0,
       maxItems: 30,
     ),
@@ -364,5 +363,40 @@ void main() {
     expect(result.hasErrors, isTrue);
     expect(result.errors.map((item) => item.code),
         contains(SkillIssueCode.policySideEffects));
+  });
+
+  test('current host comparison normalizes the www prefix', () {
+    const draft = SkillDraft(
+      name: '打开站点',
+      description: '打开站点并读取',
+      kind: SkillKind.flow,
+      steps: [
+        SkillStep(
+          id: 'open',
+          name: '打开首页',
+          tool: 'page.open',
+          params: {'url': 'https://www.example.com/home'},
+        ),
+        SkillStep(
+          id: 'read',
+          name: '读取页面',
+          tool: 'page.read',
+          params: {'maxChars': 1000},
+        ),
+      ],
+      policy: SkillPolicy(maxSteps: 4),
+    );
+
+    final result = SkillValidator().validateDraft(
+      draft,
+      allowWrites: true,
+      restrictToCurrentHost: true,
+      currentHost: 'example.com',
+    );
+
+    expect(
+      result.errors.map((item) => item.code),
+      isNot(contains(SkillIssueCode.urlOutsideScope)),
+    );
   });
 }

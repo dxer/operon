@@ -1,6 +1,7 @@
 import '../models/macro_workflow.dart';
 import '../models/skill.dart';
 import '../models/tool_descriptor.dart';
+import '../utils/url_utils.dart';
 
 /// Converts a recorded macro into an editable flow-skill draft.
 ///
@@ -124,6 +125,7 @@ class SkillFromMacro {
     }
 
     if (steps.isEmpty) return null;
+    final host = normalizeHost(hostOf(macro.initialUrl));
     return SkillDraft(
       name: macro.title.trim().isEmpty ? '录制技能' : macro.title.trim(),
       description: '由录制的宏任务转换，可继续编辑定位器与参数。',
@@ -131,13 +133,17 @@ class SkillFromMacro {
       steps: steps,
       policy: SkillPolicy(
         maxSteps: steps.length + 4,
-        maxLlmCalls: 0,
         maxSideEffects: writes,
         maxItems: 1,
         maxDurationMs: 180000,
         confirmWrites: true,
         confirmDestructive: true,
-        hostScope: writes > 0 ? SkillHostScope.currentHost : SkillHostScope.any,
+        hostScope: writes == 0
+            ? SkillHostScope.any
+            : (host.isEmpty
+                ? SkillHostScope.currentHost
+                : SkillHostScope.list),
+        allowedHosts: host.isEmpty ? const [] : [host],
       ),
     );
   }

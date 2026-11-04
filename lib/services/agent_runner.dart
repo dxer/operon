@@ -16,6 +16,7 @@ import 'llm_service.dart';
 import 'notification_service.dart';
 import 'run_budget.dart';
 import 'side_effect_ledger.dart';
+import 'skill_recording_session.dart';
 import 'webview_controller_wrapper.dart';
 
 class AgentRunner {
@@ -52,6 +53,7 @@ class AgentRunner {
   String? _lastActionDescription;
   String? _lastConfirmedCaptchaKey;
   SkillPolicy? _policy;
+  String? _startHost;
   Set<String>? _allowedTools;
   final List<String> _sentContentPreviews = [];
   final ExecutionGuard _dedupe = ExecutionGuard();
@@ -61,6 +63,9 @@ class AgentRunner {
   bool _batchLimitReached = false;
   String? _pendingItemContextKey;
   String? _pendingItemUrl;
+  SkillRecordingSession? _recorder;
+  bool _creatorMode = false;
+  bool _notifyOnComplete = true;
 
   /// How long a hand-off CAPTCHA waits for the user before the task stops.
   static const Duration _captchaWait = Duration(minutes: 5);
@@ -99,6 +104,9 @@ class AgentRunner {
     bool Function(String host)? isSiteAllowed,
     SkillPolicy? policy,
     Set<String>? allowedTools,
+    SkillRecordingSession? recorder,
+    String? extraSystemRules,
+    bool notifyOnComplete = true,
   }) async {
     _isCancelled = false;
     _isPaused = false;
@@ -120,6 +128,7 @@ class AgentRunner {
     _lastActionDescription = null;
     _lastConfirmedCaptchaKey = null;
     _policy = policy;
+    _startHost = null;
     _allowedTools = allowedTools;
     _sentContentPreviews.clear();
     _dedupe.clearDedupe();
@@ -130,6 +139,9 @@ class AgentRunner {
     _batchLimitReached = false;
     _pendingItemContextKey = null;
     _pendingItemUrl = null;
+    _recorder = recorder;
+    _creatorMode = recorder != null;
+    _notifyOnComplete = notifyOnComplete;
     final stepLimit = _budget.maxSteps;
     final token = _taskToken!;
     final generation = ++_generation;
@@ -198,6 +210,9 @@ class AgentRunner {
             continue;
           }
         }
+
+        // The first page is what a `currentHost` scope refers to.
+        _startHost ??= hostOf(snapshot.url);
 
         // 1.05 Stop on generic rate-limit / temporary-block pages. This is
         // checked before spending another model call.
@@ -388,17 +403,15 @@ class AgentRunner {
         // 2. Reason (Call LLM)
         _emit(_state.copyWith(status: AgentStatus.thinking));
 
-        if (!_budget.canCallLlm()) {
-          final reason = _budget.timedOut ? '超过本次运行的最长时长' : '已达到本次运行的 AI 调用上限';
-          _addLog('$reason，任务已停止', isError: true);
+        if (!_budget.canContinue()) {
+          _addLog('超过本次运行的最长时长，任务已停止', isError: true);
           _emit(_state.copyWith(
             status: AgentStatus.error,
-            errorMessage: '$reason，任务已停止。',
+            errorMessage: '超过本次运行的最长时长，任务已停止。',
           ));
           await webView.clearHighlights();
           return;
         }
-        _budget.recordLlmCall();
 
         final messages = PromptBuilder.buildMessages(
           userGoal: userGoal,
@@ -410,6 +423,7 @@ class AgentRunner {
           maxSteps: stepLimit,
           extractedData: _state.extractedData,
           sentContents: _sentContentPreviews,
+          extraSystemRules: extraSystemRules,
         );
 
         AgentAction action;
@@ -500,6 +514,24 @@ class AgentRunner {
         }
         if (action.action == ActionType.navigate) {
           _navigateCount++;
+          // A site-scoped instruction skill must not wander to another site.
+          // Instruction skills have no locators, so the host check is the only
+          // real boundary between "reply on x.com" and "reply anywhere".
+          final targetHost = hostOf(action.url ?? '');
+          if (targetHost.isNotEmpty && !_hostAllowed(targetHost)) {
+            _addLog(
+              '目标站点超出技能范围，已停止',
+              detail: '允许：${_policy!.allowedHosts.join('、')} · 目标：$targetHost',
+              isError: true,
+            );
+            _emit(_state.copyWith(
+              status: AgentStatus.error,
+              errorMessage: '技能只允许在 ${_policy!.allowedHosts.join('、')} 运行，'
+                  '不能打开 $targetHost。',
+            ));
+            await webView.clearHighlights();
+            return;
+          }
         }
 
         // Stop early when the model keeps choosing the same target: it almost
@@ -548,7 +580,9 @@ class AgentRunner {
             currentUrl: snapshot.url,
             rejectionCount: _finishRejections,
           );
-          if (!decision.allowed) {
+          // Creator runs demonstrate a task; they are allowed to stop before
+          // the final submit, so the normal completion proof does not apply.
+          if (!_creatorMode && !decision.allowed) {
             _finishRejections++;
             _addLog(
               '完成校验未通过',
@@ -570,9 +604,11 @@ class AgentRunner {
             extractedData: finalData,
             recordedMacroSteps: List.unmodifiable(macroSteps),
           ));
-          _addLog('任务顺利完成', detail: action.summary);
-          await _notificationService
-              .notifyTaskCompleted(action.summary ?? '任务完成');
+          _addLog(_creatorMode ? '技能演示结束' : '任务顺利完成', detail: action.summary);
+          if (_notifyOnComplete) {
+            await _notificationService
+                .notifyTaskCompleted(action.summary ?? '任务完成');
+          }
           await webView.clearHighlights();
           return;
         }
@@ -597,6 +633,25 @@ class AgentRunner {
 
         final elementText = (elementRisk?['text'] ?? '').toString();
         final elementContextKey = (elementRisk?['contextKey'] ?? '').toString();
+
+        // The skill creator records the locator before dispatch: a click that
+        // navigates destroys the old JS context, so resolving it afterwards
+        // would lose the element the agent actually used.
+        Map<String, dynamic>? recordedLocator;
+        if (_recorder != null &&
+            action.elementId != null &&
+            const {
+              ActionType.click,
+              ActionType.type,
+              ActionType.pressKey,
+              ActionType.selectOption,
+              ActionType.hover,
+            }.contains(action.action)) {
+          recordedLocator = await webView.getElementLocator(action.elementId!);
+        }
+        final recordedText = elementText.isNotEmpty
+            ? elementText
+            : (recordedLocator?['label'] ?? '').toString();
 
         // Saving a draft is not a reply. Reply composers often show a
         // highlighted "保存草稿" button next to send; reject it deterministically
@@ -647,6 +702,19 @@ class AgentRunner {
                 credentialIntent);
         final secretTyping =
             action.action == ActionType.type && credentialField && !searchOnly;
+        if (_creatorMode && secretTyping) {
+          _addLog(
+            '技能创建器不会录制敏感信息输入，已停止',
+            detail: '创建技能时请勿输入密码、验证码或支付信息。',
+            isError: true,
+          );
+          _emit(_state.copyWith(
+            status: AgentStatus.error,
+            errorMessage: '技能创建器不会录制密码、验证码或支付信息。',
+          ));
+          await webView.clearHighlights();
+          return;
+        }
         if (action.action == ActionType.type) {
           if (secretTyping) {
             isSensitive = true;
@@ -694,6 +762,113 @@ class AgentRunner {
               elementText,
             );
         final submitLike = submitLikeRaw && !openerOnly;
+
+        // Creator mode never dispatches the terminal write. Besides the normal
+        // submit classification, an Enter press right after the demonstration
+        // content was typed is also treated as a submit: some editors publish
+        // on Enter, and a dry-run is always safer than a real post.
+        final creatorAssessment = _creatorMode &&
+                (action.action == ActionType.click ||
+                    action.action == ActionType.pressKey)
+            ? ExecutionGuard.assessClick(
+                targetText: elementText,
+                thought: action.thought,
+                description: action.description,
+                componentSensitive: elementRisk?['sensitive'] == true,
+                sensitiveReason: (elementRisk?['reason'] ?? '').toString(),
+                tag: elementTag,
+                inputType: inputType,
+              )
+            : null;
+        final recentTyped = _lastTypedText != null &&
+            _lastTypedText!.trim().isNotEmpty &&
+            _state.currentStep - _lastTypedStep <= 2;
+        final creatorEnterSubmit = _creatorMode &&
+            action.action == ActionType.pressKey &&
+            action.key?.toLowerCase() == 'enter' &&
+            (submittedContent != null ||
+                recentTyped ||
+                _recorder!.isSampleText(_lastTypedText));
+        // Long content (a tweet body, an article) often mentions "reply" or
+        // "post" by accident. Only a real control can be the terminal submit.
+        final creatorControlTag =
+            (elementRisk?['controlTag'] ?? '').toString().toUpperCase();
+        final creatorControlRole =
+            (elementRisk?['controlRole'] ?? '').toString().toLowerCase();
+        final creatorControlText =
+            (elementRisk?['controlText'] ?? '').toString().trim();
+        final creatorRole =
+            (elementRisk?['role'] ?? '').toString().toLowerCase();
+        final submitLabelPattern = RegExp(
+          r'^(发布|发送|提交|回复|评论|保存|post|reply|send|publish|submit|tweet)$',
+          caseSensitive: false,
+        );
+        final creatorControl = creatorControlTag == 'BUTTON' ||
+            creatorControlTag == 'INPUT' ||
+            creatorControlRole == 'button' ||
+            creatorControlRole == 'menuitem' ||
+            elementTag == 'BUTTON' ||
+            elementTag == 'INPUT' ||
+            creatorRole == 'button' ||
+            creatorRole == 'menuitem' ||
+            submitLabelPattern.hasMatch(creatorControlText) ||
+            submitLabelPattern.hasMatch(elementText.trim());
+        final creatorSubmit = _creatorMode &&
+            (creatorEnterSubmit ||
+                // A real submit click follows typing; that is stronger
+                // evidence than guessing from the element's tag. This also
+                // covers icon buttons whose label is not exposed.
+                (submitLike && (submittedContent != null || creatorControl)) ||
+                (creatorControl && creatorAssessment?.sideEffect == true));
+
+        if (creatorSubmit) {
+          final captured = _recorder!.capture(
+            action,
+            locator: recordedLocator,
+            elementText: recordedText,
+            dryRun: true,
+            intent: creatorAssessment?.destructive == true
+                ? 'destructive'
+                : 'submit',
+          );
+          if (captured) {
+            _addLog(
+              '已记录发布步骤（未执行）',
+              detail:
+                  '「${elementText.isEmpty ? _actionLogDescription(action) : elementText}」'
+                  '的真实定位器已保存；没有真正点击该按钮。技能演示完成。',
+            );
+            _emit(_state.copyWith(
+              status: AgentStatus.completed,
+              clearCurrentAction: true,
+            ));
+            await webView.clearHighlights();
+            return;
+          }
+          _addLog(
+            '无法记录提交步骤，已跳过该点击',
+            detail: '没有取得稳定的元素定位器。请改为滚动到按钮、重新识别元素，'
+                '或换一个可见的提交入口。',
+            isError: true,
+          );
+          _checkProgressNextStep = false;
+          continue;
+        }
+
+        // Fail closed: if the normal classifier still thinks this might be a
+        // submit but the creator could not pin it to a real control, do not
+        // risk a real post during skill creation.
+        if (_creatorMode && submitLike) {
+          _addLog(
+            '无法确认该操作是否为提交，已跳过',
+            detail: '创建技能时不会执行不确定的写入动作。请滚动到明确的按钮、'
+                '重新识别元素，或换一个可见的入口。',
+            isError: true,
+          );
+          _checkProgressNextStep = false;
+          continue;
+        }
+
         if (openerOnly && elementContextKey.isNotEmpty) {
           // Remember which item the composer was opened for, so the actual
           // send is deduplicated by the item rather than by the modal.
@@ -722,7 +897,8 @@ class AgentRunner {
         final siteAllowed =
             isSensitive && (_isSiteAllowed?.call(targetHost) ?? false);
 
-        final mustConfirm = isSensitive &&
+        final mustConfirm = !_creatorMode &&
+            isSensitive &&
             !openerOnly &&
             !siteAllowed &&
             (_safeMode || (_policy?.confirmWrites ?? false));
@@ -856,6 +1032,7 @@ class AgentRunner {
         // Actions that do not touch the page should not be sent to the DOM
         // executor: it would return "unknown action" and poison the history.
         if (action.action == ActionType.wait) {
+          _recorder?.capture(action);
           _emit(_state.copyWith(
             status: AgentStatus.executing,
             clearConfirmationContext: true,
@@ -935,6 +1112,42 @@ class AgentRunner {
             _lastTypedSecret = false;
             _pendingItemContextKey = null;
             _pendingItemUrl = null;
+          }
+        }
+
+        // 6.05 Record the action as a skill step using the locator captured
+        // before dispatch. A missing locator means the step is skipped: the
+        // creator never writes a guessed selector.
+        if (actionSucceeded && _recorder != null && !focusOnlyClick) {
+          final recorded = _recorder!.capture(
+            action,
+            locator: recordedLocator,
+            elementText: recordedText,
+            macroSelector: execResult['macroSelector'] as String?,
+          );
+          final interactive = const {
+            ActionType.click,
+            ActionType.type,
+            ActionType.pressKey,
+            ActionType.selectOption,
+            ActionType.hover,
+            ActionType.navigate,
+            ActionType.goBack,
+          }.contains(action.action);
+          if (recorded) {
+            if (interactive) {
+              _addLog(
+                '已记录技能步骤',
+                detail:
+                    '第 ${_recorder!.stepCount} 步 · ${_actionLogDescription(action)}',
+              );
+            }
+          } else if (interactive) {
+            _addLog(
+              '该操作没有可用的元素定位器，未记录',
+              detail: '${_actionLogDescription(action)}；创建器不会编造选择器。',
+              isError: true,
+            );
           }
         }
 
@@ -1052,6 +1265,14 @@ class AgentRunner {
   String _pageSignature(DOMSnapshot snapshot) {
     return '${snapshot.url}|${snapshot.title}|'
         '${snapshot.elementCount}|${snapshot.textTree.hashCode}';
+  }
+
+  /// Site scope of the running skill. A free-form task has no policy and is
+  /// allowed everywhere.
+  bool _hostAllowed(String host) {
+    final policy = _policy;
+    if (policy == null) return true;
+    return policy.allowsHostAt(host, startHost: _startHost);
   }
 
   /// Stable key for the at-most-once ledger. Uses page URL + action + target

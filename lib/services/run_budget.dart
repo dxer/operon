@@ -1,16 +1,18 @@
 import '../models/skill.dart';
 
-enum RunLimit { steps, llmCalls, sideEffects, duration }
-
 /// Tracks the per-run limits declared by [SkillPolicy].
 ///
-/// Free-form agent tasks have no policy and only keep the step limit, so the
-/// existing behaviour is preserved. Time spent waiting for the user (CAPTCHA,
-/// confirmation, manual pause) is excluded from the duration budget.
+/// There is deliberately no separate model-call counter: in both engines one
+/// step is at most one model call, so `maxLlmCalls` could only ever fire
+/// before the step budget and would stop a task that still had steps left.
+/// The step limit is the single cost/turn budget.
+///
+/// Free-form agent tasks have no policy and only keep the step limit. Time
+/// spent waiting for the user (CAPTCHA, confirmation, manual pause) is
+/// excluded from the duration budget.
 class RunBudget {
   RunBudget({
     required this.maxSteps,
-    this.maxLlmCalls,
     this.maxSideEffects,
     this.maxItems = 1,
     this.maxDuration,
@@ -34,7 +36,6 @@ class RunBudget {
     }
     return RunBudget(
       maxSteps: policy.maxSteps,
-      maxLlmCalls: policy.maxLlmCalls,
       maxSideEffects: policy.maxSideEffects,
       maxItems: policy.maxItems,
       maxDuration: Duration(milliseconds: policy.maxDurationMs),
@@ -44,19 +45,16 @@ class RunBudget {
   }
 
   final int maxSteps;
-  final int? maxLlmCalls;
   final int? maxSideEffects;
   final int maxItems;
   final Duration? maxDuration;
 
   final DateTime Function() _now;
   DateTime _startedAt;
-  int _llmCalls = 0;
   int _sideEffects = 0;
   Duration _pausedTotal = Duration.zero;
   DateTime? _pausedAt;
 
-  int get llmCalls => _llmCalls;
   int get sideEffects => _sideEffects;
 
   /// Active wall-clock time, excluding paused intervals.
@@ -70,19 +68,15 @@ class RunBudget {
 
   bool get timedOut => maxDuration != null && elapsed > maxDuration!;
 
-  bool get llmLimitReached => maxLlmCalls != null && _llmCalls >= maxLlmCalls!;
-
   bool get sideEffectLimitReached =>
       maxSideEffects != null && _sideEffects >= maxSideEffects!;
 
   /// Existing batch behaviour: a limit of 1 means single-item, not a cap.
   bool get itemLimitReached => maxItems > 1 && _sideEffects >= maxItems;
 
-  bool canCallLlm() => !timedOut && !llmLimitReached;
+  bool canContinue() => !timedOut;
 
   bool canStartSideEffect() => !timedOut && !sideEffectLimitReached;
-
-  void recordLlmCall() => _llmCalls++;
 
   void recordSideEffect() => _sideEffects++;
 
@@ -101,7 +95,6 @@ class RunBudget {
 
   void reset() {
     _startedAt = _now();
-    _llmCalls = 0;
     _sideEffects = 0;
     _pausedTotal = Duration.zero;
     _pausedAt = null;

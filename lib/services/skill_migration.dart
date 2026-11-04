@@ -28,7 +28,6 @@ class SkillMigration {
       output: const {},
       policy: SkillPolicy(
         maxSteps: command.policy.maxSteps ?? 30,
-        maxLlmCalls: 40,
         maxSideEffects: maxItems,
         maxItems: maxItems,
         maxDurationMs: 300000,

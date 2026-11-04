@@ -45,6 +45,7 @@ class SkillRunner {
     final runId = DateTime.now().millisecondsSinceEpoch.toString();
     final startedAt = DateTime.now();
     final cancellation = token ?? CancellationToken();
+    guard.confirmDestructive = skill.policy.confirmDestructive;
 
     if (skill.kind != SkillKind.flow) {
       return _finish(
@@ -87,7 +88,7 @@ class SkillRunner {
     final values = inputResult.values;
     final startUrl = await _safeUrl(webView);
     final startHost = hostOf(startUrl);
-    if (!_hostAllowed(startHost, skill.policy, startHost)) {
+    if (!skill.allowsHostAt(startHost, startHost: startHost)) {
       return _finish(
         id: runId,
         skill: skill,
@@ -115,6 +116,13 @@ class SkillRunner {
     var sideEffects = 0;
     var executedCalls = 0;
     DateTime? lastWriteAt;
+    // Human confirmation time must not consume the duration budget.
+    var waitedMs = 0;
+    var waitStartedAt = DateTime.now();
+    guard.onWaitStart = () => waitStartedAt = DateTime.now();
+    guard.onWaitEnd = () {
+      waitedMs += DateTime.now().difference(waitStartedAt).inMilliseconds;
+    };
 
     void emit({
       required SkillRunStatus status,
@@ -158,7 +166,7 @@ class SkillRunner {
           onState: onState,
         );
       }
-      if (DateTime.now().difference(startedAt).inMilliseconds >
+      if (DateTime.now().difference(startedAt).inMilliseconds - waitedMs >
           skill.policy.maxDurationMs) {
         return _finish(
           id: runId,
@@ -226,20 +234,6 @@ class SkillRunner {
           onState: onState,
         );
       }
-      if (tool.usesLlm && llmCalls >= skill.policy.maxLlmCalls) {
-        return _finish(
-          id: runId,
-          skill: skill,
-          startedAt: startedAt,
-          status: SkillRunStatus.failed,
-          inputs: values,
-          steps: results,
-          llmCalls: llmCalls,
-          sideEffects: sideEffects,
-          error: '已达到本次运行的 AI 调用上限',
-          onState: onState,
-        );
-      }
       if (tool.isWrite && sideEffects >= skill.policy.maxSideEffects) {
         return _finish(
           id: runId,
@@ -285,7 +279,7 @@ class SkillRunner {
         final targetUrl = params['url']?.toString() ?? '';
         final targetHost = hostOf(targetUrl);
         if (targetHost.isNotEmpty &&
-            !_hostAllowed(targetHost, skill.policy, startHost)) {
+            !skill.allowsHostAt(targetHost, startHost: startHost)) {
           return _finish(
             id: runId,
             skill: skill,
@@ -330,7 +324,6 @@ class SkillRunner {
             guard: guard,
             token: cancellation,
             confirmWrites: skill.policy.confirmWrites,
-            confirmDestructive: skill.policy.confirmDestructive,
             uniqueTarget: skill.policy.uniqueTarget,
             uniqueContent: skill.policy.uniqueContent,
             onShow: onShow,
@@ -342,7 +335,7 @@ class SkillRunner {
         if (toolResult.url != null && toolResult.url!.isNotEmpty) {
           context['env']['url'] = toolResult.url;
           final resultHost = hostOf(toolResult.url!);
-          if (!_hostAllowed(resultHost, skill.policy, startHost)) {
+          if (!skill.allowsHostAt(resultHost, startHost: startHost)) {
             lastError = '页面跳转到了不允许的站点：$resultHost';
             break;
           }
@@ -387,7 +380,6 @@ class SkillRunner {
               guard: guard,
               token: cancellation,
               confirmWrites: skill.policy.confirmWrites,
-              confirmDestructive: skill.policy.confirmDestructive,
               uniqueTarget: skill.policy.uniqueTarget,
               uniqueContent: skill.policy.uniqueContent,
               onShow: onShow,
@@ -733,25 +725,6 @@ class SkillRunner {
       sideEffects: record.sideEffects,
     ));
     return record;
-  }
-
-  bool _hostAllowed(String host, SkillPolicy policy, String currentHost) {
-    if (policy.hostScope == SkillHostScope.any) return true;
-    final normalized = normalizeHost(host);
-    if (policy.hostScope == SkillHostScope.currentHost) {
-      return normalized == normalizeHost(currentHost);
-    }
-    for (final allowed in policy.allowedHosts) {
-      final value = normalizeHost(allowed);
-      if (value == normalized) return true;
-      if (value.startsWith('*.')) {
-        final suffix = value.substring(2);
-        if (normalized == suffix || normalized.endsWith('.$suffix')) {
-          return true;
-        }
-      }
-    }
-    return false;
   }
 
   Future<String> _safeUrl(WebViewControllerWrapper webView) async {

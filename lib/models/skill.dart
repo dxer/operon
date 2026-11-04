@@ -5,6 +5,8 @@
 /// inputs, policy and run record so the UI and safety layer stay uniform.
 library;
 
+import '../utils/url_utils.dart';
+
 enum SkillKind {
   instruction('指令型'),
   flow('流程型');
@@ -339,7 +341,6 @@ class SkillStep {
 
 class SkillPolicy {
   final int maxSteps;
-  final int maxLlmCalls;
   final int maxSideEffects;
   final int maxItems;
   final int maxDurationMs;
@@ -353,13 +354,12 @@ class SkillPolicy {
   final List<String> allowedHosts;
 
   const SkillPolicy({
-    this.maxSteps = 30,
-    this.maxLlmCalls = 10,
+    this.maxSteps = 40,
     this.maxSideEffects = 10,
     this.maxItems = 1,
-    // A single model call may take up to 3 minutes, so a shorter skill budget
-    // would fail right after a slow but successful call.
-    this.maxDurationMs = 300000,
+    // A single model call may take up to 3 minutes and may be retried once,
+    // so a shorter budget could fail right after a slow successful call.
+    this.maxDurationMs = 600000,
     this.pacingMs = 0,
     this.uniqueTarget = false,
     this.uniqueContent = false,
@@ -372,7 +372,6 @@ class SkillPolicy {
 
   Map<String, dynamic> toJson() => {
         'maxSteps': maxSteps,
-        'maxLlmCalls': maxLlmCalls,
         'maxSideEffects': maxSideEffects,
         'maxItems': maxItems,
         'maxDurationMs': maxDurationMs,
@@ -395,11 +394,10 @@ class SkillPolicy {
     final rawStopOn = json['stopOn'];
     final rawHosts = json['allowedHosts'];
     return SkillPolicy(
-      maxSteps: (json['maxSteps'] as num?)?.toInt() ?? 30,
-      maxLlmCalls: (json['maxLlmCalls'] as num?)?.toInt() ?? 10,
+      maxSteps: (json['maxSteps'] as num?)?.toInt() ?? 40,
       maxSideEffects: (json['maxSideEffects'] as num?)?.toInt() ?? 10,
       maxItems: (json['maxItems'] as num?)?.toInt() ?? 1,
-      maxDurationMs: (json['maxDurationMs'] as num?)?.toInt() ?? 300000,
+      maxDurationMs: (json['maxDurationMs'] as num?)?.toInt() ?? 600000,
       pacingMs: (json['pacingMs'] as num?)?.toInt() ?? 0,
       uniqueTarget: json['uniqueTarget'] == true,
       uniqueContent: json['uniqueContent'] == true,
@@ -415,9 +413,51 @@ class SkillPolicy {
     );
   }
 
+  /// True when this policy declares a site restriction.
+  bool get isSiteScoped =>
+      hostScope != SkillHostScope.any && allowedHosts.isNotEmpty;
+
+  /// Whether this policy allows [host].
+  ///
+  /// `any` and a scope without recorded hosts are not restrictions: there is
+  /// nothing to compare against, so the skill runs anywhere. This is the only
+  /// host check in the app; the agent, the flow runner and the skill list all
+  /// defer to it.
+  bool allowsHost(String? host) {
+    if (!isSiteScoped) return true;
+    final current = normalizeHostInput(host ?? '');
+    if (current.isEmpty) return false;
+    return allowedHosts.any((item) => hostMatches(item, current));
+  }
+
+  /// Whether this policy allows [host] given the site the run started on.
+  ///
+  /// Recorded hosts always win: they are a hard list. `currentHost` with no
+  /// recorded hosts means "stay on the page the run started from", which only
+  /// the runners can evaluate. Anything else allows every host.
+  bool allowsHostAt(String? host, {String? startHost}) {
+    if (isSiteScoped) return allowsHost(host);
+    if (hostScope != SkillHostScope.currentHost) return true;
+    final start = normalizeHostInput(startHost ?? '');
+    // No start page recorded yet: there is no rule to apply.
+    if (start.isEmpty) return true;
+    final current = normalizeHostInput(host ?? '');
+    return current.isEmpty || current == start;
+  }
+
+  /// Exact match, or a `*.domain` suffix that also covers the bare domain.
+  static bool hostMatches(String pattern, String host) {
+    final value = normalizeHostInput(pattern);
+    if (value.isEmpty) return false;
+    if (value.startsWith('*.')) {
+      final suffix = value.substring(2);
+      return host == suffix || host.endsWith('.$suffix');
+    }
+    return value == host;
+  }
+
   SkillPolicy copyWith({
     int? maxSteps,
-    int? maxLlmCalls,
     int? maxSideEffects,
     int? maxItems,
     int? maxDurationMs,
@@ -432,7 +472,6 @@ class SkillPolicy {
   }) {
     return SkillPolicy(
       maxSteps: maxSteps ?? this.maxSteps,
-      maxLlmCalls: maxLlmCalls ?? this.maxLlmCalls,
       maxSideEffects: maxSideEffects ?? this.maxSideEffects,
       maxItems: maxItems ?? this.maxItems,
       maxDurationMs: maxDurationMs ?? this.maxDurationMs,
@@ -488,6 +527,18 @@ class Skill {
   bool get isFlow => kind == SkillKind.flow;
 
   bool get isInstruction => kind == SkillKind.instruction;
+
+  /// Whether this skill may run on [host]. Delegates to the policy so the
+  /// agent, the flow runner and the skill list share one rule.
+  bool allowsHost(String? host) => policy.allowsHost(host);
+
+  /// Run-time variant of [allowsHost] for `currentHost` skills.
+  bool allowsHostAt(String? host, {String? startHost}) =>
+      policy.allowsHostAt(host, startHost: startHost);
+
+  /// Whether this skill is specifically meant for [host]. General skills
+  /// return false; callers show them after site-specific skills.
+  bool matchesHost(String? host) => policy.isSiteScoped && policy.allowsHost(host);
 
   bool get hasWriteSteps => steps.any((step) {
         // Imported lazily to avoid a model cycle: tool metadata is optional
@@ -643,7 +694,7 @@ class SkillDraft {
   const SkillDraft({
     required this.name,
     this.description = '',
-    this.kind = SkillKind.flow,
+    this.kind = SkillKind.instruction,
     this.inputs = const [],
     this.instructions = '',
     this.steps = const [],
@@ -710,7 +761,7 @@ class SkillDraft {
     final kindName = json['kind']?.toString() ?? '';
     final kind = SkillKind.values.firstWhere(
       (item) => item.name == kindName,
-      orElse: () => SkillKind.flow,
+      orElse: () => SkillKind.instruction,
     );
     final rawInputs = json['inputs'];
     final rawSteps = json['steps'];

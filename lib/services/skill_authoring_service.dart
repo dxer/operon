@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import '../config/skill_authoring_mode.dart';
 import '../config/skill_authoring_prompt.dart';
 import '../config/tool_catalog.dart';
 import '../models/llm_config.dart';
@@ -7,6 +8,8 @@ import '../models/skill.dart';
 import '../services/skill_validator.dart';
 import '../utils/cancellation.dart';
 import '../utils/json_parser.dart';
+import '../utils/skill_placeholder_inputs.dart';
+import '../utils/url_utils.dart';
 import 'llm_service.dart';
 import 'webview_controller_wrapper.dart';
 
@@ -51,6 +54,7 @@ class SkillAuthoringService {
     bool restrictToCurrentHost = false,
     Skill? baseSkill,
     List<String> existingNames = const [],
+    SkillAuthoringMode? mode,
     CancellationToken? token,
     void Function(String stage)? onProgress,
   }) async {
@@ -66,6 +70,12 @@ class SkillAuthoringService {
     if (token?.isCancelled == true) {
       return const SkillAuthoringResult(error: '生成已取消');
     }
+    // Editing an existing flow should produce a flow; a new mobile skill
+    // defaults to an instruction prompt. Callers can override explicitly.
+    final effectiveMode = mode ??
+        (baseSkill?.kind == SkillKind.flow
+            ? SkillAuthoringMode.flow
+            : SkillAuthoringMode.instruction);
 
     onProgress?.call('正在读取页面摘要…');
     final page = await _pageContext(
@@ -83,6 +93,7 @@ class SkillAuthoringService {
           restrictToCurrentHost: restrictToCurrentHost,
           currentHost: currentHost,
           maxSteps: 12,
+          mode: effectiveMode,
         ),
       },
       {
@@ -95,6 +106,8 @@ class SkillAuthoringService {
           baseSkill: baseSkill == null
               ? null
               : jsonEncode(_maskedSkillJson(baseSkill)),
+          existingNames: existingNames,
+          mode: effectiveMode,
         ),
       },
     ];
@@ -114,6 +127,7 @@ class SkillAuthoringService {
     }
 
     var draft = _parseDraft(raw);
+    if (draft != null) draft = _coerceDraft(draft, effectiveMode);
     var attempts = 0;
     if (draft == null) {
       // One repair attempt for malformed JSON, using the raw response as the
@@ -132,7 +146,9 @@ class SkillAuthoringService {
               'role': 'user',
               'content': SkillAuthoringPrompt.repair(
                 previousDraft: raw,
-                issues: '输出不是合法 JSON，或缺少 name/steps/instructions 字段。',
+                issues: effectiveMode == SkillAuthoringMode.instruction
+                    ? '输出不是合法 JSON，或缺少 name/instructions 字段。'
+                    : '输出不是合法 JSON，或缺少 name/steps/instructions 字段。',
               ),
             },
           ],
@@ -141,6 +157,7 @@ class SkillAuthoringService {
           cancelToken: token,
         );
         draft = _parseDraft(raw);
+        if (draft != null) draft = _coerceDraft(draft, effectiveMode);
       } catch (e) {
         return SkillAuthoringResult(error: e.toString(), raw: raw);
       }
@@ -160,12 +177,14 @@ class SkillAuthoringService {
       allowWrites: allowWrites,
       currentHost: currentHost,
       restrictToCurrentHost: restrictToCurrentHost,
+      mode: effectiveMode,
     );
     var validation = _validate(
       normalized,
       allowWrites,
       currentHost,
       restrictToCurrentHost,
+      effectiveMode,
     );
 
     var repairRounds = 0;
@@ -214,16 +233,18 @@ class SkillAuthoringService {
       final repaired = _parseDraft(raw);
       if (repaired == null) continue;
       normalized = _normalizeDraft(
-        repaired,
+        _coerceDraft(repaired, effectiveMode),
         allowWrites: allowWrites,
         currentHost: currentHost,
         restrictToCurrentHost: restrictToCurrentHost,
+        mode: effectiveMode,
       );
       validation = _validate(
         normalized,
         allowWrites,
         currentHost,
         restrictToCurrentHost,
+        effectiveMode,
       );
     }
 
@@ -250,14 +271,16 @@ class SkillAuthoringService {
     bool allowWrites,
     String? currentHost,
     bool restrictToCurrentHost,
+    SkillAuthoringMode mode,
   ) {
+    final instruction = mode == SkillAuthoringMode.instruction;
     return validator.validateDraft(
       draft,
-      allowWrites: allowWrites,
+      allowWrites: instruction ? true : allowWrites,
       currentHost: currentHost,
-      // AI-authored skills may not hardcode a navigation to another host.
-      // A user-supplied URL input is still allowed.
-      restrictToCurrentHost: true,
+      // AI-authored flow skills may not hardcode a navigation to another
+      // host. Instruction skills contain no steps to restrict.
+      restrictToCurrentHost: instruction ? false : true,
       allowedToolIds: ToolCatalog.authoringIds,
     );
   }
@@ -267,14 +290,27 @@ class SkillAuthoringService {
     required bool allowWrites,
     required String? currentHost,
     required bool restrictToCurrentHost,
+    required SkillAuthoringMode mode,
   }) {
+    if (mode == SkillAuthoringMode.instruction) {
+      return draft.copyWith(
+        kind: SkillKind.instruction,
+        steps: const [],
+        // An instruction skill is only a prompt: any placeholder it uses is a
+        // runtime input, so the user never has to declare fields by hand.
+        inputs: SkillPlaceholderInputs.merge(
+          draft.instructions,
+          existing: draft.inputs,
+        ),
+        policy: draft.policy.copyWith(
+          confirmWrites: true,
+          confirmDestructive: true,
+        ),
+      );
+    }
     final writeCount = draft.steps.where((step) {
       final tool = ToolCatalog.find(step.tool);
       return tool?.isWrite == true;
-    }).length;
-    final llmCount = draft.steps.where((step) {
-      final tool = ToolCatalog.find(step.tool);
-      return tool?.usesLlm == true;
     }).length;
 
     var policy = draft.policy;
@@ -283,16 +319,20 @@ class SkillAuthoringService {
         maxSteps: policy.maxSteps < draft.steps.length
             ? draft.steps.length + 4
             : policy.maxSteps,
-        maxLlmCalls:
-            policy.maxLlmCalls < llmCount ? llmCount + 1 : policy.maxLlmCalls,
         maxSideEffects: policy.maxSideEffects < writeCount
             ? writeCount
             : policy.maxSideEffects,
       );
     }
     if (allowWrites && writeCount > 0) {
+      // Pin the site the authoring page was on. `currentHost` alone is only a
+      // run-time promise ("stay where you started"), which would let a write
+      // skill be saved on one site and used on another; a real host list is
+      // checked before the run even opens.
+      final host = normalizeHostInput(currentHost ?? '');
       policy = policy.copyWith(
-        hostScope: SkillHostScope.currentHost,
+        hostScope: host.isEmpty ? SkillHostScope.currentHost : SkillHostScope.list,
+        allowedHosts: host.isEmpty ? policy.allowedHosts : [host],
         confirmWrites: true,
         confirmDestructive: true,
       );
@@ -333,7 +373,16 @@ class SkillAuthoringService {
     final map = JsonParser.extractJson(raw);
     if (map == null) return null;
     try {
-      final draft = SkillDraft.fromJson(map);
+      var draft = SkillDraft.fromJson(map);
+      final hosts = _parseHosts(map['hosts']);
+      if (hosts.isNotEmpty) {
+        draft = draft.copyWith(
+          policy: draft.policy.copyWith(
+            hostScope: SkillHostScope.list,
+            allowedHosts: hosts,
+          ),
+        );
+      }
       if (draft.name.trim().isEmpty) return null;
       if (draft.kind == SkillKind.flow && draft.steps.isEmpty) return null;
       if (draft.kind == SkillKind.instruction &&
@@ -344,6 +393,28 @@ class SkillAuthoringService {
     } catch (_) {
       return null;
     }
+  }
+
+  SkillDraft _coerceDraft(SkillDraft draft, SkillAuthoringMode mode) {
+    if (mode == SkillAuthoringMode.flow) return draft;
+    return draft.copyWith(kind: SkillKind.instruction, steps: const []);
+  }
+
+  List<String> _parseHosts(dynamic raw) {
+    final values = <String>[];
+    if (raw is List) {
+      values.addAll(raw.map((item) => item.toString()));
+    } else if (raw is String) {
+      values.addAll(raw.split(RegExp(r'[,，\s]+')));
+    }
+    final seen = <String>{};
+    final hosts = <String>[];
+    for (final value in values) {
+      final host = normalizeHostInput(value);
+      if (host.isEmpty || !seen.add(host)) continue;
+      hosts.add(host);
+    }
+    return hosts;
   }
 
   Future<_PageContext> _pageContext(

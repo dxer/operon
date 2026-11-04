@@ -10,6 +10,11 @@ class ConfirmationRequest {
   final String? url;
   final ToolRisk risk;
 
+  /// Always ask, even with Safe Mode off. Used where the safety comes from the
+  /// dialog itself rather than from the global setting, e.g. macro replay,
+  /// which bypasses per-step risk checks.
+  final bool required;
+
   const ConfirmationRequest({
     required this.title,
     required this.reason,
@@ -17,6 +22,7 @@ class ConfirmationRequest {
     this.payload,
     this.url,
     this.risk = ToolRisk.write,
+    this.required = false,
   });
 }
 
@@ -51,12 +57,25 @@ class ExecutionGuard {
   final ConfirmationHandler? onConfirm;
   final SideEffectLedger ledger = SideEffectLedger();
 
+  /// When true (the default) a destructive action always asks, even with Safe
+  /// Mode off. Skill authors can turn it off in the editor; the validator then
+  /// warns that payments/deletes will no longer be confirmed.
+  bool confirmDestructive;
+
+  /// Human-wait hooks. Time spent in a confirmation dialog must not count
+  /// against a skill's duration budget. Runners set these when they own one.
+  void Function()? onWaitStart;
+  void Function()? onWaitEnd;
+
   final Set<String> _sentContents = {};
   final Set<String> _processedTargets = {};
 
   ExecutionGuard({
     this.safeMode = true,
     this.onConfirm,
+    this.confirmDestructive = true,
+    this.onWaitStart,
+    this.onWaitEnd,
   });
 
   bool contentAlreadySent(String text) {
@@ -80,12 +99,17 @@ class ExecutionGuard {
   }
 
   Future<bool> confirm(ConfirmationRequest request) async {
-    if (!safeMode && request.risk != ToolRisk.destructive) {
-      return true;
-    }
+    final forceDestructive = request.risk == ToolRisk.destructive &&
+        (confirmDestructive || request.required);
+    if (!safeMode && !forceDestructive) return true;
     final handler = onConfirm;
     if (handler == null) return false;
-    return handler(request);
+    onWaitStart?.call();
+    try {
+      return await handler(request);
+    } finally {
+      onWaitEnd?.call();
+    }
   }
 
   void clearDedupe() {

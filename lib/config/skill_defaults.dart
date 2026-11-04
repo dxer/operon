@@ -103,7 +103,6 @@ class SkillDefaults {
       },
       policy: SkillPolicy(
         maxSteps: 8,
-        maxLlmCalls: 2,
         maxSideEffects: 0,
         maxItems: 1,
         // Two model calls can each take up to the 3-minute request budget.
@@ -167,7 +166,6 @@ class SkillDefaults {
       },
       policy: SkillPolicy(
         maxSteps: 6,
-        maxLlmCalls: 0,
         maxSideEffects: 0,
         maxItems: 50,
         maxDurationMs: 60000,
@@ -252,7 +250,6 @@ class SkillDefaults {
       },
       policy: SkillPolicy(
         maxSteps: 6,
-        maxLlmCalls: 1,
         maxSideEffects: 0,
         maxItems: 20,
         // Long enough for one slow extraction call plus the read step.
@@ -295,7 +292,6 @@ class SkillDefaults {
       },
       policy: SkillPolicy(
         maxSteps: 4,
-        maxLlmCalls: 0,
         maxSideEffects: 0,
         maxItems: 1,
         maxDurationMs: 60000,

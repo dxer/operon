@@ -1,4 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:operon/config/skill_authoring_mode.dart';
+import 'package:operon/config/skill_authoring_prompt.dart';
 import 'package:operon/models/llm_config.dart';
 import 'package:operon/models/skill.dart';
 import 'package:operon/services/llm_service.dart';
@@ -76,7 +78,6 @@ const _validDraft = '''
   ],
   "policy": {
     "maxSteps": 8,
-    "maxLlmCalls": 2,
     "maxSideEffects": 0,
     "maxItems": 20
   }
@@ -114,6 +115,19 @@ const _writeDraft = '''
 }
 ''';
 
+const _instructionDraft = '''
+{
+  "name": "回复推文",
+  "description": "回复当前推文",
+  "kind": "instruction",
+  "instructions": "找到推文下方的回复按钮，点击后填写 {{inputs.content}}，用 {{inputs.tone}} 的语气，最后点击发布。",
+  "inputs": [
+    {"key": "content", "label": "内容", "type": "multiline", "required": true}
+  ],
+  "hosts": ["x.com"]
+}
+''';
+
 void main() {
   test('valid model output becomes a runnable draft', () async {
     final fake = _FakeLlmService([_validDraft]);
@@ -123,6 +137,7 @@ void main() {
       description: '读取评论区并总结',
       config: _config,
       referencePage: false,
+      mode: SkillAuthoringMode.flow,
     );
 
     expect(result.ok, isTrue, reason: result.validation.repairHint);
@@ -139,6 +154,7 @@ void main() {
       description: '读取评论区并总结',
       config: _config,
       referencePage: false,
+      mode: SkillAuthoringMode.flow,
     );
 
     expect(result.ok, isTrue, reason: result.validation.repairHint);
@@ -153,6 +169,7 @@ void main() {
       description: '读取评论区并总结',
       config: _config,
       referencePage: false,
+      mode: SkillAuthoringMode.flow,
     );
 
     expect(result.ok, isTrue, reason: result.validation.repairHint);
@@ -168,6 +185,7 @@ void main() {
       config: _config,
       referencePage: false,
       allowWrites: false,
+      mode: SkillAuthoringMode.flow,
     );
 
     expect(result.ok, isFalse);
@@ -185,11 +203,15 @@ void main() {
       referencePage: false,
       allowWrites: true,
       restrictToCurrentHost: true,
+      mode: SkillAuthoringMode.flow,
     );
 
     expect(result.ok, isTrue, reason: result.validation.repairHint);
     expect(result.draft?.policy.confirmWrites, isTrue);
     expect(result.draft?.policy.confirmDestructive, isTrue);
+    // No reference page was read, so there is no host to pin; the weaker
+    // "stay on the starting site" scope is the fallback.
+    expect(result.draft?.policy.hostScope, SkillHostScope.currentHost);
   });
 
   test('AI modify never receives secret defaults or payloads', () async {
@@ -236,11 +258,48 @@ void main() {
       referencePage: false,
       allowWrites: true,
       baseSkill: base,
+      mode: SkillAuthoringMode.flow,
     );
 
     final sent = fake.calls.first.map((item) => item['content']).join('\n');
     expect(sent, isNot(contains('super-secret-value')));
     expect(sent, contains('••••••'));
+  });
+
+  test('instruction prompt asks for a prompt, not a step list', () {
+    final prompt = SkillAuthoringPrompt.system(
+      allowWrites: true,
+      mode: SkillAuthoringMode.instruction,
+      currentHost: 'x.com',
+    );
+    expect(prompt, contains('提示词技能作者'));
+    expect(prompt, contains('不要输出 steps'));
+    expect(prompt, isNot(contains('可用工具')));
+  });
+
+  test('instruction mode produces a prompt skill without steps', () async {
+    final fake = _FakeLlmService([_instructionDraft]);
+    final service = SkillAuthoringService(llmService: fake);
+
+    final result = await service.generate(
+      description: '回复当前推文',
+      config: _config,
+      referencePage: false,
+      mode: SkillAuthoringMode.instruction,
+    );
+
+    expect(result.ok, isTrue, reason: result.validation.repairHint);
+    expect(result.draft?.kind, SkillKind.instruction);
+    expect(result.draft?.steps, isEmpty);
+    expect(result.draft?.instructions, contains('回复按钮'));
+    expect(result.draft?.policy.hostScope, SkillHostScope.list);
+    expect(result.draft?.policy.allowedHosts, ['x.com']);
+    // The prompt references `tone` but never declares it; the service fills it
+    // in so the placeholder cannot render as an empty string.
+    expect(
+      result.draft?.inputs.map((input) => input.key),
+      ['content', 'tone'],
+    );
   });
 
   test('invalid config fails fast without calling the model', () async {

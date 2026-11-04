@@ -345,6 +345,13 @@ class _SkillRunSheetState extends State<SkillRunSheet> {
             _permissionSummary,
             style: TextStyle(fontSize: 10.5, color: muted),
           ),
+          if (widget.skill.isInstruction) ...[
+            const SizedBox(height: 2),
+            Text(
+              '元素由 Agent 在运行时定位；写入前会再次确认。',
+              style: TextStyle(fontSize: 10.5, color: muted),
+            ),
+          ],
           const SizedBox(height: 10),
           Flexible(
             child: SingleChildScrollView(
@@ -537,7 +544,7 @@ class _SkillRunSheetState extends State<SkillRunSheet> {
                     foregroundColor: Colors.white,
                   ),
                   child: Text(
-                    widget.skill.isFlow ? '开始执行' : '填入输入框',
+                    widget.skill.isFlow ? '开始执行' : '运行',
                   ),
                 ),
               ),

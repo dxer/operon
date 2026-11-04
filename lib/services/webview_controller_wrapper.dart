@@ -157,6 +157,30 @@ class WebViewControllerWrapper {
     }
   }
 
+  /// Resolves the replayable locator chain of an element the agent just used.
+  ///
+  /// Returns null when the element is gone or the page cannot answer; the
+  /// caller must then skip recording rather than invent a selector.
+  Future<Map<String, dynamic>?> getElementLocator(int elementId) async {
+    try {
+      await ensureScriptInjected();
+      final result = await controller
+          .evaluateJavascript(
+            source: 'window.OPERON.getElementLocator($elementId);',
+          )
+          .timeout(const Duration(seconds: 3));
+      if (result == null) return null;
+      final decoded = result is String ? jsonDecode(result) : result;
+      if (decoded is! Map) return null;
+      final map = Map<String, dynamic>.from(decoded);
+      if (map['ok'] != true || map['locator'] is! Map) return null;
+      return map;
+    } catch (e) {
+      debugPrint('[WebView] getElementLocator failed: $e');
+      return null;
+    }
+  }
+
   /// Waits dynamically until DOM mutations cease (stable rendering)
   Future<bool> waitForDomStable({int timeoutMs = 2500}) async {
     try {

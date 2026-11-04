@@ -29,7 +29,6 @@ class ToolContext {
   final ExecutionGuard guard;
   final CancellationToken token;
   final bool confirmWrites;
-  final bool confirmDestructive;
   final bool uniqueTarget;
   final bool uniqueContent;
   final Future<void> Function(String title, String markdown)? onShow;
@@ -42,7 +41,6 @@ class ToolContext {
     required this.guard,
     required this.token,
     this.confirmWrites = true,
-    this.confirmDestructive = true,
     this.uniqueTarget = false,
     this.uniqueContent = false,
     this.onShow,
@@ -506,7 +504,9 @@ class ToolRegistry {
       return ToolResult.failure('DUPLICATE_TARGET', '这个目标已经处理过了');
     }
 
-    if (sensitive || context.confirmWrites) {
+    // Typing is local and reversible; only a submit (Enter) or a credential
+    // field is a terminal write worth interrupting the user for.
+    if (submit || sensitive) {
       final confirmed = await context.guard.confirm(ConfirmationRequest(
         title: submit ? '确认输入并提交' : '确认输入',
         reason: reason.isEmpty ? '将向页面输入文本' : reason,
@@ -603,10 +603,12 @@ class ToolRegistry {
       ));
     }
 
-    if (context.confirmWrites) {
+    // Enter is the only key that can submit, so it is the only one worth a
+    // confirmation; Tab/Escape/arrows are navigation.
+    if (key.toLowerCase() == 'enter') {
       final confirmed = await context.guard.confirm(ConfirmationRequest(
         title: '确认按键',
-        reason: '将向页面发送按键',
+        reason: '将向页面发送回车，可能提交表单',
         target: key,
         url: await context.webView.getUrl(),
       ));
@@ -658,17 +660,7 @@ class ToolRegistry {
       );
     }
     final elementId = _int(resolved['elementId'], 0);
-    if (context.confirmWrites) {
-      final confirmed = await context.guard.confirm(ConfirmationRequest(
-        title: '确认选择',
-        reason: '将修改下拉选项',
-        target: params['value']?.toString() ?? '',
-        url: await context.webView.getUrl(),
-      ));
-      if (!confirmed) {
-        return ToolResult.failure('CONFIRMATION_DENIED', '用户取消了选择');
-      }
-    }
+    // Selecting an option is a local form edit; the submit is a separate step.
     final currentUrl = await context.webView.getUrl();
     final before = await context.webView.tryGetPageSignature();
     final result = await context.webView.executeAction(AgentAction(
@@ -1011,6 +1003,7 @@ class ToolRegistry {
       url: currentUrl,
       // Replay bypasses per-step risk checks, so always require a human.
       risk: ToolRisk.destructive,
+      required: true,
     ));
     if (!confirmed) {
       return ToolResult.failure('CONFIRMATION_DENIED', '用户取消了宏回放');

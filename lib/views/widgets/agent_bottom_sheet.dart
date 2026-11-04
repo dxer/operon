@@ -15,7 +15,6 @@ import '../../services/skill_validator.dart';
 import '../../utils/agent_text.dart';
 import '../../utils/skill_template.dart';
 import '../../utils/url_utils.dart';
-import '../settings/skill_editor_page.dart';
 import 'agent_confirmation_card.dart';
 import 'elapsed_label.dart';
 import 'macro_dialog.dart';
@@ -265,22 +264,25 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
       if (!mounted || request == null) return;
     }
 
-    if (skill.isFlow) {
-      final run = widget.onRunSkill;
-      if (run == null) return;
-      final flowRequest = request ??
+    // A tap is the primary mobile interaction: run the skill directly instead
+    // of filling the composer and making the user press send again.
+    final run = widget.onRunSkill;
+    if (run != null) {
+      final effective = request ??
           SkillRunRequest(
             skill: skill,
             values: {
               for (final input in skill.inputs) input.key: input.defaultValue,
             },
-            execute: true,
+            execute: skill.isFlow,
           );
       Navigator.of(context).pop();
-      await run(flowRequest);
+      await run(effective);
       return;
     }
 
+    // Fallback for hosts that only provide the composer.
+    if (skill.isFlow) return;
     final values = request?.values ??
         {for (final input in skill.inputs) input.key: input.defaultValue};
     final prompt = SkillTemplate.renderString(
@@ -478,26 +480,60 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
     titleController.dispose();
   }
 
-  /// Saves the finished task as an editable skill. Recorded actions become a
-  /// deterministic flow; read-only tasks fall back to an instruction skill.
+  /// Saves the finished task as a skill. The goal becomes the prompt; a
+  /// recorded flow is offered only when the task actually performed a write,
+  /// because replaying navigation alone does not accomplish anything.
   Future<void> _saveTaskAsSkill() async {
     final state = widget.state;
+    final canReplay = SkillFromTask.canReplayFlow(state.recordedMacroSteps);
+    var preferFlow = false;
+    if (canReplay) {
+      final choice = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('保存为技能'),
+          content: const Text(
+            '这次操作可以存成两种技能：\n\n'
+            '· 提示词技能：每次由 AI 重新识别元素，页面改版也能用。\n'
+            '· 固定流程：按这次的操作重放，更快，但页面改版可能失效。',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('提示词技能'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('固定流程'),
+            ),
+          ],
+        ),
+      );
+      if (choice == null || !mounted) return;
+      preferFlow = choice;
+    }
     final draft = SkillFromTask.draftFor(
       goal: state.goal,
       steps: state.recordedMacroSteps,
       url: state.targetUrl ?? widget.currentUrl ?? '',
+      preferFlow: preferFlow,
     );
-    final saved = await Navigator.of(context).push<Skill>(
-      MaterialPageRoute(builder: (_) => SkillEditPage(draft: draft)),
+
+    // No editing form on the happy path: save the draft and let the user edit
+    // later from the skills list.
+    final service = await SkillService.getInstance();
+    final skill = draft.toSkill(
+      id: 'skill_${DateTime.now().millisecondsSinceEpoch}',
+      origin: SkillOrigin.recorded,
     );
-    if (saved != null && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('已保存为技能，可在「设置 → 技能」继续调整'),
-          backgroundColor: AppTheme.accent,
-        ),
-      );
-    }
+    await service.saveSkill(skill);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('已保存为技能，可在技能面板直接使用'),
+        backgroundColor: AppTheme.accent,
+      ),
+    );
   }
 
   /// Never show typed text (passwords, drafts) in the authorization banner.
@@ -1103,21 +1139,59 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
     );
   }
 
+  /// Site-specific skills for the current page come first, then general
+  /// skills, then skills for other sites. Nothing is hidden: a skill the user
+  /// saved elsewhere stays reachable.
+  List<Skill> get _orderedSkills {
+    final host = _pageHost;
+    final matched = <Skill>[];
+    final general = <Skill>[];
+    final other = <Skill>[];
+    for (final skill in _skills) {
+      // A scope without recorded hosts is not a restriction; it belongs with
+      // the general skills rather than under "other sites".
+      if (!skill.policy.isSiteScoped) {
+        general.add(skill);
+      } else if (skill.matchesHost(host)) {
+        matched.add(skill);
+      } else {
+        other.add(skill);
+      }
+    }
+    return [...matched, ...general, ...other];
+  }
+
   Widget _buildSkillStrip({
     required Color surface,
     required Color hairline,
     required Color muted,
   }) {
     Widget chipFor(Skill skill) {
-      return ActionChip(
+      final hosts = skill.policy.allowedHosts;
+      final usable = skill.allowsHost(_pageHost);
+      final tooltip = hosts.isEmpty
+          ? '通用技能'
+          : (usable
+              ? '仅限 ${hosts.join('、')}'
+              : '只能在 ${hosts.join('、')} 运行');
+      // A skill scoped to another site stays visible but cannot be tapped:
+      // failing after the tap is worse than showing why up front.
+      final chip = ActionChip(
         avatar: Icon(
-          skill.isFlow ? Icons.account_tree_outlined : Icons.auto_awesome,
+          usable
+              ? (skill.isFlow
+                  ? Icons.account_tree_outlined
+                  : Icons.auto_awesome)
+              : Icons.lock_outline,
           size: 14,
-          color: AppTheme.primary,
+          color: usable ? AppTheme.primary : muted,
         ),
         label: Text(
           skill.name,
-          style: TextStyle(fontSize: 11, color: muted),
+          style: TextStyle(
+            fontSize: 11,
+            color: usable ? muted : muted.withValues(alpha: 0.55),
+          ),
         ),
         labelPadding: const EdgeInsets.symmetric(horizontal: 2),
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
@@ -1125,17 +1199,19 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
         materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
         backgroundColor: surface,
         side: BorderSide(color: hairline),
-        onPressed: () => _applySkill(skill),
+        onPressed: usable ? () => _applySkill(skill) : null,
       );
+      return Tooltip(message: tooltip, child: chip);
     }
 
+    final ordered = _orderedSkills;
     // A handful of skills fits cleanly on wrapped rows. Only fall back to a
     // scrolling strip when the list is long enough to need it.
-    if (_skills.length <= 4) {
+    if (ordered.length <= 4) {
       return Wrap(
         spacing: 6,
         runSpacing: 6,
-        children: _skills.map(chipFor).toList(),
+        children: ordered.map(chipFor).toList(),
       );
     }
 
@@ -1143,7 +1219,7 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
       scrollDirection: Axis.horizontal,
       padding: const EdgeInsets.only(right: 16),
       child: Row(
-        children: _skills
+        children: ordered
             .map((skill) => Padding(
                   padding: const EdgeInsets.only(right: 6),
                   child: chipFor(skill),

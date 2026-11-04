@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:operon/models/macro_workflow.dart';
+import 'package:operon/models/skill.dart';
 import 'package:operon/services/skill_from_macro.dart';
 import 'package:operon/services/skill_validator.dart';
 
@@ -76,6 +77,27 @@ void main() {
     final candidate = (locator['candidates'] as List).first as Map;
     expect(candidate['type'], 'xpath');
     expect(candidate['value'], contains('button'));
+  });
+
+  test('recorded writes are scoped to the recorded host', () {
+    final macro = MacroWorkflow(
+      id: 'm4',
+      title: '回复推文',
+      initialUrl: 'https://www.x.com/home',
+      createdAt: DateTime(2026, 1, 1),
+      steps: const [
+        MacroStep(
+          action: 'click',
+          selector: '[data-testid="reply"]',
+          description: '点击回复',
+        ),
+      ],
+    );
+
+    final draft = SkillFromMacro.fromMacro(macro);
+    expect(draft, isNotNull);
+    expect(draft!.policy.hostScope, SkillHostScope.list);
+    expect(draft.policy.allowedHosts, ['x.com']);
   });
 
   test('empty macro returns null', () {

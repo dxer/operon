@@ -7,10 +7,12 @@ import '../../config/app_theme.dart';
 import '../../config/tool_catalog.dart';
 import '../../models/llm_config.dart';
 import '../../models/skill.dart';
+import '../../services/skill_package_codec.dart';
 import '../../services/skill_service.dart';
 import '../../services/skill_validator.dart';
 import '../../services/webview_controller_wrapper.dart';
 import '../widgets/skill_ai_create_sheet.dart';
+import '../widgets/skill_recording_sheet.dart';
 import '../widgets/skill_run_sheet.dart';
 import 'skill_editor_page.dart';
 import 'skill_runs_page.dart';
@@ -19,12 +21,14 @@ class SkillsPage extends StatefulWidget {
   final LlmConfig? config;
   final WebViewControllerWrapper? webView;
   final Future<void> Function(SkillRunRequest request)? onRun;
+  final bool Function()? canStartRun;
 
   const SkillsPage({
     super.key,
     this.config,
     this.webView,
     this.onRun,
+    this.canStartRun,
   });
 
   @override
@@ -103,6 +107,8 @@ class _SkillsPageState extends State<SkillsPage> {
       );
       return;
     }
+    // Prompt skills do not need the page, so an active agent run only blocks
+    // the separate recording path.
     final skill = await showModalBottomSheet<Skill>(
       context: context,
       isScrollControlled: true,
@@ -110,6 +116,30 @@ class _SkillsPageState extends State<SkillsPage> {
       builder: (_) => SkillAuthoringSheet(
         config: config,
         webView: widget.webView,
+      ),
+    );
+    if (skill != null) await _load();
+  }
+
+  Future<void> _recordSkill() async {
+    final config = widget.config;
+    if (config == null || !config.isValid) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('请先在 AI 引擎设置中配置有效的大模型 API Key'),
+          backgroundColor: AppTheme.danger,
+        ),
+      );
+      return;
+    }
+    final skill = await showModalBottomSheet<Skill>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => SkillRecordingSheet(
+        config: config,
+        webView: widget.webView,
+        canStartRun: widget.canStartRun,
       ),
     );
     if (skill != null) await _load();
@@ -162,14 +192,24 @@ class _SkillsPageState extends State<SkillsPage> {
   }
 
   Future<void> _exportAll() async {
+    final packages = _service!.exportPackages();
     final payload = const JsonEncoder.withIndent('  ').convert({
       'schemaVersion': 1,
-      'skills': _skills.map((skill) => skill.toJson()).toList(),
+      'kind': 'operon-skill-packages',
+      'packages': packages
+          .map(
+            (files) => {
+              if (files.id != null) 'id': files.id,
+              'markdown': files.markdown,
+              if (files.flowJson != null) 'flow': files.flowJson,
+            },
+          )
+          .toList(),
     });
     await Clipboard.setData(ClipboardData(text: payload));
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('已复制 ${_skills.length} 个技能到剪贴板')),
+        SnackBar(content: Text('已复制 ${packages.length} 个技能包到剪贴板')),
       );
     }
   }
@@ -180,10 +220,28 @@ class _SkillsPageState extends State<SkillsPage> {
     final text = data?.text?.trim() ?? '';
     if (text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('剪贴板里没有技能 JSON')),
+        const SnackBar(content: Text('剪贴板里没有技能包')),
       );
       return;
     }
+
+    // A raw SKILL.md can be pasted directly.
+    if (text.startsWith('---')) {
+      final errors = await _service!.importPackages(
+        [SkillPackageFiles(markdown: text)],
+      );
+      await _load();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            errors.isEmpty ? '已导入 1 个技能包' : '导入失败：${errors.first}',
+          ),
+        ),
+      );
+      return;
+    }
+
     dynamic decoded;
     try {
       decoded = jsonDecode(text);
@@ -194,6 +252,26 @@ class _SkillsPageState extends State<SkillsPage> {
       );
       return;
     }
+
+    final packages = _packagesFromJson(decoded);
+    if (packages != null) {
+      final errors = await _service!.importPackages(packages);
+      await _load();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            errors.isEmpty
+                ? '已导入 ${packages.length} 个技能包'
+                : '已导入 ${packages.length - errors.length} 个，'
+                    '跳过 ${errors.length} 个',
+          ),
+        ),
+      );
+      return;
+    }
+
+    // Backward compatibility: the previous flat skill JSON export.
     final rawList = decoded is Map && decoded['skills'] is List
         ? decoded['skills'] as List
         : (decoded is List ? decoded : [decoded]);
@@ -231,6 +309,35 @@ class _SkillsPageState extends State<SkillsPage> {
         ),
       ),
     );
+  }
+
+  List<SkillPackageFiles>? _packagesFromJson(dynamic decoded) {
+    if (decoded is! Map) return null;
+    final rawPackages = decoded['packages'];
+    if (rawPackages is List) {
+      final files = <SkillPackageFiles>[];
+      for (final raw in rawPackages) {
+        if (raw is! Map) continue;
+        final markdown = raw['markdown']?.toString() ?? '';
+        if (markdown.trim().isEmpty) continue;
+        files.add(SkillPackageFiles(
+          markdown: markdown,
+          flowJson: raw['flow']?.toString(),
+          id: raw['id']?.toString(),
+        ));
+      }
+      return files.isEmpty ? null : files;
+    }
+    if (decoded['markdown'] is String) {
+      return [
+        SkillPackageFiles(
+          markdown: decoded['markdown'].toString(),
+          flowJson: decoded['flow']?.toString(),
+          id: decoded['id']?.toString(),
+        ),
+      ];
+    }
+    return null;
   }
 
   Future<void> _run(Skill skill) async {
@@ -289,8 +396,9 @@ class _SkillsPageState extends State<SkillsPage> {
             onPressed: _loading ? null : () => _edit(),
           ),
           PopupMenuButton<String>(
-            tooltip: '导入导出',
+            tooltip: '更多',
             onSelected: (value) {
+              if (value == 'record') _recordSkill();
               if (value == 'export') _exportAll();
               if (value == 'import') _importFromClipboard();
               if (value == 'runs') {
@@ -300,6 +408,8 @@ class _SkillsPageState extends State<SkillsPage> {
               }
             },
             itemBuilder: (_) => const [
+              PopupMenuItem(value: 'record', child: Text('录制操作流程')),
+              PopupMenuDivider(),
               PopupMenuItem(value: 'export', child: Text('导出全部到剪贴板')),
               PopupMenuItem(value: 'import', child: Text('从剪贴板导入')),
               PopupMenuItem(value: 'runs', child: Text('运行记录')),

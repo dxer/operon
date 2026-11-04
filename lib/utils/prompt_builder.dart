@@ -14,13 +14,17 @@ class PromptBuilder {
     int? maxSteps,
     dynamic extractedData,
     List<String> sentContents = const [],
+    String? extraSystemRules,
   }) {
     final messages = <Map<String, String>>[];
 
     // 1. System Prompt
+    final system = (extraSystemRules == null || extraSystemRules.trim().isEmpty)
+        ? AppConstants.agentSystemPrompt
+        : '${AppConstants.agentSystemPrompt}\n\n$extraSystemRules';
     messages.add({
       'role': 'system',
-      'content': AppConstants.agentSystemPrompt,
+      'content': system,
     });
 
     // 2. Build history summary (only actions taken, omitting past DOM trees).

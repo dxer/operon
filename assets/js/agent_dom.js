@@ -1,5 +1,5 @@
 /**
- * Operon Universal Agent DOM Engine (v0.2.2)
+ * Operon Universal Agent DOM Engine (v0.2.3)
  * - Stealth Anti-Bot Fingerprint Masking
  * - Ghost Cursor & Human-like Touch Ripple Animation
  * - Deep Shadow DOM & IFrame Traversal
@@ -8,7 +8,7 @@
  * - Dynamic MutationObserver DOM Settle Detection
  */
 (function () {
-  if (window.OPERON && window.OPERON.version === '0.2.2') {
+  if (window.OPERON && window.OPERON.version === '0.2.3') {
     return;
   }
 
@@ -821,6 +821,61 @@
     };
   }
 
+  /**
+   * Builds a replayable locator for a concrete element.
+   *
+   * The picker keeps the element fingerprint, which pins the exact node.
+   * Skill recording uses `pinIndex`: the fingerprint is dropped (it contains
+   * surrounding text and would not survive a different feed item) and the
+   * element's stable index in the candidate chain is recorded instead.
+   * Locators always come from real DOM elements; the model never writes them.
+   */
+  function buildLocatorWithIndex(el, pinIndex) {
+    const locator = buildLocatorForElement(el);
+    const matches = [];
+    locatorRoots(locator.scope).forEach(root => {
+      findLocatorElements(locator, root).entries.forEach(entry => {
+        if (entry.el && entry.el.isConnected !== false &&
+            isRendered(entry.el) && isVisible(entry.el)) {
+          matches.push(entry);
+        }
+      });
+    });
+    matches.sort((a, b) => {
+      if (a.rank !== b.rank) return a.rank - b.rank;
+      return ((a.el.innerText || '').length) - ((b.el.innerText || '').length);
+    });
+
+    let matched = true;
+    if (pinIndex) {
+      delete locator.fingerprint;
+      const index = matches.findIndex(item => item.el === el);
+      matched = index >= 0;
+      if (index > 0) locator.nth = index;
+      locator.requireUnique = matches.length <= 1;
+    } else {
+      // The fingerprint resolves the picked element on replay.
+      locator.requireUnique = true;
+    }
+
+    let disabled = false;
+    try {
+      disabled = el.disabled === true ||
+        (el.getAttribute && el.getAttribute('aria-disabled') === 'true');
+    } catch (_) {}
+
+    return {
+      locator: locator,
+      count: matches.length,
+      matched: matched,
+      label: getElementLabel(el),
+      tag: (el.tagName || '').toUpperCase(),
+      fingerprint: elementFingerprint(el),
+      visible: isVisible(el),
+      disabled: disabled
+    };
+  }
+
   function candidateElements(candidate, root) {
     const type = (candidate.type || '').toLowerCase();
     if (type === 'css') {
@@ -1221,7 +1276,7 @@
   // 6. Main Operon Engine Definition
   // ==========================================
   const engine = {
-    version: '0.2.2',
+    version: '0.2.3',
 
     detectCaptcha: detectCaptchaChallenge,
 
@@ -2286,39 +2341,14 @@
         }
 
         function buildPickedLocator(el) {
-          const locator = buildLocatorForElement(el);
-          const resolved = resolveLocatorInternal(
-            Object.assign({}, locator, { requireUnique: false }),
-            false
-          );
-          if (resolved.found && resolved.count > 1) {
-            const selected = resolved.element;
-            const matches = [];
-            const roots = locatorRoots(locator.scope);
-            roots.forEach(root => {
-              findLocatorElements(locator, root).entries.forEach(entry => {
-                if (entry.el && entry.el.isConnected !== false &&
-                    isRendered(entry.el) && isVisible(entry.el)) {
-                  matches.push(entry);
-                }
-              });
-            });
-            matches.sort((a, b) => {
-              if (a.rank !== b.rank) return a.rank - b.rank;
-              return ((a.el.innerText || '').length) -
-                ((b.el.innerText || '').length);
-            });
-            const index = matches.findIndex(item => item.el === selected);
-            if (index > 0) locator.nth = index;
-          }
-          locator.requireUnique = resolved.count <= 1;
+          const packaged = buildLocatorWithIndex(el, false);
           return {
             ok: true,
-            locator: locator,
-            count: resolved.count,
-            label: resolved.label || getElementLabel(el),
-            tag: (el.tagName || '').toUpperCase(),
-            fingerprint: elementFingerprint(el)
+            locator: packaged.locator,
+            count: packaged.count,
+            label: packaged.label,
+            tag: packaged.tag,
+            fingerprint: packaged.fingerprint
           };
         }
 
@@ -2342,6 +2372,42 @@
           finish({ ok: false, error: 'PICK_TIMEOUT' });
         }, Math.max(5000, parseInt(timeoutMs, 10) || 60000));
       });
+    },
+
+    /**
+     * Returns the replayable locator chain for an Operon element id. Used by
+     * the skill creator to record anchors from real executed actions instead
+     * of asking the model to invent CSS selectors.
+     */
+    getElementLocator: function (elementId) {
+      try {
+        const el = elementsMap.get(String(elementId)) ||
+          document.querySelector(`[data-operon-id="${elementId}"]`) ||
+          document.querySelector(`[data-bbx-id="${elementId}"]`);
+        if (!el || el.isConnected === false) {
+          return JSON.stringify({ ok: false, error: 'ELEMENT_NOT_FOUND' });
+        }
+        const packaged = buildLocatorWithIndex(el, true);
+        if (!packaged.count || !packaged.matched) {
+          return JSON.stringify({
+            ok: false,
+            error: 'LOCATOR_UNRESOLVED',
+            label: packaged.label
+          });
+        }
+        return JSON.stringify({
+          ok: true,
+          locator: packaged.locator,
+          count: packaged.count,
+          label: packaged.label,
+          tag: packaged.tag,
+          fingerprint: packaged.fingerprint,
+          visible: packaged.visible,
+          disabled: packaged.disabled
+        });
+      } catch (e) {
+        return JSON.stringify({ ok: false, error: String(e) });
+      }
     },
 
     interactiveSummary: function (maxItems = 60) {
@@ -2654,12 +2720,35 @@
         reason = '高危操作按钮';
       }
 
+      // The clicked node is often an inner span/svg. The closest actionable
+      // ancestor tells the creator whether this is a real control (and lets a
+      // long article/tweet body avoid being mistaken for a submit button).
+      let controlEl = null;
+      try {
+        controlEl = el.closest
+          ? el.closest('button,[role="button"],[role="menuitem"],' +
+              'input[type="submit"],input[type="button"]')
+          : null;
+      } catch (_) {}
+      const controlTag = controlEl
+        ? (controlEl.tagName || '').toUpperCase()
+        : '';
+      const controlRole = controlEl
+        ? ((controlEl.getAttribute &&
+            controlEl.getAttribute('role')) || '').toLowerCase()
+        : '';
+      const controlText = controlEl ? safeTargetText(controlEl, 60) : '';
+
       const context = getElementContext(el);
       return JSON.stringify({
         found: true,
         sensitive: !!reason,
         reason: reason,
         tag: tag,
+        role: ((el.getAttribute && el.getAttribute('role')) || '').toLowerCase(),
+        controlTag: controlTag,
+        controlRole: controlRole,
+        controlText: controlText,
         type: type,
         text: text.slice(0, 60),
         contextKey: context.contextKey,
@@ -2694,5 +2783,5 @@
   };
 
   window.OPERON = window.BBX_AGENT = engine;
-  console.log('[Operon] Universal Agent Engine v0.2.2 Injected.');
+  console.log('[Operon] Universal Agent Engine v0.2.3 Injected.');
 })();

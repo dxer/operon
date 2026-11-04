@@ -205,6 +205,7 @@ class _BrowserPageState extends State<BrowserPage> {
         builder: (_) => SkillsPage(
           config: _storage?.getLlmConfig() ?? LlmConfig.defaultConfig(),
           webView: _wrapper,
+          canStartRun: () => !_runCoordinator.isBusy,
           onRun: (request) async {
             Navigator.of(context).pop();
             await _runSkill(request);
@@ -868,6 +869,26 @@ class _BrowserPageState extends State<BrowserPage> {
   Future<void> _runSkill(SkillRunRequest request) async {
     final wrapper = _wrapper;
     if (wrapper == null) return;
+    // A site-scoped skill must not silently operate on another site. This
+    // covers both instruction runs (AgentRunner) and flow runs (SkillRunner).
+    final policy = request.skill.policy;
+    if (policy.isSiteScoped) {
+      final currentHost = hostOf(await wrapper.getUrl());
+      if (!request.skill.allowsHost(currentHost)) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                '「${request.skill.name}」只能在 '
+                '${policy.allowedHosts.join('、')} 运行',
+              ),
+            ),
+          );
+        }
+        return;
+      }
+      if (!mounted) return;
+    }
     if (!request.execute) {
       final prompt = SkillTemplate.renderString(
         request.skill.instructions,

@@ -36,7 +36,6 @@ class _SkillEditPageState extends State<SkillEditPage> {
   late final TextEditingController _description;
   late final TextEditingController _instructions;
   late final TextEditingController _maxSteps;
-  late final TextEditingController _maxLlmCalls;
   late final TextEditingController _maxSideEffects;
   late final TextEditingController _maxItems;
   late final TextEditingController _maxDuration;
@@ -52,6 +51,7 @@ class _SkillEditPageState extends State<SkillEditPage> {
   late bool _uniqueContent;
   late bool _confirmWrites;
   late bool _confirmDestructive;
+  bool _advanced = false;
   bool _saving = false;
   bool _aiBusy = false;
 
@@ -69,14 +69,13 @@ class _SkillEditPageState extends State<SkillEditPage> {
     _instructions = TextEditingController(
       text: source?.instructions ?? draft?.instructions ?? '',
     );
-    _kind = source?.kind ?? draft?.kind ?? SkillKind.flow;
+    _kind = source?.kind ?? draft?.kind ?? SkillKind.instruction;
     _inputs =
         List<SkillInput>.from(source?.inputs ?? draft?.inputs ?? const []);
     _steps = List<SkillStep>.from(source?.steps ?? draft?.steps ?? const []);
 
     final policy = source?.policy ?? draft?.policy ?? const SkillPolicy();
     _maxSteps = TextEditingController(text: '${policy.maxSteps}');
-    _maxLlmCalls = TextEditingController(text: '${policy.maxLlmCalls}');
     _maxSideEffects = TextEditingController(text: '${policy.maxSideEffects}');
     _maxItems = TextEditingController(text: '${policy.maxItems}');
     _maxDuration = TextEditingController(text: '${policy.maxDurationMs}');
@@ -99,7 +98,6 @@ class _SkillEditPageState extends State<SkillEditPage> {
     _description.dispose();
     _instructions.dispose();
     _maxSteps.dispose();
-    _maxLlmCalls.dispose();
     _maxSideEffects.dispose();
     _maxItems.dispose();
     _maxDuration.dispose();
@@ -125,8 +123,7 @@ class _SkillEditPageState extends State<SkillEditPage> {
       steps: _steps,
       output: _parseOutput(),
       policy: SkillPolicy(
-        maxSteps: _int(_maxSteps.text, 30),
-        maxLlmCalls: _int(_maxLlmCalls.text, 10),
+        maxSteps: _int(_maxSteps.text, 40),
         maxSideEffects: _int(_maxSideEffects.text, 10),
         maxItems: _int(_maxItems.text, 1),
         maxDurationMs: _int(_maxDuration.text, 300000),
@@ -176,7 +173,6 @@ class _SkillEditPageState extends State<SkillEditPage> {
       _instructions.text = draft.instructions;
       final policy = draft.policy;
       _maxSteps.text = '${policy.maxSteps}';
-      _maxLlmCalls.text = '${policy.maxLlmCalls}';
       _maxSideEffects.text = '${policy.maxSideEffects}';
       _maxItems.text = '${policy.maxItems}';
       _maxDuration.text = '${policy.maxDurationMs}';
@@ -446,44 +442,70 @@ class _SkillEditPageState extends State<SkillEditPage> {
             ),
           ),
           const SizedBox(height: 10),
-          DropdownButtonFormField<SkillKind>(
-            key: ValueKey(_kind),
-            initialValue: _kind,
+          TextField(
+            controller: _instructions,
+            minLines: 5,
+            maxLines: 14,
             decoration: const InputDecoration(
-              labelText: '类型',
+              labelText: '提示词 / 指令',
+              alignLabelWithHint: true,
               border: OutlineInputBorder(),
-              isDense: true,
             ),
-            items: SkillKind.values
-                .map((kind) => DropdownMenuItem(
-                      value: kind,
-                      child: Text(
-                        kind == SkillKind.flow
-                            ? '流程型（固定步骤，省钱稳定）'
-                            : '指令型（交给 Agent 自主执行）',
-                        style: const TextStyle(fontSize: 12.5),
-                      ),
-                    ))
-                .toList(),
-            onChanged: (value) {
-              if (value != null) setState(() => _kind = value);
-            },
           ),
-          if (_kind == SkillKind.instruction) ...[
-            const SizedBox(height: 10),
-            TextField(
-              controller: _instructions,
-              minLines: 5,
-              maxLines: 12,
-              decoration: const InputDecoration(
-                labelText: '指令 / 提示词',
-                alignLabelWithHint: true,
-                border: OutlineInputBorder(),
+          if (_kind == SkillKind.instruction)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(
+                '用 {{inputs.名称}} 引用运行时的输入；点击、输入等元素由 Agent 运行时定位。',
+                style: TextStyle(fontSize: 10.5, height: 1.4, color: muted),
               ),
             ),
-          ],
-          const SizedBox(height: 16),
-          _sectionTitle('输入参数', muted),
+          const SizedBox(height: 4),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            dense: true,
+            title: const Text('高级设置', style: TextStyle(fontSize: 12.5)),
+            subtitle: const Text(
+              '类型、输入参数、执行步骤、预算与站点范围',
+              style: TextStyle(fontSize: 10),
+            ),
+            value: _advanced,
+            onChanged: (value) => setState(() => _advanced = value),
+          ),
+          if (_advanced) ..._advancedSections(isDark, muted),
+        ],
+      ),
+    );
+  }
+
+  List<Widget> _advancedSections(bool isDark, Color muted) {
+    return [
+      const SizedBox(height: 4),
+      DropdownButtonFormField<SkillKind>(
+        key: ValueKey(_kind),
+        initialValue: _kind,
+        decoration: const InputDecoration(
+          labelText: '类型',
+          border: OutlineInputBorder(),
+          isDense: true,
+        ),
+        items: SkillKind.values
+            .map((kind) => DropdownMenuItem(
+                  value: kind,
+                  child: Text(
+                    kind == SkillKind.flow
+                        ? '流程型（固定步骤，省钱稳定）'
+                        : '指令型（交给 Agent 自主执行）',
+                    style: const TextStyle(fontSize: 12.5),
+                  ),
+                ))
+            .toList(),
+        onChanged: (value) {
+          if (value != null) setState(() => _kind = value);
+        },
+      ),
+      const SizedBox(height: 16),
+      _sectionTitle('输入参数', muted),
           ..._inputs.asMap().entries.map((entry) {
             final input = entry.value;
             return Card(
@@ -612,7 +634,6 @@ class _SkillEditPageState extends State<SkillEditPage> {
             runSpacing: 10,
             children: [
               _numberField(_maxSteps, '最大步数'),
-              _numberField(_maxLlmCalls, 'AI 调用上限'),
               _numberField(_maxSideEffects, '写入上限'),
               if (_kind == SkillKind.instruction)
                 _numberField(_maxItems, '批量上限'),
@@ -707,9 +728,7 @@ class _SkillEditPageState extends State<SkillEditPage> {
             _permissionPreview(),
             style: TextStyle(fontSize: 11.5, height: 1.5, color: muted),
           ),
-        ],
-      ),
-    );
+    ];
   }
 
   String _permissionPreview() {
