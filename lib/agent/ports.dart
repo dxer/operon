@@ -78,6 +78,7 @@ class ConfirmRequest {
     required this.reason,
     this.payload,
     this.destructive = false,
+    this.handoff = false,
   });
 
   final String title;
@@ -88,6 +89,10 @@ class ConfirmRequest {
 
   /// True for payments, deletions and credential entry: those always ask.
   final bool destructive;
+
+  /// The user does this step themselves; there is no button that lets the agent
+  /// do it.
+  final bool handoff;
 }
 
 /// A step only a person can take: solving a challenge, or answering a question

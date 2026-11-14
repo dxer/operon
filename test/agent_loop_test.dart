@@ -5,6 +5,7 @@ import 'package:operon/agent/tools.dart';
 import 'package:operon/control/perception/captcha.dart';
 import 'package:operon/control/protocol/errors.dart';
 import 'package:operon/control/protocol/results.dart';
+import 'package:operon/models/agent_attachment.dart';
 
 /// A model with a script: one reply per call, in order.
 class ScriptedLlm implements LlmPort {
@@ -112,6 +113,9 @@ AgentLoop loop({
   FakeHost? host,
   bool safeMode = true,
   bool Function(String)? isSiteAllowed,
+  bool Function(String)? isSiteBlocked,
+  List<AgentAttachment> attachments = const [],
+  String? startUrl,
   int maxTurns = 20,
 }) =>
     AgentLoop(
@@ -123,6 +127,9 @@ AgentLoop loop({
       maxTurns: maxTurns,
       safeMode: safeMode,
       isSiteAllowed: isSiteAllowed,
+      isSiteBlocked: isSiteBlocked,
+      attachments: attachments,
+      startUrl: startUrl,
     );
 
 void main() {
@@ -399,5 +406,176 @@ void main() {
     final failedResult = llm.requests.last.firstWhere((message) =>
         message['role'] == 'tool' && '${message['content']}'.contains('staleRef'));
     expect(failedResult['content'], contains('重新取一次页面快照'));
+  });
+
+  group('what a site rule may and may not waive', () {
+    test('an allowed site is asked about with a bare host, not a url', () async {
+      final asked = <String>[];
+      final llm = ScriptedLlm([
+        use([call('click', {'ref': 'a1'})]),
+        use([call('done', {'summary': '好', 'outcome': 'success'})]),
+      ]);
+      final control = FakeControl(
+        labels: {'a1': '发送'},
+        results: {'click': clickResult()},
+      );
+      final host = FakeHost();
+      await loop(
+        llm: llm,
+        control: control,
+        host: host,
+        startUrl: 'https://x.com/1',
+        // The page url includes a path; the allow list stores hosts, so the
+        // loop has to reduce it before asking.
+        isSiteAllowed: (value) {
+          asked.add(value);
+          return value == 'x.com';
+        },
+      ).run('回复一条');
+
+      expect(asked, contains('x.com'));
+      expect(asked.every((value) => !value.contains('/')), isTrue,
+          reason: 'a whole url never matches a host allow list');
+      expect(host.asks, isEmpty, reason: 'the site is trusted, so no card');
+    });
+
+    test('a blocked site is not touched and asks nothing', () async {
+      final llm = ScriptedLlm([
+        use([call('click', {'ref': 'a1'})]),
+        use([call('done', {'summary': '做不了', 'outcome': 'partial'})]),
+      ]);
+      final control = FakeControl(labels: {'a1': '发送'});
+      final host = FakeHost();
+      await loop(
+        llm: llm,
+        control: control,
+        host: host,
+        isSiteBlocked: (value) => value == 'x.com',
+        startUrl: 'https://x.com/1',
+        safeMode: false,
+      ).run('回复一条');
+
+      expect(control.calls, isNot(contains('click')),
+          reason: 'a forbidden site is not negotiable');
+      expect(host.asks, isEmpty);
+      expect(
+        llm.requests[1].where((m) => m['role'] == 'tool').map((m) => m['content']).join(),
+        contains('禁止'),
+      );
+    });
+  });
+
+  group('money and credentials are the user\'s step', () {
+    test('a yes on a payment card still does not dispatch', () async {
+      final llm = ScriptedLlm([
+        use([call('click', {'ref': 'a1'})]),
+        use([call('done', {'summary': '用户自己付款', 'outcome': 'partial'})]),
+      ]);
+      final control = FakeControl(
+        labels: {'a1': '立即支付'},
+        results: {'click': clickResult()},
+      );
+      final host = FakeHost(answer: true);
+      await loop(llm: llm, control: control, host: host).run('买下它');
+
+      expect(host.asks.single.handoff, isTrue,
+          reason: 'the card must say this is the user\'s step');
+      expect(control.calls, isNot(contains('click')),
+          reason: 'approving a handoff means "I did it myself"');
+      expect(
+        llm.requests[1]
+            .where((m) => m['role'] == 'tool')
+            .map((m) => m['content'])
+            .join(),
+        contains('用户自己完成'),
+      );
+    });
+
+    test('a normal submit still runs after a yes', () async {
+      final llm = ScriptedLlm([
+        use([call('click', {'ref': 'a1'})]),
+        use([call('done', {'summary': '已提交', 'outcome': 'success'})]),
+      ]);
+      final control = FakeControl(
+        labels: {'a1': '提交申请'},
+        results: {'click': clickResult()},
+      );
+      final host = FakeHost(answer: true);
+      await loop(llm: llm, control: control, host: host).run('提交');
+
+      expect(host.asks.single.handoff, isFalse);
+      expect(control.calls, contains('click'));
+    });
+
+    test('deleting asks, but the agent may do it once told yes', () async {
+      final llm = ScriptedLlm([
+        use([call('click', {'ref': 'a1'})]),
+        use([call('done', {'summary': '已删除', 'outcome': 'success'})]),
+      ]);
+      final control = FakeControl(
+        labels: {'a1': '删除这条'},
+        results: {'click': clickResult()},
+      );
+      final host = FakeHost(answer: true);
+      await loop(llm: llm, control: control, host: host).run('删除');
+
+      expect(host.asks.single.destructive, isTrue);
+      expect(host.asks.single.handoff, isFalse,
+          reason: 'deletion is reversible by asking; a payment is not');
+      expect(control.calls, contains('click'));
+    });
+  });
+
+  group('attachments', () {
+    test('a text file travels with the goal inside the data markers', () async {
+      final llm = ScriptedLlm([
+        use([call('done', {'summary': '读完了', 'outcome': 'success'})]),
+      ]);
+      await loop(
+        llm: llm,
+        control: FakeControl(),
+        attachments: const [
+          AgentAttachment.text(
+            name: 'notes.md',
+            text: '# 预算\n- 3000 元',
+            sizeBytes: 18,
+          ),
+        ],
+      ).run('按附件里的预算筛选');
+
+      final goal = llm.requests.first.last['content'] as String;
+      expect(goal, contains('按附件里的预算筛选'));
+      expect(goal, contains('notes.md'));
+      expect(goal, contains('3000 元'));
+      expect(goal, contains('<<<page-content>>>'),
+          reason: 'file content is data, exactly like a page');
+    });
+
+    test('an image rides in its own user message, and only when vision', () async {
+      const image = AgentAttachment.image(
+        name: 'photo.jpg',
+        base64: 'AAAA',
+        sizeBytes: 3,
+      );
+      final llm = ScriptedLlm([
+        use([call('done', {'summary': '看过', 'outcome': 'success'})]),
+      ]);
+      await AgentLoop(
+        llm: llm,
+        control: FakeControl(),
+        host: FakeHost(),
+        system: 'test system',
+        tools: buildToolSchemas(),
+        vision: true,
+        attachments: const [image],
+      ).run('这是什么');
+
+      final parts = llm.requests.first[2]['content'] as List;
+      expect(parts.first, containsPair('type', 'text'));
+      expect(
+        parts.where((part) => part['type'] == 'image_url'),
+        hasLength(1),
+      );
+    });
   });
 }

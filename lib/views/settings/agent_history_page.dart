@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../config/app_theme.dart';
 import '../../models/agent_task_record.dart';
+import '../../services/goal_handoff.dart';
+import '../../services/share_service.dart';
 import '../../services/storage_service.dart';
+import '../../utils/task_markdown.dart';
 
 class AgentHistoryPage extends StatefulWidget {
   const AgentHistoryPage({super.key});
@@ -18,6 +22,40 @@ class _AgentHistoryPageState extends State<AgentHistoryPage> {
   void initState() {
     super.initState();
     _load();
+  }
+
+  /// Sends a past goal back to the composer with the page it ran on, so
+  /// "again" means the same task and not a paraphrase of it.
+  void _askAgain(AgentTaskRecord record) {
+    final navigator = Navigator.of(context);
+    navigator.popUntil((route) => route.isFirst);
+    // Sent after the pop has been scheduled: the sheet belongs over the
+    // browser, not over the settings page that is sliding away.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      GoalHandoff.send(goal: record.goal, url: record.targetUrl);
+    });
+  }
+
+  Future<void> _shareReport(AgentTaskRecord record) async {
+    final shared = await const ShareService().shareText(
+      taskRecordToMarkdown(record),
+      subject: record.goal.isEmpty ? null : record.goal,
+    );
+    if (!shared && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('这台设备没有可用的分享目标，可以改用复制')),
+      );
+    }
+  }
+
+  Future<void> _copyReport(AgentTaskRecord record) async {
+    await Clipboard.setData(
+      ClipboardData(text: taskRecordToMarkdown(record)),
+    );
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('已复制为 Markdown'), duration: Duration(seconds: 2)),
+    );
   }
 
   Future<void> _load() async {
@@ -127,6 +165,9 @@ class _AgentHistoryPageState extends State<AgentHistoryPage> {
                   record: record,
                   isDark: isDark,
                   onDelete: () => _delete(record),
+                  onAskAgain: () => _askAgain(record),
+                  onCopy: () => _copyReport(record),
+                  onShare: () => _shareReport(record),
                 );
               },
             ),
@@ -138,11 +179,17 @@ class _RecordTile extends StatelessWidget {
   final AgentTaskRecord record;
   final bool isDark;
   final VoidCallback onDelete;
+  final VoidCallback onAskAgain;
+  final VoidCallback onCopy;
+  final VoidCallback onShare;
 
   const _RecordTile({
     required this.record,
     required this.isDark,
     required this.onDelete,
+    required this.onAskAgain,
+    required this.onCopy,
+    required this.onShare,
   });
 
   Color get _successColor => AppTheme.accentOf(isDark);
@@ -311,17 +358,47 @@ class _RecordTile extends StatelessWidget {
               ),
             ),
           const SizedBox(height: 6),
-          Align(
-            alignment: Alignment.centerRight,
-            child: TextButton.icon(
-              onPressed: onDelete,
-              icon: const Icon(Icons.delete_outline, size: 15),
-              label: const Text('删除这条记录', style: TextStyle(fontSize: 11.5)),
-              style: TextButton.styleFrom(
-                foregroundColor: AppTheme.dangerOf(isDark),
-                minimumSize: const Size(0, 30),
+          Row(
+            children: [
+              if (record.goal.trim().isNotEmpty)
+                TextButton.icon(
+                  onPressed: onAskAgain,
+                  icon: const Icon(Icons.replay_rounded, size: 15),
+                  label: const Text('再跑一次', style: TextStyle(fontSize: 11.5)),
+                  style: TextButton.styleFrom(
+                    foregroundColor: AppTheme.primaryOf(isDark),
+                    minimumSize: const Size(0, 30),
+                  ),
+                ),
+              TextButton.icon(
+                onPressed: onCopy,
+                icon: const Icon(Icons.copy_rounded, size: 15),
+                label: const Text('复制', style: TextStyle(fontSize: 11.5)),
+                style: TextButton.styleFrom(
+                  foregroundColor: AppTheme.primaryOf(isDark),
+                  minimumSize: const Size(0, 30),
+                ),
               ),
-            ),
+              TextButton.icon(
+                onPressed: onShare,
+                icon: const Icon(Icons.ios_share_rounded, size: 15),
+                label: const Text('分享', style: TextStyle(fontSize: 11.5)),
+                style: TextButton.styleFrom(
+                  foregroundColor: AppTheme.primaryOf(isDark),
+                  minimumSize: const Size(0, 30),
+                ),
+              ),
+              const Spacer(),
+              TextButton.icon(
+                onPressed: onDelete,
+                icon: const Icon(Icons.delete_outline, size: 15),
+                label: const Text('删除', style: TextStyle(fontSize: 11.5)),
+                style: TextButton.styleFrom(
+                  foregroundColor: AppTheme.dangerOf(isDark),
+                  minimumSize: const Size(0, 30),
+                ),
+              ),
+            ],
           ),
         ],
       ),

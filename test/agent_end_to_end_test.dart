@@ -3,6 +3,7 @@ import 'package:operon/agent/prompt.dart';
 import 'package:operon/agent/runner.dart';
 import 'package:operon/models/agent_state.dart';
 import 'package:operon/models/llm_config.dart';
+import 'package:operon/models/model_profile.dart';
 
 import 'support/fake_devtools.dart';
 import 'support/fake_openai.dart';
@@ -54,23 +55,31 @@ void main() {
     Future<String?> Function(String question)? onAsk,
     int maxTurns = 12,
     bool safeMode = false,
+    bool expectThrow = false,
     ThinkingLevel thinking = ThinkingLevel.auto,
     void Function(FakeOpenAi model)? prepare,
+    ModelProfile profile = const ModelProfile(),
   }) async {
     page = await FakeDevTools.start(fakePage);
     model = await FakeOpenAi.start(script);
     prepare?.call(model);
     runner = makeRunner();
     if (onAsk != null) runner.onAsk = onAsk;
-    await runner.run(
+    final run = runner.run(
       goal: goal,
       urlHint: fakePage.url,
       config: model.config.copyWith(thinking: thinking),
+      profile: profile,
       maxTurns: maxTurns,
       safeMode: safeMode,
       notifyOnComplete: false,
       controlConnect: page.connect,
     );
+    if (expectThrow) {
+      await expectLater(run, throwsA(isA<StateError>()));
+    } else {
+      await run;
+    }
   }
 
   test('reads a page and answers, with the tool results in the next request', () async {
@@ -197,6 +206,35 @@ void main() {
       isTrue,
       reason: 'a silently ignored setting is worse than a refused one',
     );
+  });
+
+  test('a model marked as not calling tools stops before the first call', () async {
+    await runWith(
+      fakePage: articlePage(),
+      script: [say('我不会用工具')],
+      goal: '这页讲了什么',
+      profile: const ModelProfile(supportsTools: false),
+      expectThrow: true,
+    );
+
+    expect(runner.state.status, AgentStatus.error);
+    expect(runner.state.errorMessage, contains('不支持工具调用'));
+    expect(model.requests, isEmpty,
+        reason: 'a model that cannot call tools cannot do anything here');
+  });
+
+  test('a model marked as not taking reasoning_effort never receives it', () async {
+    await runWith(
+      fakePage: articlePage(),
+      script: [say('讲的是春季发布会。')],
+      goal: '这页讲了什么',
+      thinking: ThinkingLevel.deep,
+      profile: const ModelProfile(reasoning: ModelTrait.no),
+    );
+
+    expect(runner.state.status, AgentStatus.completed);
+    expect(model.requests.first.containsKey('reasoning_effort'), isFalse);
+    expect(model.requests.length, 1, reason: 'no wasted round trip either');
   });
 
   test('a plain answer with no tool call ends the run without touching the page', () async {

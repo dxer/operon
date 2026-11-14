@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../config/app_theme.dart';
 import '../../models/llm_config.dart';
+import '../../models/model_profile.dart';
 import '../../services/llm_service.dart';
 import '../../services/llm_tools.dart';
 import '../../services/storage_service.dart';
@@ -32,6 +33,12 @@ class _AiEngineSettingsPageState extends State<AiEngineSettingsPage> {
   /// is worse than no list: it offers names that endpoint has never heard of.
   String? _modelsFor;
 
+  /// What this endpoint+model can do, and which key it was loaded for, so a
+  /// model change cannot leave the previous model's capabilities on screen.
+  ModelProfile _profile = const ModelProfile();
+  String? _profileFor;
+  final TextEditingController _contextWindowController = TextEditingController();
+
   final TextEditingController _baseUrlController = TextEditingController();
   final TextEditingController _apiKeyController = TextEditingController();
   final TextEditingController _modelController = TextEditingController();
@@ -54,6 +61,7 @@ class _AiEngineSettingsPageState extends State<AiEngineSettingsPage> {
     _apiKeyController.dispose();
     _modelController.dispose();
     _maxTokensController.dispose();
+    _contextWindowController.dispose();
     super.dispose();
   }
 
@@ -66,6 +74,7 @@ class _AiEngineSettingsPageState extends State<AiEngineSettingsPage> {
     _temperature = config.temperature;
     _thinking = config.thinking;
     _maxTokensController.text = config.maxOutputTokens?.toString() ?? '';
+    _loadProfile();
     if (mounted) {
       setState(() => _isLoading = false);
     }
@@ -87,6 +96,29 @@ class _AiEngineSettingsPageState extends State<AiEngineSettingsPage> {
   /// screen. Change the base URL and the old names stop being offered.
   List<String> get _shownModels =>
       _modelsFor == _baseUrlController.text.trim() ? _models : const [];
+
+  /// Reads the profile for the model currently in the field.
+  void _loadProfile() {
+    final config = _currentConfig;
+    _profile = _storage.getModelProfile(config);
+    _profileFor = StorageService.modelProfileKey(config);
+    _contextWindowController.text = _profile.contextWindow.toString();
+  }
+
+  /// Called when the model itself changed: the profile belongs to a model, so
+  /// showing the previous one would be showing a lie.
+  void _reloadProfileIfModelChanged() {
+    if (_profileFor == StorageService.modelProfileKey(_currentConfig)) return;
+    setState(_loadProfile);
+  }
+
+  /// Writes the profile for the model in the field, at most once per keystroke
+  /// burst, the same way the rest of the form persists.
+  void _saveProfile(ModelProfile profile) {
+    setState(() => _profile = profile);
+    _profileFor = StorageService.modelProfileKey(_currentConfig);
+    unawaited(_storage.saveModelProfile(_currentConfig, profile));
+  }
 
   int? get _parsedMaxTokens {
     final value = int.tryParse(_maxTokensController.text.trim());
@@ -177,6 +209,9 @@ class _AiEngineSettingsPageState extends State<AiEngineSettingsPage> {
       // the model calls it.
       final probe = await llmService.chatWithTools(
         config: config,
+        // The probe is what tells the user whether this model can drive a page,
+        // so it asks the same question the run would.
+        profile: _profile,
         messages: [
           {
             'role': 'user',
@@ -278,6 +313,46 @@ class _AiEngineSettingsPageState extends State<AiEngineSettingsPage> {
     }
   }
 
+  Widget _sectionLabel(String text) => Text(
+        text,
+        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+      );
+
+  /// Three-way switch: the user's answer, or "you decide".
+  Widget _traitRow(
+    String title,
+    ModelTrait value,
+    ValueChanged<ModelTrait> onChanged, {
+    required String autoLabel,
+  }) {
+    final labels = {
+      ModelTrait.auto: autoLabel,
+      ModelTrait.yes: '支持',
+      ModelTrait.no: '不支持',
+    };
+    return Row(
+      children: [
+        Expanded(
+          child: Text(title,
+              style:
+                  const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+        ),
+        Wrap(
+          spacing: 6,
+          children: [
+            for (final trait in ModelTrait.values)
+              ChoiceChip(
+                label: Text(labels[trait]!,
+                    style: const TextStyle(fontSize: 11.5)),
+                selected: value == trait,
+                onSelected: (_) => onChanged(trait),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -333,7 +408,10 @@ class _AiEngineSettingsPageState extends State<AiEngineSettingsPage> {
                     border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(10)),
                   ),
-                  onChanged: (_) => _schedulePersist(),
+                  onChanged: (_) {
+                    _schedulePersist();
+                    _reloadProfileIfModelChanged();
+                  },
                 ),
                 const SizedBox(height: 14),
                 TextField(
@@ -372,7 +450,10 @@ class _AiEngineSettingsPageState extends State<AiEngineSettingsPage> {
                           border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(10)),
                         ),
-                        onChanged: (_) => _schedulePersist(),
+                        onChanged: (_) {
+                          _schedulePersist();
+                          _reloadProfileIfModelChanged();
+                        },
                       ),
                     ),
                     const SizedBox(width: 8),
@@ -442,6 +523,7 @@ class _AiEngineSettingsPageState extends State<AiEngineSettingsPage> {
                               onSelected: (_) {
                                 setState(() => _modelController.text = model);
                                 _persist();
+                                _reloadProfileIfModelChanged();
                               },
                             ),
                         ],
@@ -491,6 +573,66 @@ class _AiEngineSettingsPageState extends State<AiEngineSettingsPage> {
                   onChanged: (_) => _schedulePersist(),
                 ),
                 const SizedBox(height: 16),
+                _sectionLabel('模型能力'),
+                const SizedBox(height: 4),
+                Text(
+                  '这里填的是这个模型自己的规格。不填就按默认猜：上下文 32000、'
+                  '视觉看模型名。填对了，长任务不会提前被压缩，也不会在本地小模型上溢出。',
+                  style: TextStyle(
+                    fontSize: 11,
+                    height: 1.4,
+                    color: isDark ? Colors.white38 : Colors.black38,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: _contextWindowController,
+                  style: const TextStyle(fontSize: 14),
+                  keyboardType: TextInputType.number,
+                  decoration: InputDecoration(
+                    labelText: '上下文窗口（token）',
+                    hintText: '${ModelProfile.defaultContextWindow}',
+                    helperText: '模型一次能读多少个 token',
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10)),
+                  ),
+                  onChanged: (text) {
+                    final value = int.tryParse(text.trim());
+                    if (value == null || value < 1000) return;
+                    _saveProfile(_profile.copyWith(contextWindow: value));
+                  },
+                ),
+                const SizedBox(height: 12),
+                _traitRow(
+                  '图片输入',
+                  _profile.vision,
+                  (trait) => _saveProfile(_profile.copyWith(vision: trait)),
+                  autoLabel: '按模型名猜',
+                ),
+                const SizedBox(height: 8),
+                _traitRow(
+                  '思考参数',
+                  _profile.reasoning,
+                  (trait) => _saveProfile(_profile.copyWith(reasoning: trait)),
+                  autoLabel: '先试，被拒再退',
+                ),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  value: _profile.supportsTools,
+                  title: const Text('支持工具调用',
+                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+                  subtitle: Text(
+                    '关掉后智能体不会用这个模型跑任务',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: isDark ? Colors.white38 : Colors.black38,
+                    ),
+                  ),
+                  onChanged: (value) =>
+                      _saveProfile(_profile.copyWith(supportsTools: value)),
+                ),
+                const SizedBox(height: 8),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [

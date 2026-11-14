@@ -10,6 +10,9 @@ import '../../utils/url_utils.dart';
 /// run, which site it runs on, and the exact text that will be sent.
 class AgentConfirmationCard extends StatelessWidget {
   final AgentState state;
+
+  /// The step is the user's to do: no button here lets the agent do it.
+  bool get handoff => state.confirmationHandoff;
   final VoidCallback onConfirm;
   final VoidCallback onCancel;
   final VoidCallback? onAllowSite;
@@ -128,7 +131,7 @@ class AgentConfirmationCard extends StatelessWidget {
                     visualDensity: VisualDensity.compact,
                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ),
-                  child: const Text('取消任务'),
+                  child: Text(handoff ? '跳过这一步' : '取消任务'),
                 ),
                 const SizedBox(width: 8),
                 ElevatedButton(
@@ -145,11 +148,13 @@ class AgentConfirmationCard extends StatelessWidget {
                     visualDensity: VisualDensity.compact,
                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ),
-                  child: const Text('授权继续'),
+                  child: Text(handoff ? '我自己做完了' : '授权继续'),
                 ),
               ],
             ),
-            if (onAllowSite != null && host.isNotEmpty)
+            // A handoff is not a site policy question: allowing the site would
+            // still not let the agent pay or type a password.
+            if (!handoff && onAllowSite != null && host.isNotEmpty)
               Align(
                 alignment: Alignment.centerRight,
                 child: TextButton.icon(

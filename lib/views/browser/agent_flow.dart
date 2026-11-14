@@ -52,7 +52,10 @@ extension _AgentFlow on _BrowserPageState {
     }
   }
 
-  void _startAgentTask(String goal) async {
+  void _startAgentTask(
+    String goal, [
+    List<AgentAttachment> attachments = const [],
+  ]) async {
     if (_wrapper == null) return;
     final config = _storage?.getLlmConfig() ?? LlmConfig.defaultConfig();
     if (!config.isValid) {
@@ -78,6 +81,7 @@ extension _AgentFlow on _BrowserPageState {
       return;
     }
 
+    final profile = _storage?.getModelProfile(config) ?? const ModelProfile();
     final maxSteps = _storage?.getMaxSteps() ?? 15;
     final safeMode = _storage?.getSafeMode() ?? true;
 
@@ -93,6 +97,15 @@ extension _AgentFlow on _BrowserPageState {
       maxTurns: maxSteps,
       safeMode: safeMode,
       isSiteAllowed: (host) => _storage?.isAgentSiteAllowed(host) ?? false,
+      isSiteBlocked: (host) => _storage?.isAgentSiteBlocked(host) ?? false,
+      // What the user asked the agent to always keep in mind. It goes in as
+      // extra system rules, after the contract, so it can never weaken it.
+      extraSystemRules: _storage?.getAgentMemory(),
+      // What this model can do: its context window, whether it takes images,
+      // whether it accepts reasoning_effort, whether it calls tools at all.
+      // Guessing all four is what used to break runs in ways nobody could see.
+      profile: profile,
+      attachments: attachments,
     ));
   }
 
@@ -284,13 +297,13 @@ extension _AgentFlow on _BrowserPageState {
     }
   }
 
-  Future<void> _openAgentBottomSheet() async {
+  Future<void> _openAgentBottomSheet({String? initialGoal}) async {
     if (!mounted || _agentSheetOpen) return;
     _agentSheetOpen = true;
     _chrome.lock();
     _revealChrome();
     try {
-      await _showAgentSheet();
+      await _showAgentSheet(initialGoal: initialGoal);
     } finally {
       _agentSheetOpen = false;
       if (!_agentState.isRunning && _agentState.status != AgentStatus.paused) {
@@ -299,7 +312,7 @@ extension _AgentFlow on _BrowserPageState {
     }
   }
 
-  Future<void> _showAgentSheet() {
+  Future<void> _showAgentSheet({String? initialGoal}) {
     return showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -314,11 +327,14 @@ extension _AgentFlow on _BrowserPageState {
               state: state,
               currentUrl: _currentTab.url,
               taskStartedAt: _taskStartedAt,
+              initialGoal: initialGoal,
+              imageAttachmentsEnabled: _modelTakesImages,
+              prompts: _storage?.getAgentPrompts() ?? const [],
               safeMode: _storage?.getSafeMode() ?? true,
               onSafeModeChanged: _setSafeMode,
               onAllowSite: _allowSiteForTask,
-              onStart: (goal) {
-                _startAgentTask(goal);
+              onStart: (goal, attachments) {
+                _startAgentTask(goal, attachments);
                 Navigator.of(ctx).pop();
               },
               onPause: _loopRunner.pause,

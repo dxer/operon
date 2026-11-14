@@ -55,7 +55,7 @@ String systemPrompt({String? extra}) {
   if (extraRules != null && extraRules.isNotEmpty) {
     buffer
       ..writeln()
-      ..writeln('## 本次额外要求')
+      ..writeln('## 用户长期要求')
       ..writeln()
       ..writeln(extraRules);
   }

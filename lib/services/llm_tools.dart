@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../models/llm_config.dart';
+import '../models/model_profile.dart';
 import '../utils/cancellation.dart';
 import 'llm_service.dart';
 
@@ -42,12 +43,9 @@ class LlmToolResponse {
 /// `tools` plus `tool_choice: auto`. Everything else — retries, aborts,
 /// endpoint resolution — is the same machinery the rest of the app uses, so a
 /// provider quirk only has to be fixed once.
-/// Endpoints that answered 400/422 to `reasoning_effort`. Remembered for the
-/// rest of the session so the doomed round trip is paid once, not every turn.
-final Set<String> _effortUnsupported = <String>{};
-
-/// Test seam for [_effortUnsupported]; without it one test poisons the next.
-void forgetUnsupportedEffort() => _effortUnsupported.clear();
+/// Test seam kept at the same name the tests use; the memory itself lives with
+/// the rest of the provider quirks in [LlmService].
+void forgetUnsupportedEffort() => LlmService.forgetUnsupportedEffort();
 
 extension LlmToolsCall on LlmService {
   Future<LlmToolResponse> chatWithTools({
@@ -56,6 +54,7 @@ extension LlmToolsCall on LlmService {
     required List<Map<String, Object?>> tools,
     double? temperature,
     CancellationToken? cancelToken,
+    ModelProfile profile = const ModelProfile.fallback(),
   }) async {
     if (!config.isValid) {
       throw Exception('请先在设置中配置有效的 API Key 与大模型服务地址。');
@@ -64,8 +63,11 @@ extension LlmToolsCall on LlmService {
       throw const LlmCancelledException();
     }
 
-    final key = '${config.baseUrl.trim()}|${config.model.trim()}';
-    final wantEffort = config.thinking.sendsEffort && !_effortUnsupported.contains(key);
+    // Three reasons not to send it: the user picked 自动, this model is marked
+    // as not accepting the field, or an earlier turn already proved it doesn't.
+    final wantEffort = config.thinking.sendsEffort &&
+        profile.reasoningAllowed &&
+        !LlmService.effortUnsupported(config);
 
     Map<String, dynamic> bodyFor({required bool withEffort}) => {
           'model': config.model.trim(),
@@ -99,7 +101,7 @@ extension LlmToolsCall on LlmService {
       if (!wantEffort || !unusable || !aboutEffort) rethrow;
       // Same shape as the response_format fallback: one attempt without the
       // offending field, and never send it to this endpoint again.
-      _effortUnsupported.add(key);
+      LlmService.markEffortUnsupported(config);
       response = await sendToolTurn(
         config: config,
         body: bodyFor(withEffort: false),
@@ -159,39 +161,5 @@ String describeLlmFailure(Object error) {
   return text.replaceFirst('Exception: ', '');
 }
 
-/// Whether a model id is likely to accept images.
-///
-/// A guess, not a capability list: providers expose no reliable flag, and the
-/// alternative is a settings toggle nobody knows how to set. The patterns below
-/// cover the models people actually use; when the guess is wrong the provider
-/// answers with an error the loop reports, which is one wasted call rather than
-/// a silently ignored screenshot.
-bool modelSupportsVision(String model) {
-  final id = model.toLowerCase();
-  const markers = [
-    'gpt-4o',
-    'gpt-4.1',
-    'gpt-5',
-    'o3',
-    'o4',
-    'claude-3',
-    'claude-4',
-    'claude-sonnet',
-    'claude-opus',
-    'gemini',
-    'glm-4v',
-    'glm-4.5v',
-    'qwen-vl',
-    'qwen2-vl',
-    'qwen2.5-vl',
-    'qvq',
-    'internvl',
-    'llava',
-    'minicpm-v',
-    'pixtral',
-    'vision',
-    '-vl',
-    'vl-',
-  ];
-  return markers.any(id.contains);
-}
+/// Kept as a thin alias so existing callers and tests keep one name.
+bool modelSupportsVision(String model) => ModelProfile.guessVision(model);

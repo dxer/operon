@@ -2,8 +2,10 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../config/app_constants.dart';
 import '../models/llm_config.dart';
+import '../models/model_profile.dart';
 import '../models/history_item.dart';
 import '../models/bookmark_item.dart';
+import '../models/agent_prompt.dart';
 import '../models/agent_task_record.dart';
 
 class StorageService {
@@ -59,6 +61,40 @@ class StorageService {
     } else {
       await _prefs.setInt(AppConstants.keyMaxOutputTokens, maxTokens);
     }
+  }
+
+  // Model capability profiles, keyed by `baseUrl|model`.
+
+  static const String _keyModelProfiles = 'pref_model_profiles';
+
+  static String modelProfileKey(LlmConfig config) =>
+      '${config.baseUrl.trim()}|${config.model.trim()}';
+
+  Map<String, dynamic> _rawModelProfiles() {
+    final raw = _prefs.getString(_keyModelProfiles);
+    if (raw == null || raw.isEmpty) return {};
+    try {
+      final decoded = jsonDecode(raw);
+      return decoded is Map ? Map<String, dynamic>.from(decoded) : {};
+    } catch (_) {
+      // A corrupt blob is not worth failing the settings page over.
+      return {};
+    }
+  }
+
+  /// What the user has said about this model, or the defaults.
+  ModelProfile getModelProfile(LlmConfig config) {
+    final entry = _rawModelProfiles()[modelProfileKey(config)];
+    if (entry is Map) {
+      return ModelProfile.fromJson(Map<String, dynamic>.from(entry));
+    }
+    return const ModelProfile();
+  }
+
+  Future<void> saveModelProfile(LlmConfig config, ModelProfile profile) async {
+    final all = _rawModelProfiles();
+    all[modelProfileKey(config)] = profile.toJson();
+    await _prefs.setString(_keyModelProfiles, jsonEncode(all));
   }
 
   // User-Agent
@@ -345,11 +381,65 @@ class StorageService {
     await _prefs.remove(_keyAgentTaskHistory);
   }
 
+  // --- Saved prompts ("shortcuts") for the composer ---
+
+  static const String _keyAgentPrompts = 'pref_agent_prompts';
+
+  List<AgentPrompt> getAgentPrompts() {
+    final raw = _prefs.getStringList(_keyAgentPrompts) ?? const [];
+    final list = <AgentPrompt>[];
+    for (final entry in raw) {
+      try {
+        final map = jsonDecode(entry) as Map<String, dynamic>;
+        final prompt = AgentPrompt.fromJson(map);
+        if (prompt.goal.trim().isNotEmpty) list.add(prompt);
+      } catch (_) {
+        // One corrupt entry must not hide the others.
+      }
+    }
+    return list;
+  }
+
+  Future<void> saveAgentPrompts(List<AgentPrompt> prompts) async {
+    final raw = [for (final prompt in prompts) jsonEncode(prompt.toJson())];
+    await _prefs.setStringList(_keyAgentPrompts, raw);
+  }
+
+  // --- What the agent should always remember ---
+
+  static const String _keyAgentMemory = 'pref_agent_memory';
+
+  /// A note the user wants in every task: who they are, how they like answers.
+  /// Empty means nothing is sent, which is the honest default.
+  String getAgentMemory() => _prefs.getString(_keyAgentMemory) ?? '';
+
+  Future<void> saveAgentMemory(String memory) async {
+    final trimmed = memory.trim();
+    if (trimmed.isEmpty) {
+      await _prefs.remove(_keyAgentMemory);
+      return;
+    }
+    await _prefs.setString(_keyAgentMemory, trimmed);
+  }
+
   // --- Per-site authorization allowlist ---
   static const String _keyAgentAllowedSites = 'agent_allowed_sites';
 
+  /// One stored shape for a site: bare host, lower case, no `www.`, no port.
+  ///
+  /// Accepts whatever a user pastes (a whole URL, a host with a port) and
+  /// whatever the caller has at hand, so a rule written one way still matches a
+  /// page seen another way.
   String _normalizeAgentHost(String raw) {
     var host = raw.trim().toLowerCase();
+    final scheme = host.indexOf('://');
+    if (scheme >= 0) host = host.substring(scheme + 3);
+    final slash = host.indexOf('/');
+    if (slash >= 0) host = host.substring(0, slash);
+    final query = host.indexOf('?');
+    if (query >= 0) host = host.substring(0, query);
+    final colon = host.indexOf(':');
+    if (colon >= 0) host = host.substring(0, colon);
     if (host.startsWith('www.')) host = host.substring(4);
     return host;
   }
@@ -379,6 +469,42 @@ class StorageService {
     final normalized = _normalizeAgentHost(host);
     final sites = getAgentAllowedSites()..remove(normalized);
     await _prefs.setStringList(_keyAgentAllowedSites, sites);
+  }
+
+  // --- Per-site blocklist: the agent may not touch these at all ---
+  static const String _keyAgentBlockedSites = 'agent_blocked_sites';
+
+  List<String> getAgentBlockedSites() {
+    return List<String>.from(
+        _prefs.getStringList(_keyAgentBlockedSites) ?? const []);
+  }
+
+  bool isAgentSiteBlocked(String host) {
+    final normalized = _normalizeAgentHost(host);
+    if (normalized.isEmpty) return false;
+    return getAgentBlockedSites().contains(normalized);
+  }
+
+  Future<void> addAgentBlockedSite(String host) async {
+    final normalized = _normalizeAgentHost(host);
+    if (normalized.isEmpty) return;
+    final sites = getAgentBlockedSites();
+    if (sites.contains(normalized)) return;
+    sites.add(normalized);
+    await _prefs.setStringList(_keyAgentBlockedSites, sites);
+    // A site cannot be both: blocking is the stronger statement, and leaving it
+    // on the allow list would make the next card offer to waive it again.
+    await removeAgentAllowedSite(normalized);
+  }
+
+  Future<void> removeAgentBlockedSite(String host) async {
+    final normalized = _normalizeAgentHost(host);
+    final sites = getAgentBlockedSites()..remove(normalized);
+    await _prefs.setStringList(_keyAgentBlockedSites, sites);
+  }
+
+  Future<void> clearAgentBlockedSites() async {
+    await _prefs.remove(_keyAgentBlockedSites);
   }
 
   Future<void> clearAgentAllowedSites() async {

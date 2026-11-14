@@ -49,6 +49,23 @@ extension _LifecycleActions on _BrowserPageState {
     if (mounted) setState(() {});
   }
 
+  /// Opens the composer with a goal the user asked to repeat, on the page it
+  /// ran on last time when there is one.
+  ///
+  /// Deferred by a frame: the history page pops back to this one just before
+  /// telling us, and a sheet pushed mid-transition ends up fighting the pop.
+  void _onGoalHandoff() {
+    if (!mounted) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final request = GoalHandoff.take();
+      if (request == null) return;
+      final url = request.url;
+      if (url != null && url != _currentTab.url) _loadUrl(url);
+      unawaited(_openAgentBottomSheet(initialGoal: request.goal));
+    });
+  }
+
   /// Says why a disabled feature did nothing, and where to turn it back on.
   void _showFeatureDisabled(String message) {
     if (!mounted) return;

@@ -4,13 +4,16 @@ import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import '../config/app_constants.dart';
 import '../config/app_theme.dart';
+import '../models/agent_attachment.dart';
 import '../models/agent_state.dart';
 import '../models/agent_task_record.dart';
 import '../models/llm_config.dart';
+import '../models/model_profile.dart';
 import '../models/web_tab.dart';
 import '../models/bookmark_item.dart';
 import '../models/history_item.dart';
 import '../agent/runner.dart';
+import '../services/goal_handoff.dart';
 import '../services/haptic_service.dart';
 import '../services/notification_service.dart';
 import '../services/run_coordinator.dart';
@@ -25,6 +28,7 @@ import 'settings/user_scripts_page.dart';
 import 'widgets/agent_bottom_sheet.dart';
 import 'widgets/agent_confirmation_card.dart';
 import 'widgets/agent_status_bar.dart';
+import 'widgets/agent_working_frame.dart';
 import 'widgets/browser_controls.dart';
 import 'widgets/chrome_visibility.dart';
 import 'widgets/gesture_overlay.dart';
@@ -106,6 +110,15 @@ class _BrowserPageState extends State<BrowserPage>
   String? _confirmationShownFor;
   StreamSubscription<String>? _shareSub;
 
+  /// Whether the configured model can read images: the composer offers an
+  /// image picker only when something downstream can use one.
+  bool get _modelTakesImages {
+    final storage = _storage;
+    if (storage == null) return true;
+    final config = storage.getLlmConfig();
+    return storage.getModelProfile(config).visionFor(config.model);
+  }
+
   bool get _showAgentStatusBar {
     final status = _agentState.status;
     if (status == AgentStatus.idle) return false;
@@ -143,6 +156,9 @@ class _BrowserPageState extends State<BrowserPage>
     // current page, so the note the user was reading stays put.
     ShareIntentService.instance.init();
     _shareSub = ShareIntentService.instance.links.listen(_openSharedLink);
+
+    // "Ask this again" from the history page lands here.
+    GoalHandoff.pending.addListener(_onGoalHandoff);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final initial = await ShareIntentService.instance.takeInitialLink();
       if (initial != null && mounted) _openSharedLink(initial);
@@ -165,6 +181,7 @@ class _BrowserPageState extends State<BrowserPage>
     _loopRunner.dispose();
     _gesturePulse.dispose();
     _shareSub?.cancel();
+    GoalHandoff.pending.removeListener(_onGoalHandoff);
     _urlController.dispose();
     _chromeController.dispose();
     super.dispose();
@@ -288,11 +305,21 @@ class _BrowserPageState extends State<BrowserPage>
                 // Touches are intentionally not used to pause the agent; the
                 // status strip's pause button is the explicit takeover path.
                 Expanded(
-                  child: IndexedStack(
-                    index: _currentTabIndex,
-                    children: _tabs.asMap().entries.map((entry) {
-                      return _buildTabWebView(entry.value, entry.key);
-                    }).toList(),
+                  child: Stack(
+                    children: [
+                      IndexedStack(
+                        index: _currentTabIndex,
+                        children: _tabs.asMap().entries.map((entry) {
+                          return _buildTabWebView(entry.value, entry.key);
+                        }).toList(),
+                      ),
+                      // Which page the agent is on, at a glance. The strip
+                      // below says what it is doing; this says where.
+                      if (_agentState.isRunning)
+                        const Positioned.fill(
+                          child: IgnorePointer(child: AgentWorkingFrame()),
+                        ),
+                    ],
                   ),
                 ),
 

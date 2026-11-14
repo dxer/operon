@@ -9,6 +9,7 @@ import 'browsing_settings_page.dart';
 import 'ai_engine_settings_page.dart';
 import 'ai_policy_settings_page.dart';
 import 'agent_history_page.dart';
+import 'agent_prompts_page.dart';
 import 'user_scripts_page.dart';
 import 'about_settings_page.dart';
 
@@ -50,6 +51,15 @@ class _SettingsPageState extends State<SettingsPage> {
     await Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => const AgentHistoryPage()),
+    );
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  Future<void> _openPrompts() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const AgentPromptsPage()),
     );
     if (!mounted) return;
     setState(() {});
@@ -175,6 +185,7 @@ class _SettingsPageState extends State<SettingsPage> {
     final maxSteps = _storage.getMaxSteps();
     final safeMode = _storage.getSafeMode();
     final historyCount = _storage.getAgentTaskHistory().length;
+    final promptCount = _storage.getAgentPrompts().length;
     final modelName = llmConfig.model.split('/').last;
 
     return Scaffold(
@@ -217,6 +228,15 @@ class _SettingsPageState extends State<SettingsPage> {
                   ),
                 ),
               ),
+            ),
+            _buildSettingRow(
+              icon: Icons.bolt_rounded,
+              iconColor: AppTheme.warningOf(isDark),
+              title: '快捷指令',
+              subtitle: promptCount == 0
+                  ? '存下常说的话，输入框里打「/」就能选'
+                  : '已保存 $promptCount 条',
+              onTap: _openPrompts,
             ),
             _buildSettingRow(
               icon: Icons.history_rounded,

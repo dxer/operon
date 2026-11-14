@@ -197,6 +197,19 @@ class LlmService {
   static String _providerKey(LlmConfig config) =>
       '${config.baseUrl.trim()}|${config.model.trim()}';
 
+  /// Endpoints that answered 400/422 mentioning `reasoning_effort`. Remembered
+  /// so the doomed round trip is paid once per endpoint, not every turn.
+  static final Set<String> _effortUnsupported = <String>{};
+
+  static bool effortUnsupported(LlmConfig config) =>
+      _effortUnsupported.contains(_providerKey(config));
+
+  static void markEffortUnsupported(LlmConfig config) =>
+      _effortUnsupported.add(_providerKey(config));
+
+  /// Test seam: without it one test poisons the next.
+  static void forgetUnsupportedEffort() => _effortUnsupported.clear();
+
   /// The list of models the endpoint offers, for the picker in settings.
   ///
   /// Every OpenAI-compatible server answers `GET /models`; the shapes differ
@@ -347,11 +360,13 @@ class LlmService {
     final key = _providerKey(config);
     final wantJsonMode = jsonMode && !_jsonModeUnsupported.contains(key);
 
-    Map<String, dynamic> bodyFor(bool withJsonMode) => {
+    final wantEffort = config.thinking.sendsEffort && !effortUnsupported(config);
+
+    Map<String, dynamic> bodyFor(bool withJsonMode, {bool? withEffort}) => {
           'model': config.model.trim(),
           'messages': messages,
           'temperature': temperature ?? config.temperature,
-          if (config.thinking.sendsEffort) 'reasoning_effort': config.thinking.effort,
+          if (withEffort ?? wantEffort) 'reasoning_effort': config.thinking.effort,
           if (config.maxOutputTokens != null)
             (LlmConfig.usesMaxCompletionTokens(config.model)
                 ? 'max_completion_tokens'
@@ -373,6 +388,30 @@ class LlmService {
       rethrow;
     } catch (e) {
       throw Exception('连接大模型服务失败: $e');
+    }
+
+    // The same refusal the tool path handles: a model that does not accept
+    // reasoning_effort answers 400, and the summary should not die for it.
+    if (wantEffort &&
+        (response.statusCode == 400 || response.statusCode == 422) &&
+        response.body.toLowerCase().contains('reasoning')) {
+      try {
+        final fallback = await _postJson(
+          uri: uri,
+          headers: headers,
+          body: jsonEncode(bodyFor(wantJsonMode, withEffort: false)),
+          cancelToken: cancelToken,
+          retry: false,
+        );
+        if (fallback.statusCode == 200) {
+          markEffortUnsupported(config);
+          response = fallback;
+        }
+      } on LlmCancelledException {
+        rethrow;
+      } catch (_) {
+        // Keep the original error: it explains more.
+      }
     }
 
     // Some OpenAI-compatible providers reject response_format with 400 or 422,

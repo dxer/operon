@@ -1,9 +1,14 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../config/app_theme.dart';
+import '../../models/agent_attachment.dart';
+import '../../models/agent_prompt.dart';
 import '../../models/agent_state.dart';
+import '../../services/attachment_reader.dart';
 import '../../services/haptic_service.dart';
+import '../../services/share_service.dart';
 import '../../utils/url_utils.dart';
 import 'agent_confirmation_card.dart';
 import 'elapsed_label.dart';
@@ -18,7 +23,10 @@ part 'sheet/extracted.dart';
 part 'sheet/composer.dart';
 part 'sheet/run_bar.dart';
 
-typedef AgentStartHandler = void Function(String goal);
+typedef AgentStartHandler = void Function(
+  String goal,
+  List<AgentAttachment> attachments,
+);
 
 enum _SheetAction { logs, close }
 
@@ -49,6 +57,17 @@ class AgentBottomSheet extends StatefulWidget {
   /// When the current task started, so the header can show a live timer.
   final DateTime? taskStartedAt;
 
+  /// A goal to put in the composer when the sheet opens, editable but not
+  /// started: the user asked for this wording once and is about to ask again.
+  final String? initialGoal;
+
+  /// Whether this model takes images. Offering an image picker to a model that
+  /// cannot read one wastes the user's time and their upload.
+  final bool imageAttachmentsEnabled;
+
+  /// Saved prompts, offered when the composer starts with "/".
+  final List<AgentPrompt> prompts;
+
   const AgentBottomSheet({
     super.key,
     required this.state,
@@ -63,6 +82,9 @@ class AgentBottomSheet extends StatefulWidget {
     this.onAllowSite,
     this.currentUrl,
     this.taskStartedAt,
+    this.initialGoal,
+    this.imageAttachmentsEnabled = true,
+    this.prompts = const [],
   });
 
   @override
@@ -78,6 +100,8 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
   bool _showLogs = false;
   bool _resultExpanded = false;
   bool _hasDraft = false;
+  bool _isPickingAttachment = false;
+  final List<AgentAttachment> _attachments = [];
   bool _discardDialogOpen = false;
   final ScrollController _scrollController = ScrollController();
   final FocusNode _goalFocus = FocusNode();
@@ -91,7 +115,9 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
     final restoreGoal =
         widget.state.isRunning || widget.state.status == AgentStatus.paused;
     _goalController = TextEditingController(
-      text: restoreGoal ? widget.state.goal : '',
+      text: restoreGoal
+          ? widget.state.goal
+          : (widget.initialGoal ?? '').trim(),
     );
     _hasDraft = _goalController.text.trim().isNotEmpty;
     _goalController.addListener(_syncDraftState);
@@ -394,6 +420,15 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
                                     width: double.infinity,
                                     height: 0,
                                   ),
+                          ),
+                          if (_attachments.isNotEmpty)
+                            _buildAttachmentStrip(subtle: subtle),
+                          // Rebuilt on every keystroke: the strip appears
+                          // the moment the field starts with "/".
+                          ValueListenableBuilder<TextEditingValue>(
+                            valueListenable: _goalController,
+                            builder: (context, _, __) =>
+                                _buildPromptStrip(subtle: subtle),
                           ),
                           _buildGoalField(
                             isRunning: isRunning,

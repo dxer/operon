@@ -8,6 +8,7 @@ class WriteAssessment {
   const WriteAssessment({
     required this.writes,
     this.destructive = false,
+    this.handoff = false,
     this.kind = '',
   });
 
@@ -15,8 +16,17 @@ class WriteAssessment {
 
   final bool writes;
 
-  /// Payment, deletion, credential or an unknown dialog confirmation.
+  /// A page dialog or a deletion: asks in every mode, but the agent may still
+  /// do it once the user says yes.
   final bool destructive;
+
+  /// Money or a credential. The agent never does this, in any mode, whatever
+  /// the user answers: it hands the step over instead.
+  ///
+  /// Nanobrowser draws the same line, and it is the right one — "may I submit
+  /// this form" and "may I type your card number" are different questions, and
+  /// only the first one belongs in a dialog with a yes button.
+  final bool handoff;
 
   /// A short word for the confirmation card: 发布 / 发送 / 删除 / 支付 …
   final String kind;
@@ -24,26 +34,47 @@ class WriteAssessment {
   String get label => kind.isEmpty ? '写入' : kind;
 }
 
+/// Money and credentials: the agent hands these to the user and never does
+/// them itself.
+const List<String> _handoffWords = [
+  '支付',
+  '付款',
+  '转账',
+  '充值',
+  '购买',
+  '下单',
+  '结算',
+  '密码',
+  '验证码',
+  '短信码',
+  '身份证',
+  '银行卡',
+  '信用卡',
+  'pay now',
+  'payment',
+  'checkout',
+  'purchase',
+  'password',
+  'passcode',
+  'credit card',
+  'card number',
+  'cvv',
+  'verification code',
+  'one-time code',
+  'otp',
+];
+
+/// Destructive but reversible-by-asking: the agent may do it after a yes.
 const List<String> _destructiveWords = [
   '删除',
   '移除',
   '清空',
   '退订',
   '取消订单',
-  '支付',
-  '付款',
-  '购买',
-  '下单',
-  '转账',
-  '充值',
   '解绑',
   '注销',
   'delete',
   'remove',
-  'pay now',
-  'payment',
-  'checkout',
-  'purchase',
   'unsubscribe',
   'destroy',
   'deactivate',
@@ -99,6 +130,16 @@ WriteAssessment assessWrite(
 
   switch (tool) {
     case 'type':
+      // A value typed into a field marked secret is a credential: the agent
+      // refuses it even when the user would approve.
+      if (args['secret'] == true || args['secret'] == 'true') {
+        return const WriteAssessment(
+          writes: true,
+          destructive: true,
+          handoff: true,
+          kind: '填写密钥',
+        );
+      }
       if (args['submit'] == true || args['submit'] == 'true') {
         return const WriteAssessment(writes: true, kind: '提交');
       }
@@ -113,8 +154,15 @@ WriteAssessment assessWrite(
     case 'handle_dialog':
       final accept = args['accept'] == true || args['accept'] == 'true';
       if (accept) {
-        // The page's own dialog can be anything, including a payment.
-        return const WriteAssessment(writes: true, destructive: true, kind: '确认弹窗');
+        // The page's own dialog can be anything, including a payment, so it is
+        // the user's to accept: a page prompt is exactly what cannot be
+        // pre-classified.
+        return const WriteAssessment(
+          writes: true,
+          destructive: true,
+          handoff: true,
+          kind: '页面弹窗',
+        );
       }
       return const WriteAssessment(writes: true, kind: '关闭弹窗');
     case 'click':
@@ -123,8 +171,16 @@ WriteAssessment assessWrite(
         return const WriteAssessment(writes: true, kind: '点击');
       }
       final text = label;
+      if (_handoffWords.any(text.contains)) {
+        return const WriteAssessment(
+          writes: true,
+          destructive: true,
+          handoff: true,
+          kind: '支付/填写密钥',
+        );
+      }
       if (_destructiveWords.any(text.contains)) {
-        return const WriteAssessment(writes: true, destructive: true, kind: '删除/支付');
+        return const WriteAssessment(writes: true, destructive: true, kind: '删除');
       }
       if (_submitWords.any(text.contains)) {
         return const WriteAssessment(writes: true, kind: '提交');

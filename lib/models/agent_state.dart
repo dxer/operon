@@ -192,6 +192,12 @@ class AgentState {
   final String? confirmationReason; // Why the action needs authorization
   final String? targetUrl; // Page URL where the pending action will run
   final String? confirmationPayload; // Exact text/url that will be sent
+  /// Payment or credential: the user does it, the card offers no approve.
+  final bool confirmationHandoff;
+
+  /// What this run has cost so far, in tokens. Zero until the first reply.
+  final int promptTokens;
+  final int completionTokens;
   final List<AgentLogItem> logs;
 
   const AgentState({
@@ -206,6 +212,9 @@ class AgentState {
     this.confirmationReason,
     this.targetUrl,
     this.confirmationPayload,
+    this.confirmationHandoff = false,
+    this.promptTokens = 0,
+    this.completionTokens = 0,
     this.logs = const [],
   });
 
@@ -228,6 +237,9 @@ class AgentState {
     String? confirmationReason,
     String? targetUrl,
     String? confirmationPayload,
+    bool? confirmationHandoff,
+    int? promptTokens,
+    int? completionTokens,
     List<AgentLogItem>? logs,
     bool clearCaptchaType = false,
     bool clearErrorMessage = false,
@@ -253,6 +265,11 @@ class AgentState {
       confirmationPayload: clearConfirmationContext
           ? null
           : (confirmationPayload ?? this.confirmationPayload),
+      confirmationHandoff: clearConfirmationContext
+          ? false
+          : (confirmationHandoff ?? this.confirmationHandoff),
+      promptTokens: promptTokens ?? this.promptTokens,
+      completionTokens: completionTokens ?? this.completionTokens,
       logs: logs ?? this.logs,
     );
   }

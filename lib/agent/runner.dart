@@ -6,8 +6,10 @@ import '../control/transport/endpoint.dart' show SocketConnector;
 import '../control/perception/captcha.dart';
 import '../control/protocol/errors.dart';
 import '../control/protocol/results.dart';
+import '../models/agent_attachment.dart';
 import '../models/agent_state.dart';
 import '../models/llm_config.dart';
+import '../models/model_profile.dart';
 import '../services/llm_service.dart';
 import '../services/llm_tools.dart';
 import '../services/notification_service.dart';
@@ -69,9 +71,12 @@ class AgentLoopRunner {
     int maxTurns = 40,
     bool safeMode = true,
     bool Function(String host)? isSiteAllowed,
+    bool Function(String host)? isSiteBlocked,
     String? extraSystemRules,
     bool notifyOnComplete = true,
     bool vision = false,
+    ModelProfile profile = const ModelProfile.fallback(),
+    List<AgentAttachment> attachments = const [],
     SocketConnector? controlConnect,
   }) async {
     _stopped = false;
@@ -90,6 +95,15 @@ class AgentLoopRunner {
 
     _log(0, '启动任务', detail: '目标: $goal');
 
+    // Checked before attaching and before any call is paid for. A model that
+    // cannot call tools cannot run a task, and the settings wording is the fix.
+    if (!profile.supportsTools) {
+      const message = '这个模型在设置里被标记为不支持工具调用，智能体无法使用它。'
+          '如果它其实支持 function calling，请在 设置 → AI 智能体引擎 → 模型能力 里打开。';
+      _fail(message);
+      throw StateError(message);
+    }
+
     // Attach first: if the control layer is unavailable, this throws before a
     // single model call is paid for.
     try {
@@ -107,11 +121,25 @@ class AgentLoopRunner {
       rethrow;
     }
 
+    // One answer for the whole run: whether images can be sent at all. It
+    // decides the screenshot tool, the attachment message, and what the user is
+    // told when they attached an image to a model that cannot see.
+    final modelVision = vision || profile.visionFor(config.model);
+    if (!modelVision && attachments.any((item) => item.isImage)) {
+      _log(
+        0,
+        '图片附件已忽略',
+        detail: '这个模型不支持图片输入（可在 设置 → AI 智能体引擎 → 模型能力 里改）。'
+            '文字附件和页面内容不受影响。',
+      );
+    }
+
     final loop = AgentLoop(
       llm: _LlmServicePort(
         service: LlmService(),
         config: config,
         token: _token,
+        profile: profile,
         onEffortDropped: (level) => _log(
           0,
           '端点不支持「${level.label}」',
@@ -126,9 +154,11 @@ class AgentLoopRunner {
       maxTurns: maxTurns,
       safeMode: safeMode,
       isSiteAllowed: isSiteAllowed,
-      vision: vision || modelSupportsVision(config.model),
+      isSiteBlocked: isSiteBlocked,
+      vision: modelVision,
+      attachments: attachments,
       keepGoing: _keepGoing,
-      context: const ContextLimits(windowTokens: 32000),
+      context: ContextLimits(windowTokens: profile.contextWindow),
       startUrl: urlHint,
       onTurn: _onTurn,
       onThought: _onThought,
@@ -144,6 +174,10 @@ class AgentLoopRunner {
 
     try {
       final end = await loop.run(goal);
+      _state = _state.copyWith(
+        promptTokens: loop.promptTokens,
+        completionTokens: loop.completionTokens,
+      );
       await _finish(end);
     } catch (error) {
       _fail(describeLlmFailure(error));
@@ -339,6 +373,7 @@ class AgentLoopRunner {
       status: AgentStatus.waitingConfirmation,
       confirmationReason: '${request.title}：${request.reason}',
       confirmationPayload: request.payload,
+      confirmationHandoff: request.handoff,
     );
     _emit();
     final approved = await completer.future;
@@ -402,8 +437,11 @@ class _LlmServicePort implements LlmPort {
     required this.service,
     required this.config,
     required this.token,
+    this.profile = const ModelProfile.fallback(),
     this.onEffortDropped,
   });
+
+  final ModelProfile profile;
 
   final LlmService service;
   final LlmConfig config;
@@ -420,6 +458,7 @@ class _LlmServicePort implements LlmPort {
       messages: messages,
       tools: tools,
       cancelToken: token,
+      profile: profile,
     );
     if (response.effortDropped) onEffortDropped?.call(config.thinking);
     return LlmTurn(

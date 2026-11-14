@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../../config/app_theme.dart';
 import '../../services/storage_service.dart';
@@ -13,12 +15,19 @@ class AiPolicySettingsPage extends StatefulWidget {
 }
 
 class _AiPolicySettingsPageState extends State<AiPolicySettingsPage> {
+  /// Enough for a paragraph of preferences; a long memory is context the run
+  /// pays for on every turn.
+  static const int _memoryLimit = 600;
+
   late StorageService _storage;
   bool _isLoading = true;
 
   int _maxSteps = 15;
   bool _safeMode = true;
   List<String> _allowedSites = [];
+  final TextEditingController _memoryController = TextEditingController();
+  Timer? _memoryDebounce;
+  List<String> _blockedSites = [];
 
   @override
   void initState() {
@@ -31,6 +40,8 @@ class _AiPolicySettingsPageState extends State<AiPolicySettingsPage> {
     _maxSteps = _storage.getMaxSteps();
     _safeMode = _storage.getSafeMode();
     _allowedSites = _storage.getAgentAllowedSites();
+    _blockedSites = _storage.getAgentBlockedSites();
+    _memoryController.text = _storage.getAgentMemory();
     if (!mounted) return;
     setState(() => _isLoading = false);
   }
@@ -45,6 +56,74 @@ class _AiPolicySettingsPageState extends State<AiPolicySettingsPage> {
     await _storage.clearAgentAllowedSites();
     if (!mounted) return;
     setState(() => _allowedSites = const []);
+  }
+
+  @override
+  void dispose() {
+    // A note typed in the last moment is still owed to the store.
+    if (_memoryDebounce?.isActive ?? false) {
+      _memoryDebounce!.cancel();
+      unawaited(_storage.saveAgentMemory(_memoryController.text));
+    }
+    _memoryController.dispose();
+    _memoryDebounce?.cancel();
+    super.dispose();
+  }
+
+  void _scheduleMemorySave() {
+    _memoryDebounce?.cancel();
+    _memoryDebounce = Timer(const Duration(milliseconds: 400), () {
+      unawaited(_storage.saveAgentMemory(_memoryController.text));
+    });
+  }
+
+  Future<void> _removeBlocked(String host) async {
+    await _storage.removeAgentBlockedSite(host);
+    if (!mounted) return;
+    setState(() => _blockedSites = _storage.getAgentBlockedSites());
+  }
+
+  Future<void> _clearBlocked() async {
+    await _storage.clearAgentBlockedSites();
+    if (!mounted) return;
+    setState(() => _blockedSites = const []);
+  }
+
+  /// Lets a host be added without waiting for the agent to meet it first.
+  Future<void> _addBlocked() async {
+    final controller = TextEditingController();
+    final host = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('禁止一个站点'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(
+            hintText: 'example.com',
+            isDense: true,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
+            child: const Text('禁止'),
+          ),
+        ],
+      ),
+    );
+    if (host == null || host.isEmpty) return;
+    await _storage.addAgentBlockedSite(host);
+    await _storage.removeAgentAllowedSite(host);
+    if (!mounted) return;
+    setState(() {
+      _blockedSites = _storage.getAgentBlockedSites();
+      _allowedSites = _storage.getAgentAllowedSites();
+    });
   }
 
   @override
@@ -66,6 +145,49 @@ class _AiPolicySettingsPageState extends State<AiPolicySettingsPage> {
         padding: EdgeInsets.fromLTRB(
             16, 16, 16, 16 + MediaQuery.of(context).viewPadding.bottom),
         children: [
+          Container(
+            decoration: BoxDecoration(
+              color: cardColor,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
+                width: 0.8,
+              ),
+            ),
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('长期记忆',
+                    style:
+                        TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                const SizedBox(height: 4),
+                Text(
+                  '每次任务都会告诉模型的事：你是谁、你要什么样的回答、你的时区或单位。'
+                  '留空则完全不发送。',
+                  style: TextStyle(
+                      fontSize: 12,
+                      color: AppTheme.neutralOf(isDark),
+                      height: 1.4),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _memoryController,
+                  minLines: 2,
+                  maxLines: 5,
+                  maxLength: _memoryLimit,
+                  style: const TextStyle(fontSize: 13),
+                  decoration: const InputDecoration(
+                    hintText: '例如：我在北京，回答用简体中文，先给结论再给细节。',
+                    isDense: true,
+                    border: OutlineInputBorder(),
+                  ),
+                  onChanged: (_) => _scheduleMemorySave(),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
           Container(
             decoration: BoxDecoration(
               color: cardColor,
@@ -214,6 +336,103 @@ class _AiPolicySettingsPageState extends State<AiPolicySettingsPage> {
                             icon: const Icon(Icons.close_rounded, size: 16),
                             visualDensity: VisualDensity.compact,
                             onPressed: () => _removeSite(host),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          Container(
+            decoration: BoxDecoration(
+              color: cardColor,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
+                width: 0.8,
+              ),
+            ),
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      '禁止智能体使用的站点',
+                      style:
+                          TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                    ),
+                    Row(
+                      children: [
+                        TextButton(
+                          onPressed: _addBlocked,
+                          style: TextButton.styleFrom(
+                            foregroundColor: AppTheme.primaryOf(isDark),
+                            minimumSize: const Size(0, 28),
+                            padding: const EdgeInsets.symmetric(horizontal: 6),
+                          ),
+                          child:
+                              const Text('添加', style: TextStyle(fontSize: 12)),
+                        ),
+                        if (_blockedSites.isNotEmpty)
+                          TextButton(
+                            onPressed: _clearBlocked,
+                            style: TextButton.styleFrom(
+                              foregroundColor: AppTheme.dangerOf(isDark),
+                              minimumSize: const Size(0, 28),
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 6),
+                            ),
+                            child:
+                                const Text('清空', style: TextStyle(fontSize: 12)),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '智能体在这些站点上一律不动手：不点击、不输入、不读页面。'
+                  '这一条不弹授权，也不会被任何一次同意改变。',
+                  style: TextStyle(
+                      fontSize: 12,
+                      color: AppTheme.neutralOf(isDark),
+                      height: 1.4),
+                ),
+                const SizedBox(height: 8),
+                if (_blockedSites.isEmpty)
+                  Text(
+                    '暂无禁止站点',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurface
+                          .withValues(alpha: 0.4),
+                    ),
+                  )
+                else
+                  ..._blockedSites.map(
+                    (host) => Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: Row(
+                        children: [
+                          Icon(Icons.block_rounded,
+                              size: 15, color: AppTheme.dangerOf(isDark)),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(host,
+                                style: const TextStyle(fontSize: 12.5)),
+                          ),
+                          IconButton(
+                            tooltip: '解除禁止 $host',
+                            icon: const Icon(Icons.close_rounded, size: 16),
+                            visualDensity: VisualDensity.compact,
+                            onPressed: () => _removeBlocked(host),
                           ),
                         ],
                       ),

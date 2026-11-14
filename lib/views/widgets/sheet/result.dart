@@ -49,6 +49,30 @@ extension _SheetResult on _AgentBottomSheetState {
     );
   }
 
+  /// 1234 → 1.2k, so a long run stays one glance wide.
+  String _tokens(int value) {
+    if (value < 1000) return '$value';
+    return '${(value / 1000).toStringAsFixed(1)}k';
+  }
+
+  /// The result goes out as text, not as a file: every target a phone offers
+  /// (chat, mail, notes) takes text, and a .md attachment would be unreadable
+  /// in most of them.
+  Future<void> _shareResult() async {
+    final text = _resultText(widget.state);
+    if (text.isEmpty) return;
+    HapticService.selection();
+    final shared = await const ShareService().shareText(
+      text,
+      subject: widget.state.goal.isEmpty ? null : widget.state.goal,
+    );
+    if (!shared && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('这台设备没有可用的分享目标，可以改用复制')),
+      );
+    }
+  }
+
   Widget _smallAction({
     required IconData icon,
     required String label,
@@ -212,12 +236,29 @@ extension _SheetResult on _AgentBottomSheetState {
                   color: muted,
                   onTap: _copyResult,
                 ),
+                _smallAction(
+                  icon: Icons.ios_share_rounded,
+                  label: '分享',
+                  color: muted,
+                  onTap: _shareResult,
+                ),
                 if (state.logs.isNotEmpty)
                   _smallAction(
                     icon: Icons.subject_rounded,
                     label: _showLogs ? '收起日志' : '日志 ${state.logs.length}',
                     color: muted,
                     onTap: () => setState(() => _showLogs = !_showLogs),
+                  ),
+                // What this run cost. A user who cannot see it cannot decide
+                // whether the task was worth running again.
+                if (state.promptTokens + state.completionTokens > 0)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 6),
+                    child: Text(
+                      '${_tokens(state.promptTokens)} 输入 · '
+                      '${_tokens(state.completionTokens)} 输出 token',
+                      style: TextStyle(fontSize: 10.5, color: muted),
+                    ),
                   ),
               ],
             ),
