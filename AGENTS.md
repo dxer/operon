@@ -12,6 +12,31 @@ Shared instructions for every coding agent working in this repository.
 export PATH=/root/sdk347/flutter/bin:$PATH
 ```
 
+## Building the APK
+
+Gradle lives outside the project and the default JDK is too old, so a bare
+`flutter build apk` fails. This is the working recipe (Windows Git Bash):
+
+```bash
+export JAVA_HOME=/d/dev/Java/ms-21.0.7          # PATH 里默认是 java8，AGP 8 要 17+
+export GRADLE_USER_HOME=/d/dev/gradle-home      # 已缓存 gradle-8.12-all，代理配置也在这里
+export PATH="$JAVA_HOME/bin:/d/dev/flutter-sdk/bin:/d/dev/android-sdk/platform-tools:$PATH"
+
+flutter build apk --debug                       # 首次约 7 分钟，之后增量 1-2 分钟
+adb install -r build/app/outputs/flutter-apk/app-debug.apk
+```
+
+Notes:
+
+- `android/gradlew` 与 `gradle/wrapper/gradle-wrapper.jar` 已入库（Gradle 8.12，
+  与本机缓存的发行版对应）。改 `distributionUrl` 前先确认本地有对应缓存，
+  否则会走网络下载。
+- 本机 Flutter 是 **3.35.5**（AGENTS 提到的 3.47.9 路径只存在于另一台机器）。
+  它会自动把 `minSdkVersion 21` 改写成 `flutter.minSdkVersion`，而 3.35 的默认
+  值是 **24**，所以实际 APK 的 minSdk 是 24（Android 7+）。要改回 21 需要写成
+  `minSdk = 21` 并自担引擎支持风险。
+- 构建产物在 `build/`（已 gitignore）。
+
 ## Navigating the code
 
 The repo is indexed by CodeGraph (`.codegraph/`, git-ignored). Prefer it over
@@ -83,8 +108,15 @@ Run `flutter pub get` only after changing `pubspec.yaml`; afterwards
 CI (`.github/workflows/build-apk.yml`) already runs analyze plus the full test
 suite, so a local full run is mainly for pre-commit confidence.
 
-**Test once, at the end.** Run the suite when the change is complete, not after
-each batch or intermediate edit. A full run takes 70–90s and `flutter analyze`
-can take two minutes cold; repeating them per step dominates the wall clock on
-a small change. If a test fails, debug that single file — do not re-run the
-whole suite to get a clearer listing.
+**一个功能只验证一次，在最后。** 不要每改几行就跑 `analyze` / `test`。
+把「一个功能」当成一批改动：先把这批全改完，再跑一次 `flutter analyze --no-pub`
+和一次测试。理由是验证本身不慢，但它在每一步都会打断思路、把一次改动
+切成十几轮；一个小功能的墙钟时间主要花在这里，不花在编译上。
+
+具体到操作：
+
+- 中途发现语法或类型错误，凭阅读修，不要用工具去确认；
+- 不用「先跑一次看看有没有错」当探路手段，先把设计想清楚；
+- 功能做完了才跑验证；失败了只重跑那个文件（`--plain-name` 定位单例），
+  不要为了「看得更清楚」重跑整个套件；
+- 提交/推送前跑一次全量。

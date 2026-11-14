@@ -12,6 +12,7 @@ build/
 
 # Android local configuration
 android/local.properties
+android/.gradle/
 android/keystore.properties
 keystore.properties
 android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java
