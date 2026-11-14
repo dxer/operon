@@ -5,7 +5,6 @@ import '../models/llm_config.dart';
 import '../models/history_item.dart';
 import '../models/bookmark_item.dart';
 import '../models/agent_task_record.dart';
-import '../models/skill_run.dart';
 
 class StorageService {
   static StorageService? _instance;
@@ -21,19 +20,30 @@ class StorageService {
     return _instance!;
   }
 
+  /// Drops the cached instance so a caller can start from clean preferences.
+  ///
+  /// Used by tests that need two "app starts" in one process.
+  static void resetForTest() => _instance = null;
+
   // LLM Config
   LlmConfig getLlmConfig() {
-    final baseUrl = _prefs.getString(AppConstants.keyBaseUrl) ??
-        'https://api.deepseek.com/v1';
+    final baseUrl = _prefs.getString(AppConstants.keyBaseUrl) ?? '';
     final apiKey = _prefs.getString(AppConstants.keyApiKey) ?? '';
-    final model = _prefs.getString(AppConstants.keyModel) ?? 'deepseek-chat';
+    final model = _prefs.getString(AppConstants.keyModel) ?? '';
     final temp = _prefs.getDouble(AppConstants.keyTemperature) ?? 0.1;
+    final thinkingName = _prefs.getString(AppConstants.keyThinking);
+    final maxTokens = _prefs.getInt(AppConstants.keyMaxOutputTokens);
 
     return LlmConfig(
       baseUrl: baseUrl,
       apiKey: apiKey,
       model: model,
       temperature: temp,
+      thinking: ThinkingLevel.values.firstWhere(
+        (level) => level.name == thinkingName,
+        orElse: () => ThinkingLevel.auto,
+      ),
+      maxOutputTokens: maxTokens,
     );
   }
 
@@ -42,6 +52,13 @@ class StorageService {
     await _prefs.setString(AppConstants.keyApiKey, config.apiKey);
     await _prefs.setString(AppConstants.keyModel, config.model);
     await _prefs.setDouble(AppConstants.keyTemperature, config.temperature);
+    await _prefs.setString(AppConstants.keyThinking, config.thinking.name);
+    final maxTokens = config.maxOutputTokens;
+    if (maxTokens == null) {
+      await _prefs.remove(AppConstants.keyMaxOutputTokens);
+    } else {
+      await _prefs.setInt(AppConstants.keyMaxOutputTokens, maxTokens);
+    }
   }
 
   // User-Agent
@@ -144,6 +161,33 @@ class StorageService {
 
   Future<void> saveHapticsEnabled(bool enabled) async {
     await _prefs.setBool(AppConstants.keyHapticsEnabled, enabled);
+  }
+
+  /// The three reading features, each independent.
+  ///
+  /// They are on by default: a fresh install should feel complete, and a user
+  /// who does not care about one of them never has to touch it. Turning one off
+  /// removes its entry point as well as its behaviour, so nothing silently
+  /// keeps running in the background.
+  bool getReadingModeEnabled() =>
+      _prefs.getBool(AppConstants.keyReadingModeEnabled) ?? true;
+
+  Future<void> saveReadingModeEnabled(bool enabled) async {
+    await _prefs.setBool(AppConstants.keyReadingModeEnabled, enabled);
+  }
+
+  bool getSelectionMenuEnabled() =>
+      _prefs.getBool(AppConstants.keySelectionMenuEnabled) ?? true;
+
+  Future<void> saveSelectionMenuEnabled(bool enabled) async {
+    await _prefs.setBool(AppConstants.keySelectionMenuEnabled, enabled);
+  }
+
+  bool getPageSummaryEnabled() =>
+      _prefs.getBool(AppConstants.keyPageSummaryEnabled) ?? true;
+
+  Future<void> savePageSummaryEnabled(bool enabled) async {
+    await _prefs.setBool(AppConstants.keyPageSummaryEnabled, enabled);
   }
 
   // Text Zoom (percentage: 100 is default)
@@ -341,40 +385,4 @@ class StorageService {
     await _prefs.remove(_keyAgentAllowedSites);
   }
 
-  // --- Skill Run History ---
-  static const String _keySkillRuns = 'skill_run_history';
-  static const int _maxSkillRuns = 50;
-
-  List<SkillRunRecord> getSkillRuns() {
-    final raw = _prefs.getStringList(_keySkillRuns) ?? [];
-    final list = <SkillRunRecord>[];
-    for (final entry in raw) {
-      try {
-        final map = jsonDecode(entry) as Map<String, dynamic>;
-        list.add(SkillRunRecord.fromJson(map));
-      } catch (_) {}
-    }
-    return list;
-  }
-
-  Future<void> addSkillRun(SkillRunRecord record) async {
-    final list = getSkillRuns();
-    list.removeWhere((item) => item.id == record.id);
-    list.insert(0, record);
-    if (list.length > _maxSkillRuns) {
-      list.removeRange(_maxSkillRuns, list.length);
-    }
-    final raw = list.map((item) => jsonEncode(item.toJson())).toList();
-    await _prefs.setStringList(_keySkillRuns, raw);
-  }
-
-  Future<void> removeSkillRun(String id) async {
-    final list = getSkillRuns()..removeWhere((item) => item.id == id);
-    final raw = list.map((item) => jsonEncode(item.toJson())).toList();
-    await _prefs.setStringList(_keySkillRuns, raw);
-  }
-
-  Future<void> clearSkillRuns() async {
-    await _prefs.remove(_keySkillRuns);
-  }
 }

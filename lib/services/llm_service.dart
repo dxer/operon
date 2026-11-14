@@ -1,10 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import '../models/agent_action.dart';
 import '../models/llm_config.dart';
 import '../utils/cancellation.dart';
-import '../utils/json_parser.dart';
 
 /// Thrown when the user stops a task while its model request is in flight.
 class LlmCancelledException implements Exception {
@@ -21,7 +19,11 @@ class LlmCancelledException implements Exception {
 class LlmRequestException implements Exception {
   final String message;
 
-  const LlmRequestException(this.message);
+  /// HTTP status, when there was one. Callers need it to tell "this endpoint
+  /// does not understand the field" from "this request is wrong".
+  final int? statusCode;
+
+  const LlmRequestException(this.message, {this.statusCode});
 
   @override
   String toString() => message;
@@ -73,6 +75,21 @@ class LlmService {
   /// Retries connection resets, 429/5xx responses and timeouts. A 45s budget
   /// was too tight for reasoning models, which legitimately take minutes on a
   /// hard page; the budget is now three minutes and a timeout gets one retry.
+  /// The GET counterpart of [_postJson]. Listing models is read-only, so there
+  /// is no retry ladder: a failure is reported once, where the user asked.
+  Future<http.Response> _getJson({
+    required Uri uri,
+    required Map<String, String> headers,
+  }) async {
+    try {
+      return await http.get(uri, headers: headers).timeout(const Duration(seconds: 20));
+    } on TimeoutException {
+      throw Exception('请求模型列表超时，检查网络或 Base URL');
+    } catch (error) {
+      throw Exception('连接模型服务失败：$error');
+    }
+  }
+
   Future<http.Response> _postJson({
     required Uri uri,
     required Map<String, String> headers,
@@ -180,70 +197,73 @@ class LlmService {
   static String _providerKey(LlmConfig config) =>
       '${config.baseUrl.trim()}|${config.model.trim()}';
 
+  /// The list of models the endpoint offers, for the picker in settings.
+  ///
+  /// Every OpenAI-compatible server answers `GET /models`; the shapes differ
+  /// only in how the ids are nested, so both the `data[].id` form and a bare
+  /// array are accepted. A failure here is not fatal: the user can still type a
+  /// model name by hand.
+  Future<List<String>> fetchModels(LlmConfig config) async {
+    if (config.baseUrl.trim().isEmpty) {
+      throw Exception('请先填写 Base URL');
+    }
+    final response = await _getJson(
+      uri: Uri.parse(_modelsEndpointOf(config)),
+      headers: {
+        'Authorization': 'Bearer ${config.apiKey.trim()}',
+        'Content-Type': 'application/json; charset=utf-8',
+      },
+    );
+    if (response.statusCode != 200) {
+      var detail = response.body;
+      try {
+        final decoded = jsonDecode(response.body);
+        if (decoded is Map && decoded['error'] is Map) {
+          final message = (decoded['error'] as Map)['message'];
+          if (message != null) detail = '$message';
+        }
+      } catch (_) {
+        // The raw body is more use than nothing.
+      }
+      throw LlmRequestException('获取模型列表失败（${response.statusCode}）：$detail');
+    }
+
+    Object? decoded;
+    try {
+      decoded = jsonDecode(utf8.decode(response.bodyBytes));
+    } catch (_) {
+      throw Exception('模型列表不是 JSON，确认 Base URL 指向一个 OpenAI 兼容端点');
+    }
+    final raw = decoded is Map ? decoded['data'] : decoded;
+    if (raw is! List) throw Exception('模型列表格式无法识别');
+
+    // A set, because some routers repeat an id and two identical chips is a bug
+    // the user has to reason about.
+    final ids = <String>{};
+    for (final entry in raw) {
+      final id = entry is Map ? entry['id'] ?? entry['name'] : entry;
+      if (id is String && id.trim().isNotEmpty) ids.add(id.trim());
+    }
+    final sorted = ids.toList()..sort();
+    return sorted;
+  }
+
+  static String _modelsEndpointOf(LlmConfig config) {
+    final base = config.baseUrl.trim();
+    const suffix = '/chat/completions';
+    if (base.endsWith(suffix)) {
+      return '${base.substring(0, base.length - suffix.length)}/models';
+    }
+    if (base.endsWith('/models')) return base;
+    if (base.endsWith('/')) return '${base}models';
+    return '$base/models';
+  }
+
   static String _endpointOf(LlmConfig config) {
     final base = config.baseUrl.trim();
     if (base.endsWith('/chat/completions')) return base;
     if (base.endsWith('/')) return '${base}chat/completions';
     return '$base/chat/completions';
-  }
-
-  static String _clip(String text, [int max = 600]) =>
-      text.length > max ? '${text.substring(0, max)}…' : text;
-
-  /// Sends the prompt to the configured LLM and returns the parsed AgentAction.
-  ///
-  /// A single malformed reply used to end the whole task, throwing away every
-  /// step already taken. It now gets one repair round with the bad output and
-  /// a format reminder, which is much cheaper than restarting the run.
-  Future<AgentAction> getNextAction({
-    required LlmConfig config,
-    required List<Map<String, String>> messages,
-    CancellationToken? cancelToken,
-  }) async {
-    final first = await _complete(
-      config: config,
-      messages: messages,
-      jsonMode: true,
-      cancelToken: cancelToken,
-    );
-    final parsed = _parseAction(first.content);
-    if (parsed != null && parsed.action != ActionType.unknown) return parsed;
-
-    final hint = first.truncated
-        ? '你上一条回复因为过长被截断。请只输出一个短小的 JSON 动作，不要任何解释。'
-        : parsed != null
-            ? '动作类型 "${_clip(first.content, 120)}" 不受支持。可用动作：'
-                'click、type、press_key、select_option、hover、scroll、navigate、'
-                'go_back、wait、extract_data、finish。请只输出一个合法 JSON。'
-            : '你上一条回复不是合法的动作 JSON：\n${_clip(first.content)}\n'
-                '请只输出一个 JSON 对象，不要 Markdown，不要解释。';
-
-    final repaired = await _complete(
-      config: config,
-      messages: [
-        ...messages,
-        {'role': 'assistant', 'content': _clip(first.content)},
-        {'role': 'user', 'content': hint},
-      ],
-      // Format compliance matters more than variety here.
-      temperature: 0,
-      jsonMode: true,
-      cancelToken: cancelToken,
-    );
-
-    final action = _parseAction(repaired.content);
-    if (action != null && action.action != ActionType.unknown) return action;
-
-    throw Exception(
-      repaired.truncated
-          ? '模型输出连续被截断，无法得到完整动作。请换一个上下文更长的模型，或把目标拆小。'
-          : '未能从模型回复中解析出合法 Action JSON: ${_clip(repaired.content)}',
-    );
-  }
-
-  AgentAction? _parseAction(String content) {
-    final json = JsonParser.extractJson(content);
-    return json == null ? null : AgentAction.fromJson(json);
   }
 
   /// General chat completion helper returning raw String content
@@ -262,6 +282,46 @@ class LlmService {
       cancelToken: cancelToken,
     );
     return completion.content;
+  }
+
+  /// Sends one already-built request body and returns the raw 200 response.
+  ///
+  /// The agent builds its own body (tool calling changes the shape of a
+  /// request), but retries, aborts and endpoint resolution must stay in one
+  /// place, so it goes through the same machinery as everything else.
+  Future<http.Response> sendToolTurn({
+    required LlmConfig config,
+    required Map<String, dynamic> body,
+    CancellationToken? cancelToken,
+  }) async {
+    final uri = Uri.parse(_endpointOf(config));
+    final headers = {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Authorization': 'Bearer ${config.apiKey.trim()}',
+    };
+    final response = await _postJson(
+      uri: uri,
+      headers: headers,
+      body: jsonEncode(body),
+      cancelToken: cancelToken,
+    );
+    if (response.statusCode == 200) return response;
+
+    var detail = response.body;
+    try {
+      final decoded = jsonDecode(response.body);
+      if (decoded is Map) {
+        final error = decoded['error'];
+        final message = error is Map ? error['message'] : null;
+        if (message != null) detail = '$message';
+      }
+    } catch (_) {
+      // Keep the raw body: it is more informative than nothing.
+    }
+    throw LlmRequestException(
+      '模型服务返回 ${response.statusCode}：$detail',
+      statusCode: response.statusCode,
+    );
   }
 
   /// One chat completion, including `response_format` negotiation.
@@ -291,6 +351,11 @@ class LlmService {
           'model': config.model.trim(),
           'messages': messages,
           'temperature': temperature ?? config.temperature,
+          if (config.thinking.sendsEffort) 'reasoning_effort': config.thinking.effort,
+          if (config.maxOutputTokens != null)
+            (LlmConfig.usesMaxCompletionTokens(config.model)
+                ? 'max_completion_tokens'
+                : 'max_tokens'): config.maxOutputTokens,
           if (withJsonMode) 'response_format': {'type': 'json_object'},
         };
 

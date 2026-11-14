@@ -42,4 +42,4 @@ flutter_launcher_icons:
 flutter:
   uses-material-design: true
   assets:
-    - assets/js/agent_dom.js
+    - assets/js/page_helpers.js

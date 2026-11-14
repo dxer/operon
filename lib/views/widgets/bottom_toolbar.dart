@@ -11,6 +11,11 @@ class BottomToolbar extends StatelessWidget {
   final bool isBookmarked;
   final bool isDesktopMode;
   final bool isCleanMode;
+
+  /// Reading features can be turned off in settings; their entries go with them.
+  final bool showCleanMode;
+  final bool showSummary;
+
   final VoidCallback onBack;
   final VoidCallback onForward;
   final VoidCallback onHome;
@@ -26,7 +31,6 @@ class BottomToolbar extends StatelessWidget {
   final VoidCallback onOpenBookmarks;
   final VoidCallback onToggleDesktopMode;
   final VoidCallback onOpenSettings;
-  final VoidCallback onPickLocator;
   final String currentUrl;
 
   const BottomToolbar({
@@ -38,6 +42,8 @@ class BottomToolbar extends StatelessWidget {
     required this.isBookmarked,
     required this.isDesktopMode,
     required this.isCleanMode,
+    this.showCleanMode = true,
+    this.showSummary = true,
     required this.onBack,
     required this.onForward,
     required this.onHome,
@@ -53,7 +59,6 @@ class BottomToolbar extends StatelessWidget {
     required this.onOpenBookmarks,
     required this.onToggleDesktopMode,
     required this.onOpenSettings,
-    required this.onPickLocator,
     required this.currentUrl,
   });
 
@@ -79,6 +84,8 @@ class BottomToolbar extends StatelessWidget {
       builder: (ctx) {
         return _ActionMenuSheet(
           isDark: isDark,
+          showCleanMode: showCleanMode,
+          showSummary: showSummary,
           isLoading: isLoading,
           isCleanMode: isCleanMode,
           isBookmarked: isBookmarked,
@@ -95,7 +102,6 @@ class BottomToolbar extends StatelessWidget {
           onOpenBookmarks: onOpenBookmarks,
           onToggleDesktopMode: onToggleDesktopMode,
           onOpenSettings: onOpenSettings,
-          onPickLocator: onPickLocator,
         );
       },
     );
@@ -251,6 +257,10 @@ class _ActionMenuSheet extends StatelessWidget {
   final bool isCleanMode;
   final bool isBookmarked;
   final bool isDesktopMode;
+
+  /// Reading features can be turned off in settings; their entries go with them.
+  final bool showCleanMode;
+  final bool showSummary;
   final VoidCallback onReload;
   final VoidCallback onStopLoad;
   final VoidCallback onNewTab;
@@ -263,7 +273,6 @@ class _ActionMenuSheet extends StatelessWidget {
   final VoidCallback onOpenBookmarks;
   final VoidCallback onToggleDesktopMode;
   final VoidCallback onOpenSettings;
-  final VoidCallback onPickLocator;
 
   const _ActionMenuSheet({
     required this.isDark,
@@ -271,6 +280,8 @@ class _ActionMenuSheet extends StatelessWidget {
     required this.isCleanMode,
     required this.isBookmarked,
     required this.isDesktopMode,
+    this.showCleanMode = true,
+    this.showSummary = true,
     required this.onReload,
     required this.onStopLoad,
     required this.onNewTab,
@@ -283,7 +294,6 @@ class _ActionMenuSheet extends StatelessWidget {
     required this.onOpenBookmarks,
     required this.onToggleDesktopMode,
     required this.onOpenSettings,
-    required this.onPickLocator,
   });
 
   void _run(BuildContext context, VoidCallback action) {
@@ -300,16 +310,18 @@ class _ActionMenuSheet extends StatelessWidget {
         : Colors.black.withValues(alpha: 0.05);
 
     final actions = <_MenuAction>[
-      _MenuAction(Icons.auto_awesome_rounded, 'AI 速读',
-          AppTheme.accentOf(isDark), onSummarize),
-      _MenuAction(
-        isCleanMode
-            ? Icons.chrome_reader_mode
-            : Icons.chrome_reader_mode_outlined,
-        isCleanMode ? '退出纯净' : '纯净阅读',
-        AppTheme.accentOf(isDark),
-        onCleanPage,
-      ),
+      if (showSummary)
+        _MenuAction(Icons.auto_awesome_rounded, 'AI 速读',
+            AppTheme.accentOf(isDark), onSummarize),
+      if (showCleanMode)
+        _MenuAction(
+          isCleanMode
+              ? Icons.chrome_reader_mode
+              : Icons.chrome_reader_mode_outlined,
+          isCleanMode ? '退出纯净' : '纯净阅读',
+          AppTheme.accentOf(isDark),
+          onCleanPage,
+        ),
       _MenuAction(Icons.code_rounded, '用户脚本', AppTheme.primaryOf(isDark),
           onOpenUserScripts),
       _MenuAction(
@@ -328,8 +340,6 @@ class _ActionMenuSheet extends StatelessWidget {
         null,
         onToggleDesktopMode,
       ),
-      _MenuAction(Icons.center_focus_strong_outlined, '拾取定位器',
-          AppTheme.primaryOf(isDark), onPickLocator),
       _MenuAction(Icons.settings_outlined, '设置', null, onOpenSettings),
     ];
 

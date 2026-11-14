@@ -1,9 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:operon/models/agent_task_record.dart';
-import 'package:operon/models/macro_workflow.dart';
 
 void main() {
-  test('task record preserves recorded macro steps', () {
+  test('a task record round-trips through json', () {
     final record = AgentTaskRecord(
       id: 'r1',
       goal: '完成一次任务',
@@ -14,31 +13,20 @@ void main() {
       maxSteps: 10,
       safeMode: true,
       targetUrl: 'https://example.com/post/1',
-      recordedMacroSteps: const [
-        MacroStep(
-          action: 'click',
-          selector: '#reply',
-          description: '点击回复',
-          targetText: '回复',
-        ),
-        MacroStep(
-          action: 'type',
-          selector: 'textarea',
-          text: '你好',
-          description: '输入回复',
-        ),
-      ],
+      logs: const ['步骤 1: 点击回复'],
+      sensitiveActions: const ['发布回复'],
     );
 
     final restored = AgentTaskRecord.fromJson(record.toJson());
 
-    expect(restored.recordedMacroSteps.length, 2);
-    expect(restored.recordedMacroSteps.first.selector, '#reply');
-    expect(restored.recordedMacroSteps.last.text, '你好');
+    expect(restored.goal, '完成一次任务');
     expect(restored.targetUrl, 'https://example.com/post/1');
+    expect(restored.logs, hasLength(1));
+    expect(restored.sensitiveActions, hasLength(1));
+    expect(restored.hasSensitiveActions, isTrue);
   });
 
-  test('old records without macro steps still parse', () {
+  test('a record written before the change still parses', () {
     final restored = AgentTaskRecord.fromJson({
       'id': 'old',
       'goal': '旧任务',
@@ -48,9 +36,13 @@ void main() {
       'steps': 1,
       'maxSteps': 5,
       'safeMode': true,
+      // A field the old build wrote; unknown keys must not break a read.
+      'recordedMacroSteps': [
+        {'action': 'click', 'selector': '#reply'},
+      ],
     });
 
-    expect(restored.recordedMacroSteps, isEmpty);
     expect(restored.goal, '旧任务');
+    expect(restored.safeMode, isTrue);
   });
 }

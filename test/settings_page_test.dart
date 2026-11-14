@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:operon/config/app_theme.dart';
-import 'package:operon/services/skill_service.dart';
 import 'package:operon/views/settings/settings_page.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -16,7 +15,6 @@ void main() {
       buildNumber: '6',
       buildSignature: '',
     );
-    SkillService.resetForTest();
   });
 
   testWidgets('settings groups AI entries before browser options',
@@ -36,9 +34,11 @@ void main() {
     expect(find.text('AI 与自动化'), findsOneWidget);
     expect(find.text('浏览与外观'), findsOneWidget);
     expect(find.text('AI 智能体引擎'), findsOneWidget);
-    expect(find.text('技能'), findsOneWidget);
-    expect(find.text('快捷宏工作流'), findsOneWidget);
+    expect(find.text('任务历史与审计'), findsOneWidget);
     expect(find.text('用户脚本'), findsOneWidget);
+    // Skills and macros were removed with the flow/replay engines.
+    expect(find.text('技能'), findsNothing);
+    expect(find.text('快捷宏工作流'), findsNothing);
     expect(find.textContaining('UserScripts'), findsNothing);
 
     await tester.scrollUntilVisible(

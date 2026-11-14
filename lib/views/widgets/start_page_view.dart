@@ -2,16 +2,25 @@ import 'package:flutter/material.dart';
 import '../../config/app_theme.dart';
 import '../../services/haptic_service.dart';
 import '../../services/storage_service.dart';
+import 'browser_controls.dart' show AgentEntryButton;
 import 'operon_mark.dart';
 
 class StartPageView extends StatefulWidget {
   final StorageService storageService;
   final Function(String url) onOpenUrl;
 
+  /// Opens the assistant. Null hides the entry.
+  final VoidCallback? onOpenAgent;
+
+  /// A task is running, so the mark says so.
+  final bool agentBusy;
+
   const StartPageView({
     super.key,
     required this.storageService,
     required this.onOpenUrl,
+    this.onOpenAgent,
+    this.agentBusy = false,
   });
 
   @override
@@ -371,111 +380,128 @@ class _StartPageViewState extends State<StartPageView> {
                   const SizedBox(height: 34),
 
                   // Search box
-                  GestureDetector(
-                    onTap: () => _focusNode.requestFocus(),
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 180),
-                      curve: Curves.easeOut,
-                      height: 54,
-                      decoration: BoxDecoration(
-                        color: inputBg,
-                        borderRadius: BorderRadius.circular(27),
-                        border: Border.all(color: borderColor, width: 1.2),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black
-                                .withValues(alpha: isDark ? 0.28 : 0.045),
-                            blurRadius: isDark ? 18 : 14,
-                            offset: const Offset(0, 4),
-                          ),
-                        ],
-                      ),
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.search_rounded,
-                            size: 21,
-                            color: isDark
-                                ? AppTheme.darkMuted
-                                : AppTheme.lightMuted,
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: TextField(
-                              controller: _searchController,
-                              focusNode: _focusNode,
-                              textAlignVertical: TextAlignVertical.center,
-                              cursorColor: AppTheme.primaryOf(isDark),
-                              style: TextStyle(
-                                fontSize: 15.5,
-                                fontWeight: FontWeight.normal,
-                                color: isDark
-                                    ? AppTheme.darkOnSurface
-                                    : AppTheme.lightOnSurface,
-                              ),
-                              decoration: AppTheme.flatInput.copyWith(
-                                hintText: '搜索或输入网址',
-                                hintStyle: TextStyle(
-                                  fontSize: 15.5,
+                  // The assistant entry mirrors the address bar: outside the
+                  // field, on the left, so it is in the same place whatever the
+                  // page below it is.
+                  Row(
+                    children: [
+                      if (widget.onOpenAgent != null) ...[
+                        AgentEntryButton(
+                          isDark: isDark,
+                          busy: widget.agentBusy,
+                          onTap: widget.onOpenAgent!,
+                        ),
+                        const SizedBox(width: 4),
+                      ],
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: () => _focusNode.requestFocus(),
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 180),
+                            curve: Curves.easeOut,
+                            height: 54,
+                            decoration: BoxDecoration(
+                              color: inputBg,
+                              borderRadius: BorderRadius.circular(27),
+                              border: Border.all(color: borderColor, width: 1.2),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black
+                                      .withValues(alpha: isDark ? 0.28 : 0.045),
+                                  blurRadius: isDark ? 18 : 14,
+                                  offset: const Offset(0, 4),
+                                ),
+                              ],
+                            ),
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.search_rounded,
+                                  size: 21,
                                   color: isDark
                                       ? AppTheme.darkMuted
-                                          .withValues(alpha: 0.72)
-                                      : AppTheme.lightMuted
-                                          .withValues(alpha: 0.78),
+                                      : AppTheme.lightMuted,
                                 ),
-                              ),
-                              textInputAction: TextInputAction.go,
-                              onSubmitted: _handleSubmit,
-                            ),
-                          ),
-                          if (_searchController.text.isNotEmpty)
-                            Semantics(
-                              button: true,
-                              label: '清空搜索框',
-                              child: GestureDetector(
-                                behavior: HitTestBehavior.opaque,
-                                onTap: () {
-                                  _searchController.clear();
-                                  setState(() {});
-                                },
-                                child: SizedBox(
-                                  width: 44,
-                                  height: 44,
-                                  child: Center(
-                                    child: Icon(
-                                      Icons.close_rounded,
-                                      size: 18,
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: TextField(
+                                    controller: _searchController,
+                                    focusNode: _focusNode,
+                                    textAlignVertical: TextAlignVertical.center,
+                                    cursorColor: AppTheme.primaryOf(isDark),
+                                    style: TextStyle(
+                                      fontSize: 15.5,
+                                      fontWeight: FontWeight.normal,
+                                      color: isDark
+                                          ? AppTheme.darkOnSurface
+                                          : AppTheme.lightOnSurface,
+                                    ),
+                                    decoration: AppTheme.flatInput.copyWith(
+                                      hintText: '搜索或输入网址',
+                                      hintStyle: TextStyle(
+                                        fontSize: 15.5,
+                                        color: isDark
+                                            ? AppTheme.darkMuted
+                                                .withValues(alpha: 0.72)
+                                            : AppTheme.lightMuted
+                                                .withValues(alpha: 0.78),
+                                      ),
+                                    ),
+                                    textInputAction: TextInputAction.go,
+                                    onSubmitted: _handleSubmit,
+                                  ),
+                                ),
+                                if (_searchController.text.isNotEmpty)
+                                  Semantics(
+                                    button: true,
+                                    label: '清空搜索框',
+                                    child: GestureDetector(
+                                      behavior: HitTestBehavior.opaque,
+                                      onTap: () {
+                                        _searchController.clear();
+                                        setState(() {});
+                                      },
+                                      child: SizedBox(
+                                        width: 44,
+                                        height: 44,
+                                        child: Center(
+                                          child: Icon(
+                                            Icons.close_rounded,
+                                            size: 18,
+                                            color: isDark
+                                                ? AppTheme.darkMuted
+                                                : AppTheme.lightMuted,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  )
+                                else
+                                  IconButton(
+                                    tooltip: '打开',
+                                    icon: Icon(
+                                      Icons.arrow_forward_rounded,
+                                      size: 20,
                                       color: isDark
                                           ? AppTheme.darkMuted
                                           : AppTheme.lightMuted,
                                     ),
+                                    padding: const EdgeInsets.all(4),
+                                    constraints: const BoxConstraints(
+                                      minWidth: 44,
+                                      minHeight: 44,
+                                    ),
+                                    onPressed: () =>
+                                        _handleSubmit(_searchController.text),
                                   ),
-                                ),
-                              ),
-                            )
-                          else
-                            IconButton(
-                              tooltip: '打开',
-                              icon: Icon(
-                                Icons.arrow_forward_rounded,
-                                size: 20,
-                                color: isDark
-                                    ? AppTheme.darkMuted
-                                    : AppTheme.lightMuted,
-                              ),
-                              padding: const EdgeInsets.all(4),
-                              constraints: const BoxConstraints(
-                                minWidth: 44,
-                                minHeight: 44,
-                              ),
-                              onPressed: () =>
-                                  _handleSubmit(_searchController.text),
+                              ],
                             ),
-                        ],
+                          ),
+                        ),
                       ),
-                    ),
+                    ],
                   ),
                   const SizedBox(height: 32),
 

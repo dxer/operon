@@ -2,8 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:operon/config/app_theme.dart';
 import 'package:operon/models/agent_state.dart';
-import 'package:operon/models/macro_workflow.dart';
-import 'package:operon/models/skill.dart';
 import 'package:operon/views/widgets/agent_bottom_sheet.dart';
 
 void main() {
@@ -20,13 +18,12 @@ void main() {
           state: const AgentState(),
           safeMode: true,
           onSafeModeChanged: (value) => changedTo = value,
-          onStart: (_, __) {},
+          onStart: (_) {},
           onPause: () {},
           onResume: () {},
           onStop: () {},
           onConfirmAction: (_) {},
           onConfirmCaptcha: (_) {},
-          onRunMacro: (_) {},
         ),
       ),
     ));
@@ -49,8 +46,6 @@ Widget _sheet({
   AgentState state = const AgentState(),
   AgentStartHandler? onStart,
   String? currentUrl,
-  List<Skill> skills = const [],
-  Future<void> Function()? onManageSkills,
   VoidCallback? onAllowSite,
   DateTime? taskStartedAt,
 }) {
@@ -64,17 +59,14 @@ Widget _sheet({
         currentUrl: currentUrl,
         taskStartedAt: taskStartedAt,
         safeMode: true,
-        skills: skills,
-        onManageSkills: onManageSkills,
         onAllowSite: onAllowSite,
         onSafeModeChanged: (_) {},
-        onStart: onStart ?? (_, __) {},
+        onStart: onStart ?? (_) {},
         onPause: () {},
         onResume: () {},
         onStop: () {},
         onConfirmAction: (_) {},
         onConfirmCaptcha: (_) {},
-        onRunMacro: (_) {},
       ),
     ),
   );
@@ -111,7 +103,7 @@ void _moreTests() {
       (tester) async {
     String? started;
     await tester.pumpWidget(_sheet(
-      onStart: (goal, _) => started = goal,
+      onStart: (goal) => started = goal,
     ));
     await tester.enterText(find.byType(TextField), '打开设置并搜索');
     await tester.pump();
@@ -230,7 +222,7 @@ void _moreTests() {
 
   testWidgets('send is inert until the composer has text', (tester) async {
     String? started;
-    await tester.pumpWidget(_sheet(onStart: (goal, _) => started = goal));
+    await tester.pumpWidget(_sheet(onStart: (goal) => started = goal));
     await tester.pump();
 
     expect(find.byTooltip('请输入指令'), findsOneWidget);
@@ -374,9 +366,6 @@ void _moreTests() {
         currentStep: 5,
         currentThought: '回复已发布，任务目标达成。',
         logs: [AgentLogItem(step: 1, title: '打开推文')],
-        recordedMacroSteps: const [
-          MacroStep(action: 'click', description: '打开推文'),
-        ],
       ),
     ));
     await tester.pump();
@@ -384,8 +373,9 @@ void _moreTests() {
     expect(find.text('任务结果'), findsOneWidget);
     expect(find.text('共 5 步'), findsOneWidget);
     expect(find.text('复制'), findsOneWidget);
-    expect(find.text('存为宏'), findsOneWidget);
     expect(find.text('日志 1'), findsOneWidget);
+    // Saving a macro is gone with the replay engine.
+    expect(find.text('存为宏'), findsNothing);
     expect(find.textContaining('已成功执行'), findsNothing);
     expect(tester.takeException(), isNull);
   });
@@ -420,11 +410,9 @@ void _moreTests() {
     expect(find.textContaining('"action": "reply"'), findsOneWidget);
   });
 
-  testWidgets('overflow menu exposes logs, macros, skills and close',
+  testWidgets('overflow menu exposes logs and close',
       (tester) async {
     await tester.pumpWidget(_sheet(
-      skills: const [Skill(id: 'a', name: '批量智能回复')],
-      onManageSkills: () async {},
       state: AgentState(
         status: AgentStatus.completed,
         currentThought: '完成。',
@@ -437,9 +425,11 @@ void _moreTests() {
     await tester.pumpAndSettle();
 
     expect(find.text('日志 1'), findsWidgets);
-    expect(find.text('快捷宏任务库'), findsOneWidget);
-    expect(find.text('管理技能'), findsOneWidget);
     expect(find.text('关闭面板'), findsOneWidget);
+    // The macro library and skill management rows are gone with those
+    // subsystems; the menu is logs and close only.
+    expect(find.text('快捷宏任务库'), findsNothing);
+    expect(find.text('管理技能'), findsNothing);
   });
 
   testWidgets('an error surfaces its logs automatically', (tester) async {
@@ -465,13 +455,12 @@ void _moreTests() {
               state: state,
               safeMode: true,
               onSafeModeChanged: (_) {},
-              onStart: (_, __) {},
+              onStart: (_) {},
               onPause: () {},
               onResume: () {},
               onStop: () {},
               onConfirmAction: (_) {},
               onConfirmCaptcha: (_) {},
-              onRunMacro: (_) {},
             );
           },
         ),
@@ -506,9 +495,6 @@ void _moreTests() {
           }
         ],
         logs: [AgentLogItem(step: 1, title: '打开推文')],
-        recordedMacroSteps: const [
-          MacroStep(action: 'click', description: '打开推文'),
-        ],
       ),
     ));
     await tester.pump();
@@ -517,7 +503,7 @@ void _moreTests() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('overflow menu is pinned to the trailing edge', (tester) async {
+  testWidgets('close and overflow sit at the trailing edge', (tester) async {
     tester.view.physicalSize = const Size(320, 640);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
@@ -533,8 +519,12 @@ void _moreTests() {
     ));
     await tester.pump();
 
-    final rect = tester.getRect(find.byIcon(Icons.more_horiz_rounded));
-    expect(rect.right, greaterThan(320 - 40));
+    // The close button is the trailing-most control now; the overflow menu sits
+    // just inside it.
+    final close = tester.getRect(find.byIcon(Icons.close_rounded));
+    final more = tester.getRect(find.byIcon(Icons.more_horiz_rounded));
+    expect(close.right, greaterThan(320 - 30));
+    expect(more.right, lessThanOrEqualTo(close.left + 1));
     expect(tester.takeException(), isNull);
   });
 

@@ -76,7 +76,7 @@ operon/
 ├── .github/workflows/build-apk.yml   # CI：analyze + test + 打包 + 发布 APK
 ├── assets/
 │   ├── icon/                         # 应用图标与设计变体
-│   └── js/agent_dom.js               # DOM 感知 / 动作执行 / Ghost Cursor / 宏选择器
+│   └── js/page_helpers.js            # 页内助手：指纹伪装 / 阅读模式 / 划词信息
 ├── lib/
 │   ├── main.dart                     # 入口：edge-to-edge、主题与首页
 │   ├── config/

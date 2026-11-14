@@ -1,73 +1,77 @@
+/// How much the model should think before answering.
+///
+/// The names are the user's, not a provider's: an OpenAI-compatible endpoint
+/// spells this `reasoning_effort`, and plenty of endpoints do not understand the
+/// field at all. [auto] therefore sends nothing at all — the safe default, and
+/// the only one that cannot make a working setup start failing.
+enum ThinkingLevel {
+  auto('自动', null, '由模型自己决定，不额外发送参数'),
+  fast('快速响应', 'low', '直接回答，适合读一页、点一下这类简单步骤'),
+  deep('深度思考', 'high', '想清楚再动手，适合多步任务，但更慢更贵');
+
+  const ThinkingLevel(this.label, this.effort, this.description);
+
+  final String label;
+
+  /// The `reasoning_effort` value, or null when nothing should be sent.
+  final String? effort;
+
+  final String description;
+
+  /// Whether this level asks the provider for anything at all.
+  bool get sendsEffort => effort != null;
+}
+
 /// Configuration for the OpenAI-compatible LLM provider
 class LlmConfig {
   final String baseUrl;
   final String apiKey;
   final String model;
   final double temperature;
+  final ThinkingLevel thinking;
+
+  /// Output ceiling in tokens. Null means "leave it to the provider", which is
+  /// the right default: guessing low truncates an answer, guessing high costs
+  /// money on a provider that ignores it anyway.
+  final int? maxOutputTokens;
 
   const LlmConfig({
     required this.baseUrl,
     required this.apiKey,
     required this.model,
     this.temperature = 0.2,
+    this.thinking = ThinkingLevel.auto,
+    this.maxOutputTokens,
   });
 
-  /// Default configuration pointing to DeepSeek (high capability, very low cost)
-  factory LlmConfig.defaultConfig() {
-    return const LlmConfig(
-      baseUrl: 'https://api.deepseek.com/v1',
-      apiKey: '',
-      model: 'deepseek-chat',
-      temperature: 0.1,
-    );
-  }
-
-  /// Preset providers for quick setup
-  static final List<Map<String, String>> presets = [
-    {
-      'name': 'DeepSeek',
-      'baseUrl': 'https://api.deepseek.com/v1',
-      'model': 'deepseek-chat',
-      'hint': 'High reasoning capability, very economical for agent loops',
-    },
-    {
-      'name': 'OpenAI (GPT-4o)',
-      'baseUrl': 'https://api.openai.com/v1',
-      'model': 'gpt-4o',
-      'hint': 'Standard flagship model',
-    },
-    {
-      'name': 'OpenAI (GPT-4o-mini)',
-      'baseUrl': 'https://api.openai.com/v1',
-      'model': 'gpt-4o-mini',
-      'hint': 'Fast and lightweight for mobile automation',
-    },
-    {
-      'name': 'SiliconFlow (Qwen2.5)',
-      'baseUrl': 'https://api.siliconflow.cn/v1',
-      'model': 'Qwen/Qwen2.5-72B-Instruct',
-      'hint': 'Domestic fast high-speed API',
-    },
-    {
-      'name': 'Ollama (Local / LAN)',
-      'baseUrl': 'http://192.168.1.100:11434/v1',
-      'model': 'llama3.1:8b',
-      'hint': 'Local model running on your computer',
-    },
-  ];
+  /// Empty on purpose: there is one endpoint shape (OpenAI-compatible) and the
+  /// user supplies it. Nothing here guesses a vendor.
+  factory LlmConfig.defaultConfig() => const LlmConfig(
+        baseUrl: '',
+        apiKey: '',
+        model: '',
+        temperature: 0.1,
+      );
 
   Map<String, dynamic> toJson() => {
         'baseUrl': baseUrl,
         'apiKey': apiKey,
         'model': model,
         'temperature': temperature,
+        'thinking': thinking.name,
+        if (maxOutputTokens != null) 'maxOutputTokens': maxOutputTokens,
       };
 
   factory LlmConfig.fromJson(Map<String, dynamic> json) => LlmConfig(
-        baseUrl: json['baseUrl'] ?? 'https://api.deepseek.com/v1',
+        baseUrl: json['baseUrl'] ?? '',
         apiKey: json['apiKey'] ?? '',
-        model: json['model'] ?? 'deepseek-chat',
+        model: json['model'] ?? '',
         temperature: (json['temperature'] as num?)?.toDouble() ?? 0.1,
+        thinking: ThinkingLevel.values.firstWhere(
+          (level) => level.name == json['thinking'],
+          orElse: () => ThinkingLevel.auto,
+        ),
+        maxOutputTokens: (json['maxOutputTokens'] as num?)?.toInt(),
       );
 
   LlmConfig copyWith({
@@ -75,12 +79,18 @@ class LlmConfig {
     String? apiKey,
     String? model,
     double? temperature,
+    ThinkingLevel? thinking,
+    int? maxOutputTokens,
+    bool clearMaxOutputTokens = false,
   }) {
     return LlmConfig(
       baseUrl: baseUrl ?? this.baseUrl,
       apiKey: apiKey ?? this.apiKey,
       model: model ?? this.model,
       temperature: temperature ?? this.temperature,
+      thinking: thinking ?? this.thinking,
+      maxOutputTokens:
+          clearMaxOutputTokens ? null : (maxOutputTokens ?? this.maxOutputTokens),
     );
   }
 
@@ -88,4 +98,14 @@ class LlmConfig {
       apiKey.trim().isNotEmpty &&
       baseUrl.trim().isNotEmpty &&
       model.trim().isNotEmpty;
+
+  /// Models that renamed the output ceiling. Sending `max_tokens` to these is a
+  /// 400, and sending `max_completion_tokens` to anything else is too.
+  static bool usesMaxCompletionTokens(String model) {
+    final name = model.trim().toLowerCase();
+    return name.startsWith('o1') ||
+        name.startsWith('o3') ||
+        name.startsWith('o4') ||
+        name.startsWith('gpt-5');
+  }
 }

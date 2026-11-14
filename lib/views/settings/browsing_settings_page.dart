@@ -19,6 +19,9 @@ class _BrowsingSettingsPageState extends State<BrowsingSettingsPage> {
   bool _javaScriptEnabled = true;
   bool _desktopMode = false;
   bool _hapticsEnabled = true;
+  bool _readingModeEnabled = true;
+  bool _selectionMenuEnabled = true;
+  bool _pageSummaryEnabled = true;
   final TextEditingController _uaController = TextEditingController();
 
   @override
@@ -38,6 +41,9 @@ class _BrowsingSettingsPageState extends State<BrowsingSettingsPage> {
     _blockImages = _storage.getBlockImages();
     _javaScriptEnabled = _storage.getJavaScriptEnabled();
     _desktopMode = _storage.getDesktopMode();
+    _readingModeEnabled = _storage.getReadingModeEnabled();
+    _selectionMenuEnabled = _storage.getSelectionMenuEnabled();
+    _pageSummaryEnabled = _storage.getPageSummaryEnabled();
     _hapticsEnabled = _storage.getHapticsEnabled();
     _uaController.text = _storage.getUserAgent();
     if (!mounted) return;
@@ -142,6 +148,77 @@ class _BrowsingSettingsPageState extends State<BrowsingSettingsPage> {
             ),
           ),
           const SizedBox(height: 16),
+          Text(
+            '阅读与摘要',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: AppTheme.neutralOf(isDark),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Container(
+            decoration: BoxDecoration(
+              color: cardColor,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
+                width: 0.8,
+              ),
+            ),
+            child: Column(
+              children: [
+                SwitchListTile(
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                  title: const Text('纯净阅读',
+                      style:
+                          TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                  subtitle: Text('清掉 App 跳转横幅与遮罩，展开被折叠的正文。关闭后菜单里不再出现这一项',
+                      style: TextStyle(fontSize: 12, color: AppTheme.neutralOf(isDark))),
+                  value: _readingModeEnabled,
+                  activeThumbColor: AppTheme.primaryOf(isDark),
+                  onChanged: (val) async {
+                    setState(() => _readingModeEnabled = val);
+                    await _storage.saveReadingModeEnabled(val);
+                  },
+                ),
+                const Divider(height: 1),
+                SwitchListTile(
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                  title: const Text('划词操作',
+                      style:
+                          TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                  subtitle: Text('在页面上选中文字后弹出解释、翻译与追问。关闭后选中文字不再有任何弹层',
+                      style: TextStyle(fontSize: 12, color: AppTheme.neutralOf(isDark))),
+                  value: _selectionMenuEnabled,
+                  activeThumbColor: AppTheme.primaryOf(isDark),
+                  onChanged: (val) async {
+                    setState(() => _selectionMenuEnabled = val);
+                    await _storage.saveSelectionMenuEnabled(val);
+                  },
+                ),
+                const Divider(height: 1),
+                SwitchListTile(
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                  title: const Text('页面总结',
+                      style:
+                          TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                  subtitle: Text('长文速读：把当前页面正文交给大模型生成摘要。关闭后菜单里不再出现这一项，也不再产生调用费用',
+                      style: TextStyle(fontSize: 12, color: AppTheme.neutralOf(isDark))),
+                  value: _pageSummaryEnabled,
+                  activeThumbColor: AppTheme.primaryOf(isDark),
+                  onChanged: (val) async {
+                    setState(() => _pageSummaryEnabled = val);
+                    await _storage.savePageSummaryEnabled(val);
+                  },
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
           Container(
             decoration: BoxDecoration(
               color: cardColor,
@@ -166,6 +243,9 @@ class _BrowsingSettingsPageState extends State<BrowsingSettingsPage> {
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
+                  // Without this the selected preset's long label sets the
+                  // intrinsic width and overflows a 360–412 dp phone.
+                  isExpanded: true,
                   decoration: InputDecoration(
                     labelText: '常用设备预设',
                     border: OutlineInputBorder(

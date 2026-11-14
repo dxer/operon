@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:operon/config/app_theme.dart';
-import 'package:operon/models/agent_action.dart';
 import 'package:operon/models/agent_state.dart';
 import 'package:operon/views/widgets/agent_status_bar.dart';
 
@@ -81,11 +80,7 @@ void main() {
     await tester.pumpWidget(wrap(AgentStatusBar(
       state: const AgentState(
         status: AgentStatus.waitingConfirmation,
-        currentAction: AgentAction(
-          thought: 'submit',
-          action: ActionType.click,
-          elementId: 1,
-        ),
+        confirmationReason: '提交表单',
       ),
       onOpen: () {},
       onPause: () {},

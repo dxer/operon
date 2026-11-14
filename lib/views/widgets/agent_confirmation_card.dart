@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../config/app_theme.dart';
 import '../../models/agent_state.dart';
-import '../../utils/agent_text.dart';
 import '../../utils/url_utils.dart';
 
 /// The single place where a sensitive agent action is authorized.
@@ -35,7 +34,6 @@ class AgentConfirmationCard extends StatelessWidget {
     final muted = onSurface.withValues(alpha: 0.62);
     final hairline = isDark ? AppTheme.darkBorder : AppTheme.lightBorder;
     final host = hostOf(state.targetUrl ?? '');
-    final action = agentActionLabel(state.currentAction);
     final reason = state.confirmationReason?.trim() ?? '';
     final payload = state.confirmationPayload?.trim() ?? '';
 
@@ -74,19 +72,6 @@ class AgentConfirmationCard extends StatelessWidget {
                 ),
               ],
             ),
-            if (action.isNotEmpty) ...[
-              const SizedBox(height: 6),
-              Text(
-                action,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 12.5,
-                  height: 1.35,
-                  color: onSurface,
-                ),
-              ),
-            ],
             if (payload.isNotEmpty) ...[
               const SizedBox(height: 8),
               Text(

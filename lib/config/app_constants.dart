@@ -32,6 +32,8 @@ class AppConstants {
   static const String keyApiKey = 'pref_llm_api_key';
   static const String keyModel = 'pref_llm_model';
   static const String keyTemperature = 'pref_llm_temp';
+  static const String keyThinking = 'pref_llm_thinking';
+  static const String keyMaxOutputTokens = 'pref_llm_max_tokens';
   static const String keyUserAgent = 'pref_user_agent';
   static const String keyMaxSteps = 'pref_max_steps';
   static const String keySafeMode = 'pref_safe_mode';
@@ -45,6 +47,9 @@ class AppConstants {
   static const String keyDesktopMode = 'pref_desktop_mode';
   static const String keyTextZoom = 'pref_text_zoom';
   static const String keyHapticsEnabled = 'pref_haptics_enabled';
+  static const String keyReadingModeEnabled = 'pref_reading_mode';
+  static const String keySelectionMenuEnabled = 'pref_selection_menu';
+  static const String keyPageSummaryEnabled = 'pref_page_summary';
 
   // Default Homepage
   static const String defaultHomepage = 'operon://newtab';

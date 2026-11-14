@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import '../../config/app_constants.dart';
 import '../../config/app_theme.dart';
 import '../../services/app_version_service.dart';
+import 'control_diagnostics_page.dart';
 
 class AboutSettingsPage extends StatelessWidget {
   const AboutSettingsPage({super.key});
@@ -90,6 +91,22 @@ class AboutSettingsPage extends StatelessWidget {
                           TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
                   subtitle: Text('原生 DOM 语义感知、边缘吸附悬浮球与手动暂停接管。',
                       style: TextStyle(fontSize: 12, color: AppTheme.neutralOf(isDark))),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading:
+                      Icon(Icons.developer_mode_rounded, color: AppTheme.warningOf(isDark)),
+                  title: const Text('控制层自检',
+                      style:
+                          TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                  subtitle: Text('逐项验证页面读取、真实输入与截图的链路是否可用。',
+                      style: TextStyle(fontSize: 12, color: AppTheme.neutralOf(isDark))),
+                  trailing: const Icon(Icons.chevron_right_rounded, size: 20),
+                  onTap: () {
+                    Navigator.of(context).push(MaterialPageRoute<void>(
+                      builder: (_) => const ControlDiagnosticsPage(),
+                    ));
+                  },
                 ),
                 const Divider(height: 1),
                 ListTile(

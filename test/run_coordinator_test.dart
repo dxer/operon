@@ -10,36 +10,36 @@ void main() {
     expect(coordinator.activeKind, RunKind.agent);
     expect(coordinator.activeTabId, 'tab-1');
 
-    expect(coordinator.begin(RunKind.skill, 'tab-1'), isNotNull);
-    expect(coordinator.begin(RunKind.macro, 'tab-2'), isNotNull);
+    // A second start on the same tab, or on another one, is refused.
+    expect(coordinator.begin(RunKind.agent, 'tab-1'), isNotNull);
+    expect(coordinator.begin(RunKind.agent, 'tab-2'), isNotNull);
 
     coordinator.end(RunKind.agent);
     expect(coordinator.isBusy, isFalse);
-    expect(coordinator.begin(RunKind.skill, 'tab-1'), isNull);
+    expect(coordinator.begin(RunKind.agent, 'tab-1'), isNull);
   });
 
-  test('ending a different kind does not release the active run', () {
-    final coordinator = RunCoordinator()..begin(RunKind.agent, 'tab-1');
+  test('ending a run that is not active is ignored', () {
+    final coordinator = RunCoordinator();
 
-    coordinator.end(RunKind.skill);
-    expect(coordinator.activeKind, RunKind.agent);
+    // Nothing is active, so there is nothing to end.
+    coordinator.end(RunKind.agent);
+    expect(coordinator.isBusy, isFalse);
 
+    coordinator.begin(RunKind.agent, 'tab-1');
     coordinator.end(RunKind.agent);
     expect(coordinator.activeKind, isNull);
   });
 
   test('the active tab cannot be closed', () {
-    final coordinator = RunCoordinator()..begin(RunKind.macro, 'tab-1');
+    final coordinator = RunCoordinator()..begin(RunKind.agent, 'tab-1');
 
     expect(coordinator.closeTabRejection('tab-1'), isNotNull);
     expect(coordinator.closeTabRejection('tab-2'), isNull);
   });
 
-  test('a finished run can be restarted', () {
-    final coordinator = RunCoordinator()..begin(RunKind.skill, 'tab-1');
-    coordinator.end(RunKind.skill);
-
-    expect(coordinator.begin(RunKind.agent, 'tab-1'), isNull);
-    expect(coordinator.activeKind, RunKind.agent);
+  test('an idle coordinator lets any tab close', () {
+    final coordinator = RunCoordinator();
+    expect(coordinator.closeTabRejection('tab-1'), isNull);
   });
 }

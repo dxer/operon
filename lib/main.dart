@@ -16,9 +16,13 @@ void main() async {
   // Via-style edge-to-edge canvas: browser content owns the whole screen.
   await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
 
-  // Initialize Android WebView platform defaults
+  // The control layer reaches the page through the WebView DevTools socket,
+  // which only exists while WebView debugging is on. It has to stay on in
+  // release builds too, or the agent has no way to read or drive a page: the
+  // socket is a per-process unix socket that only this app can connect to, and
+  // About → Control layer states so. Keep this true, in every build.
   if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
-    await InAppWebViewController.setWebContentsDebuggingEnabled(kDebugMode);
+    await InAppWebViewController.setWebContentsDebuggingEnabled(true);
   }
 
   // Pre-initialize storage & theme service

@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../config/app_theme.dart';
 import '../../models/agent_state.dart';
-import '../../utils/agent_text.dart';
 import '../../utils/url_utils.dart';
 import 'elapsed_label.dart';
 
@@ -215,9 +214,7 @@ class AgentStatusBar extends StatelessWidget {
         );
       case AgentStatus.executing:
         return _StatusMeta(
-          agentActionLabel(state.currentAction).isEmpty
-              ? '正在操作网页'
-              : agentActionLabel(state.currentAction),
+          '正在操作网页',
           Icons.touch_app_outlined,
           AppTheme.primaryOf(isDark),
         );
@@ -235,8 +232,7 @@ class AgentStatusBar extends StatelessWidget {
         );
       case AgentStatus.waitingConfirmation:
         final host = hostOf(state.targetUrl ?? '');
-        final reason =
-            state.confirmationReason ?? agentActionLabel(state.currentAction);
+        final reason = state.confirmationReason ?? '敏感操作';
         return _StatusMeta(
           host.isEmpty ? '敏感操作待授权：$reason' : '敏感操作待授权：$reason · $host',
           Icons.shield_outlined,

@@ -1,12 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../config/app_theme.dart';
 import '../../models/agent_task_record.dart';
-import '../../models/macro_workflow.dart';
-import '../../services/skill_from_macro.dart';
-import '../../services/skill_from_task.dart';
-import '../../services/skill_validator.dart';
 import '../../services/storage_service.dart';
-import 'skill_editor_page.dart';
 
 class AgentHistoryPage extends StatefulWidget {
   const AgentHistoryPage({super.key});
@@ -62,66 +57,6 @@ class _AgentHistoryPageState extends State<AgentHistoryPage> {
     if (mounted) setState(() {});
   }
 
-  Future<void> _saveAsSkill(AgentTaskRecord record) async {
-    final macro = MacroWorkflow(
-      id: 'history_${record.id}',
-      title: record.goal.isEmpty ? '历史任务技能' : record.goal,
-      initialUrl: record.targetUrl ?? '',
-      createdAt: record.startedAt,
-      steps: record.recordedMacroSteps,
-    );
-    final converted = SkillFromMacro.fromMacro(macro);
-    if (converted == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('这条记录没有可转换的动作'),
-          backgroundColor: AppTheme.danger,
-        ),
-      );
-      return;
-    }
-    // Same rule as saving from the live task: a recorded demo text becomes an
-    // input, otherwise replaying the skill would keep posting the same words.
-    final draft = SkillFromTask.withContentInput(converted);
-    if (!draft.steps.any((step) => SkillFromMacro.isWrite(step.tool))) {
-      // Navigation-only recordings do not make a useful flow skill.
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('这条记录没有实际写入动作，无法存为可重放的流程'),
-          backgroundColor: AppTheme.danger,
-        ),
-      );
-      return;
-    }
-    final host = Uri.tryParse(record.targetUrl ?? '')?.host ?? '';
-    final validation = SkillValidator().validateDraft(
-      draft,
-      allowWrites: true,
-      currentHost: host.isEmpty ? null : host,
-    );
-    if (validation.hasErrors) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('无法转换：${validation.errors.first.message}'),
-          backgroundColor: AppTheme.danger,
-        ),
-      );
-      return;
-    }
-    final saved = await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => SkillEditPage(draft: draft),
-      ),
-    );
-    if (saved != null && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('已保存为技能，可在「设置 → 技能」继续编辑'),
-          backgroundColor: AppTheme.accent,
-        ),
-      );
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -192,7 +127,6 @@ class _AgentHistoryPageState extends State<AgentHistoryPage> {
                   record: record,
                   isDark: isDark,
                   onDelete: () => _delete(record),
-                  onSaveAsSkill: () => _saveAsSkill(record),
                 );
               },
             ),
@@ -204,13 +138,11 @@ class _RecordTile extends StatelessWidget {
   final AgentTaskRecord record;
   final bool isDark;
   final VoidCallback onDelete;
-  final VoidCallback onSaveAsSkill;
 
   const _RecordTile({
     required this.record,
     required this.isDark,
     required this.onDelete,
-    required this.onSaveAsSkill,
   });
 
   Color get _successColor => AppTheme.accentOf(isDark);
@@ -312,20 +244,6 @@ class _RecordTile extends StatelessWidget {
               child: Text(
                 record.errorMessage!,
                 style: TextStyle(fontSize: 12, color: AppTheme.dangerOf(isDark)),
-              ),
-            ),
-            const SizedBox(height: 8),
-          ],
-          if (record.recordedMacroSteps.isNotEmpty) ...[
-            Align(
-              alignment: Alignment.centerLeft,
-              child: OutlinedButton.icon(
-                onPressed: onSaveAsSkill,
-                icon: const Icon(Icons.account_tree_outlined, size: 16),
-                label: Text(
-                  '存为技能（${record.recordedMacroSteps.length} 步）',
-                  style: const TextStyle(fontSize: 11.5),
-                ),
               ),
             ),
             const SizedBox(height: 8),

@@ -1,10 +1,10 @@
-enum RunKind { agent, skill, macro }
+enum RunKind { agent }
 
 /// Single-flight guard for everything that drives the WebView.
 ///
-/// The UI hides most entry points while a run is active, but macros, the skills
-/// page and tab switching/closure can bypass that. This is the authoritative
-/// check so two runners never share one page.
+/// The UI hides most entry points while a run is active, but tab switching and
+/// closure can bypass that. This is the authoritative check so two runners never
+/// share one page.
 class RunCoordinator {
   RunKind? _activeKind;
   String? _activeTabId;
@@ -44,10 +44,6 @@ class RunCoordinator {
     switch (kind) {
       case RunKind.agent:
         return 'AI 任务';
-      case RunKind.skill:
-        return '技能任务';
-      case RunKind.macro:
-        return '宏任务';
     }
   }
 }

@@ -1,29 +1,23 @@
 import 'package:flutter/material.dart';
 import '../../config/app_theme.dart';
-import '../../models/macro_workflow.dart';
 import '../../services/storage_service.dart';
 import '../../services/theme_service.dart';
 import '../../services/app_version_service.dart';
-import '../../services/skill_service.dart';
-import '../widgets/macro_dialog.dart';
 import 'general_settings_page.dart';
 import 'appearance_settings_page.dart';
 import 'browsing_settings_page.dart';
 import 'ai_engine_settings_page.dart';
 import 'ai_policy_settings_page.dart';
 import 'agent_history_page.dart';
-import 'skills_page.dart';
 import 'user_scripts_page.dart';
 import 'about_settings_page.dart';
 
 class SettingsPage extends StatefulWidget {
-  /// Lets the browser execute a saved macro while the settings sheet is open.
-  final Function(MacroWorkflow macro)? onRunMacro;
 
   /// Keeps a running agent in sync when the policy switch changes here.
   final ValueChanged<bool>? onSafeModeChanged;
 
-  const SettingsPage({super.key, this.onRunMacro, this.onSafeModeChanged});
+  const SettingsPage({super.key, this.onSafeModeChanged});
 
   @override
   State<SettingsPage> createState() => _SettingsPageState();
@@ -32,8 +26,6 @@ class SettingsPage extends StatefulWidget {
 class _SettingsPageState extends State<SettingsPage> {
   late StorageService _storage;
   late ThemeService _themeService;
-  late SkillService _skillService;
-  int _skillCount = 0;
   bool _isLoading = true;
 
   @override
@@ -45,43 +37,14 @@ class _SettingsPageState extends State<SettingsPage> {
   Future<void> _loadSettings() async {
     _storage = await StorageService.getInstance();
     _themeService = await ThemeService.getInstance();
-    _skillService = await SkillService.getInstance();
     await AppVersionService.load();
     if (!mounted) return;
     setState(() {
-      _skillCount = _skillService.getSkills().length;
       _isLoading = false;
     });
   }
 
-  void _openMacroDialog() {
-    showDialog(
-      context: context,
-      builder: (_) => MacroDialog(
-        onRunMacro: (macro) {
-          Navigator.of(context).pop();
-          if (widget.onRunMacro != null) {
-            widget.onRunMacro!(macro);
-          } else {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('已选择宏: ${macro.title}')),
-            );
-          }
-        },
-      ),
-    );
-  }
 
-  Future<void> _openSkills() async {
-    await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => SkillsPage(config: _storage.getLlmConfig()),
-      ),
-    );
-    if (!mounted) return;
-    setState(() => _skillCount = _skillService.getSkills().length);
-  }
 
   Future<void> _openHistory() async {
     await Navigator.push(
@@ -256,15 +219,6 @@ class _SettingsPageState extends State<SettingsPage> {
               ),
             ),
             _buildSettingRow(
-              icon: Icons.bolt_rounded,
-              iconColor: AppTheme.primaryOf(isDark),
-              title: '技能',
-              subtitle: _skillCount == 0
-                  ? 'AI 创建 · 工具编排 · 暂无技能'
-                  : '$_skillCount 个技能 · AI 创建与工具编排',
-              onTap: _openSkills,
-            ),
-            _buildSettingRow(
               icon: Icons.history_rounded,
               iconColor: AppTheme.neutralOf(isDark),
               title: '任务历史与审计',
@@ -272,18 +226,6 @@ class _SettingsPageState extends State<SettingsPage> {
                   ? '查看执行记录、授权与风险日志'
                   : '最近 $historyCount 条任务记录',
               onTap: _openHistory,
-            ),
-            _buildSettingRow(
-              icon: Icons.play_circle_outline_rounded,
-              iconColor: AppTheme.primaryOf(isDark),
-              title: '快捷宏工作流',
-              subtitle: '录制、管理与一键回放网页动作',
-              trailing: Icon(
-                Icons.play_circle_outline_rounded,
-                size: 20,
-                color: AppTheme.primaryOf(isDark),
-              ),
-              onTap: _openMacroDialog,
             ),
           ]),
           _buildSection('浏览与外观', [
