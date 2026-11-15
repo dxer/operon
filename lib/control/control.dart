@@ -391,7 +391,9 @@ class Control {
             throw const ControlException(ControlErrorCode.badArguments, 'navigate 需要一个 url 参数');
           }
           if (_bool(args, 'newTab') == true) {
-            return _navigateNewTab(url);
+            // `await` matters here for the same reason as `fill_form` above:
+            // an unawaited future would throw past the catch below.
+            return await _navigateNewTab(url);
           }
           final receipt = await session.navigate(url);
           return ToolResult(ok: true, text: receipt.summary, receipt: receipt);
@@ -402,15 +404,19 @@ class Control {
           final receipt = await session.history(delta: _int(args, 'steps') ?? 1);
           return ToolResult(ok: true, text: receipt.summary, receipt: receipt);
         case 'tabs':
-          return _listTabs();
+          // These three build their own futures too, so the catch below has to
+          // see their failures. Without the `await` a dead socket surfaced as
+          // an exception instead of a failed tool result — the model got a
+          // crash where it expected a `ok: false` with a reason.
+          return await _listTabs();
         case 'switch_tab':
           final wanted = _string(args, 'tabId');
           if (wanted == null || wanted.isEmpty) {
             throw const ControlException(ControlErrorCode.badArguments, 'switch_tab 需要一个 tabId 参数');
           }
-          return _switchTab(wanted);
+          return await _switchTab(wanted);
         case 'close_tab':
-          return _closeTab(_string(args, 'tabId'));
+          return await _closeTab(_string(args, 'tabId'));
         case 'upload':
           final files = (_string(args, 'files') ?? '')
               .split(',')
