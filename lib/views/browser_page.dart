@@ -38,6 +38,7 @@ import 'settings/browsing_settings_page.dart';
 import 'settings/settings_page.dart';
 import 'widgets/agent_bottom_sheet.dart';
 import 'widgets/agent_confirmation_card.dart';
+import 'widgets/agent_sheet_frame.dart';
 import 'widgets/agent_working_frame.dart';
 import 'widgets/browser_controls.dart';
 import 'widgets/chrome_visibility.dart';

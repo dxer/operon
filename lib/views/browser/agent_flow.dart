@@ -652,7 +652,7 @@ extension _AgentFlow on _BrowserPageState {
       // to full height wants the page gone, not dimmed behind it.
       barrierColor: Colors.black.withValues(alpha: 0.28),
       builder: (ctx) {
-        return DraggableScrollableSheet(
+        return AgentSheetFrame(
           // Three resting heights: enough to read an answer, enough to see the
           // page behind it, and 90% for a long transcript.
           //
@@ -660,21 +660,16 @@ extension _AgentFlow on _BrowserPageState {
           // the page visible: what the agent is doing up there is the context
           // for the conversation, and a panel that can cover all of it turns
           // the browser into a chat app — the one thing this product is not.
-          initialChildSize: 0.6,
-          minChildSize: 0.38,
-          maxChildSize: 0.9,
-          snap: true,
-          snapSizes: const [0.6, 0.75, 0.9],
-          expand: false,
-          builder: (context, scrollController) {
+          builder: (onHandleDrag, onHandleDragEnd) {
             return StreamBuilder<AgentState>(
               stream: _loopRunner.stateStream,
               initialData: _agentState,
               builder: (context, snapshot) {
                 final state = snapshot.data ?? _agentState;
                 return AgentBottomSheet(
-                  scrollController: scrollController,
                   state: state,
+                  onHandleDrag: onHandleDrag,
+                  onHandleDragEnd: onHandleDragEnd,
                   currentUrl: _currentTab.url,
                   taskStartedAt: _taskStartedAt,
                   initialGoal: initialGoal,

@@ -97,8 +97,13 @@ class AgentBottomSheet extends StatefulWidget {
   /// A link inside an answer: the browser the user is already in.
   final ValueChanged<String>? onOpenLink;
 
-  /// The sheet's own scrollable, so dragging the body also drags the sheet.
-  final ScrollController? scrollController;
+  /// Dragging the handle resizes the panel; nothing else does. Positive means
+  /// "grow by this many logical pixels" — up is a negative drag, so the sign is
+  /// already flipped for the frame.
+  final ValueChanged<double>? onHandleDrag;
+
+  /// The finger lifted: the frame settles on its nearest resting height.
+  final VoidCallback? onHandleDragEnd;
 
   const AgentBottomSheet({
     super.key,
@@ -120,7 +125,8 @@ class AgentBottomSheet extends StatefulWidget {
     this.conversationId,
     this.onConversationChanged,
     this.onOpenLink,
-    this.scrollController,
+    this.onHandleDrag,
+    this.onHandleDragEnd,
   });
 
   @override
@@ -149,7 +155,7 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
   late String? _activeId;
 
   /// In the chat view the sheet scrolls the conversation, not the run.
-  ScrollController get _bodyScroll => widget.scrollController ?? _scrollController;
+  ScrollController get _bodyScroll => _scrollController;
 
   bool get _isTaskActive =>
       widget.state.isRunning || widget.state.status == AgentStatus.paused;
@@ -435,14 +441,34 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
     );
   }
 
+  /// The grab bar, and the only control that resizes the panel.
+  ///
+  /// The transcript below scrolls; it never resizes this. Making both gestures
+  /// do the same thing meant a scroll over the conversation moved the window
+  /// before it moved the text.
   Widget _buildHandle(bool isDark) {
-    return Center(
-      child: Container(
-        width: 36,
-        height: 4,
-        decoration: BoxDecoration(
-          color: AppInk.tertiary(isDark).withValues(alpha: 0.5),
-          borderRadius: BorderRadius.circular(2),
+    final bar = Container(
+      width: 36,
+      height: 4,
+      decoration: BoxDecoration(
+        color: AppInk.tertiary(isDark).withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(2),
+      ),
+    );
+    final drag = widget.onHandleDrag;
+    if (drag == null) return Center(child: bar);
+    return Semantics(
+      label: '拖动调整面板高度',
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        // Up is a negative dy, and up means taller.
+        onVerticalDragUpdate: (details) => drag(-details.delta.dy),
+        onVerticalDragEnd: (_) => widget.onHandleDragEnd?.call(),
+        // The bar stays 4px tall; the gesture gets a 24px thumb-sized area.
+        child: SizedBox(
+          height: 24,
+          width: double.infinity,
+          child: Center(child: bar),
         ),
       ),
     );
