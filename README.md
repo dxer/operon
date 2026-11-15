@@ -21,18 +21,25 @@
    * 派发前用描边框出**即将操作的那个元素**：落点与目标框都由控制层在发事件前算好，不是事后补画。
 4. **真人协同与安全边界（Human-in-the-loop）**：
    * **写操作分级**：普通提交/发布在 Safe Mode 下弹出授权卡片并展示目标站点与发送正文；删除/弹窗操作强制确认；密码、验证码、支付类动作强制交由用户亲自完成（Handoff）。
+   * **表单提交预览**：批量填表时授权卡逐项列出字段、值（敏感字段只显示占位）与将点击的提交按钮；提交按钮即使写着「下一步」也会被当作写入处理。
    * **人机验证检测与接管**：通过无障碍树识别 Cloudflare Turnstile、Geetest、Arkose Labs、reCAPTCHA 等验证挑战，自动暂停并推送通知，用户滑块通过后无缝继续。
+   * **后台继续执行**：任务运行时启动 Android 前台服务，切到其他应用也不会被系统回收；通知栏显示当前步骤，并提供暂停/继续与停止。等待授权或人机验证时通知会说明“需要你”，点开即可处理。可在 AI 策略页关闭，改为切后台自动暂停、回到应用继续。
    * **站点信任与禁用列表**：支持按域名配置“始终允许”与“禁止访问”。
    * **文件选择交接**：模型调用 `upload` 时可直接唤起系统文件选择器由用户选取文件，无需手输设备路径。
 5. **通用 ReAct 循环与上下文管理 (`lib/agent/`)**：
-   * 支持标准 OpenAI Function Calling 工具协议（`snapshot`、`read`、`find`、`screenshot`、`click`、`type`、`clear`、`select`、`hover`、`press`、`scroll`、`navigate`、`back`、`forward`、`tabs`、`switch_tab`、`close_tab`、`upload`、`wait`、`handle_dialog`、`ask_user`、`done`）。
+   * 支持标准 OpenAI Function Calling 工具协议（`snapshot`、`read`、`find`、`screenshot`、`click`、`type`、`fill_form`、`clear`、`select`、`hover`、`press`、`scroll`、`navigate`、`back`、`forward`、`tabs`、`switch_tab`、`close_tab`、`upload`、`wait`、`handle_dialog`、`ask_user`、`done`）。
+   * `fill_form` 一次填写多个输入框与原生下拉框；给出提交按钮时先校验全部 ref，再逐项填写，授权卡会列出每个字段的值与提交目标。
    * 自动上下文裁剪（省略早期工具大结果与旧截图，保留最近轮次与用户指令）、循环防呆守卫（重复无反应/连续失败保护）。
    * 支持图片与文本文件作为任务附件、多轮对话历史持久化（`ConversationStore`）与快捷指令（`/` 触发）。
    * 结构化结果可以拿走：面板里的字段表格、一键导出 CSV（带 BOM，Excel 直接打开）、复制 JSON、分享 Markdown 表格；缺字段会明说，不留下没解释的空格。
 6. **通用大模型配置与多预设切换**：
    * 支持 DeepSeek、OpenAI、通义千问、智谱 GLM、Moonshot、本地 Ollama 等任何 OpenAI 兼容协议。
    * 支持保存多个模型配置预设一键切换，并为不同模型单独记忆 `ModelProfile`（上下文窗口、图片输入、思考参数、工具调用能力）。
-7. **日常浏览增强**：
+7. **首次启动向导与模型体检**：
+   * 三步完成上手：先说明“看得见、你说了算、结果能带走”，再配置模型，最后给一个可直接执行的真实任务。
+   * 配置时用一次真实的 `ping` 工具调用检查模型是否支持 function calling；只会聊天、不会调工具的模型会被明确指出来。
+   * 内置常用服务商预设与模型列表拉取，也可以跳过向导从设置页随时配置。
+8. **日常浏览增强**：
    * 多标签总览、书签/历史记录、页内正文阅读模式与 AI 速读摘要、划词翻译/解释、下载管理、页内查找、地址栏联想、系统分享与外部链接 Intent 接管。
 
 ---
@@ -94,6 +101,7 @@ flutter build apk --release
 
 ## 🔐 安全提示
 
-* API Key 保存在本机 `SharedPreferences` 中，请勿在公共设备上使用。
+* API Key 通过 Android Keystore 加密保存（不可用时退回本机 `SharedPreferences`），只会发送给你填写的模型端点。
 * AI 生成的动作会在你已登录的网页上下文中派发，建议保持 **Safe Mode** 开启。
+* 后台任务通知在锁屏上只显示隐藏内容（`VISIBILITY_PRIVATE`），页面标题或表单字段不会出现在锁屏。
 * 发布正式版前，请将 `android/app/operon.jks` 与签名密码迁移到 CI Secrets，避免仓库泄露签名材料。

@@ -97,8 +97,7 @@ class StorageService {
       final slot = _presetKeySlot(preset.id);
       if (_secureStore.isSupported) {
         if (preset.config.apiKey.isNotEmpty) {
-          final written =
-              await _secureStore.write(slot, preset.config.apiKey);
+          final written = await _secureStore.write(slot, preset.config.apiKey);
           _cachedPresetKeys[preset.id] = preset.config.apiKey;
           if (written) {
             presetsDirty = true;
@@ -296,6 +295,29 @@ class StorageService {
 
   Future<void> saveSafeMode(bool enabled) async {
     await _prefs.setBool(AppConstants.keySafeMode, enabled);
+  }
+
+  /// Whether a run keeps going when the user leaves the app.
+  ///
+  /// On by default: a task the user started should not die because they
+  /// checked a message. Turning it off pauses at the point of leaving and
+  /// resumes on return, which is cheaper and quieter for someone who would
+  /// rather watch every step.
+  bool getBackgroundTaskMode() {
+    return _prefs.getBool(AppConstants.keyBackgroundTaskMode) ?? true;
+  }
+
+  Future<void> saveBackgroundTaskMode(bool enabled) async {
+    await _prefs.setBool(AppConstants.keyBackgroundTaskMode, enabled);
+  }
+
+  /// Whether the first-run setup was completed or deliberately skipped.
+  bool getOnboardingDone() {
+    return _prefs.getBool(AppConstants.keyOnboardingDone) ?? false;
+  }
+
+  Future<void> saveOnboardingDone({bool done = true}) async {
+    await _prefs.setBool(AppConstants.keyOnboardingDone, done);
   }
 
   // Homepage

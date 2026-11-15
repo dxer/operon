@@ -108,6 +108,7 @@ extension _AgentFlow on _BrowserPageState {
         _taskStartedAt = null;
       }
     });
+    _syncForegroundTask(state);
     if (state.status == AgentStatus.waitingConfirmation) {
       _maybeShowConfirmationCard(state);
     } else {
@@ -128,9 +129,8 @@ extension _AgentFlow on _BrowserPageState {
     );
     if (outcome.summary.isEmpty) return;
 
-    String fmtTokens(int tokens) => tokens >= 1000
-        ? '${(tokens / 1000).toStringAsFixed(1)}K'
-        : '$tokens';
+    String fmtTokens(int tokens) =>
+        tokens >= 1000 ? '${(tokens / 1000).toStringAsFixed(1)}K' : '$tokens';
     final triggerLabel = isAuto ? 'Auto-Compact 自动压缩' : '/compact 上下文压缩';
     final methodLabel = outcome.usedLlm ? '模型摘要' : '本地结构化压缩';
     final reason =
@@ -235,8 +235,8 @@ extension _AgentFlow on _BrowserPageState {
 
     final profile = _storage?.getModelProfile(config) ?? const ModelProfile();
     final autoCompact = _storage?.getAutoCompactEnabled() ?? true;
-    final autoCompactTokens =
-        _storage?.getAutoCompactTokens() ?? AppConstants.defaultAutoCompactTokens;
+    final autoCompactTokens = _storage?.getAutoCompactTokens() ??
+        AppConstants.defaultAutoCompactTokens;
     final safeMode = _storage?.getSafeMode() ?? true;
 
     // Which conversation this turn belongs to. Created here if the panel
@@ -295,6 +295,86 @@ extension _AgentFlow on _BrowserPageState {
   Future<void> _setSafeMode(bool enabled) async {
     await _storage?.saveSafeMode(enabled);
     if (mounted) setState(() {});
+  }
+
+  /// Mirrors the run into the task notification.
+  ///
+  /// The notification opens at the first state of a run and closes at the
+  /// first terminal one; every state in between only replaces the status line.
+  /// It is shown even when "后台继续执行" is off: the user may still switch
+  /// apps, and without the service Android can kill the page and the pending
+  /// confirmation while the notification explains why nothing is progressing.
+  void _syncForegroundTask(AgentState state) {
+    final status = state.status;
+    if (!state.isRunning && status != AgentStatus.paused) {
+      _autoPausedForBackground = false;
+      if (!_foregroundTaskOpen) return;
+      _foregroundTaskOpen = false;
+      unawaited(ForegroundTaskService.instance.stop());
+      return;
+    }
+
+    final paused = status == AgentStatus.paused;
+    // Waiting for a person has nothing to pause; it has something to wait for.
+    final waiting = status == AgentStatus.waitingConfirmation ||
+        status == AgentStatus.waitingCaptcha;
+    final canPause = !waiting;
+    // `/compact` is a command, not something a person said; the notification
+    // should read like a status, not echo the slash.
+    final compacting = state.goal.trim() == '/compact';
+    final detail = switch (status) {
+      AgentStatus.paused => '点「继续」恢复执行',
+      AgentStatus.waitingConfirmation => '等待你授权敏感操作',
+      AgentStatus.waitingCaptcha => '需要你完成人机验证',
+      AgentStatus.thinking => compacting ? '正在压缩对话上下文' : '正在思考下一步',
+      AgentStatus.executing => _latestActionTitle(state) ?? '正在操作页面',
+      AgentStatus.observing => '正在观察页面',
+      _ => '正在执行任务',
+    };
+
+    if (!_foregroundTaskOpen) {
+      _foregroundTaskOpen = true;
+      final rawGoal = state.goal.trim();
+      final startBody =
+          rawGoal.isEmpty || rawGoal.startsWith('/') ? detail : rawGoal;
+      unawaited(ForegroundTaskService.instance.start(
+        goal: startBody,
+        paused: paused,
+        canPause: canPause,
+      ));
+      return;
+    }
+    unawaited(ForegroundTaskService.instance.update(
+      detail: detail,
+      paused: paused,
+      canPause: canPause,
+    ));
+  }
+
+  /// The last action the model took, in its one-line form.
+  String? _latestActionTitle(AgentState state) {
+    for (final log in state.logs.reversed) {
+      if (log.kind != LogKind.action) continue;
+      final title = log.title.trim();
+      if (title.isNotEmpty) return title;
+    }
+    return null;
+  }
+
+  /// Notification buttons are the status strip's buttons, off-screen.
+  void _onForegroundTaskAction(String action) {
+    if (!mounted) return;
+    switch (action) {
+      case 'pause':
+        _loopRunner.pause();
+        return;
+      case 'resume':
+        _loopRunner.resume();
+        return;
+      case 'stop':
+        _loopRunner.stop();
+        return;
+    }
   }
 
   Future<bool> _askWebPermission(String title, String detail) async {
@@ -573,8 +653,7 @@ extension _AgentFlow on _BrowserPageState {
                   onAllowSite: _allowSiteForTask,
                   store: _conversations,
                   conversationId: _activeConversationId,
-                  onConversationChanged: (id) =>
-                      _activeConversationId = id,
+                  onConversationChanged: (id) => _activeConversationId = id,
                   // A link in an answer is a place to go: this is a browser,
                   // so it opens where the user is already looking.
                   onOpenLink: (url) {

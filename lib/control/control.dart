@@ -356,6 +356,10 @@ class Control {
             secret: _bool(args, 'secret') ?? false,
           );
           return ToolResult(ok: true, text: receipt.summary, receipt: receipt);
+        case 'fill_form':
+          // `await` matters: without it the failure would escape the catch
+          // below, and a bad ref would reach the caller as an exception.
+          return await _fillForm(args);
         case 'select':
           final receipt = await session.select(
             _requireRef(args),
@@ -439,6 +443,422 @@ class Control {
     }
   }
 
+  /// Fills several fields as one call.
+  ///
+  /// Every ref is resolved before the first keystroke: a half-filled form the
+  /// model did not intend is worse than a failed call, because the page may
+  /// already have reacted to the first field. A failure after typing starts is
+  /// reported with what was filled, not folded into a bare error.
+  Future<ToolResult> _fillForm(Map<String, Object?> args) async {
+    final rawFields = args['fields'];
+    if (rawFields is! List || rawFields.isEmpty) {
+      throw const ControlException(
+        ControlErrorCode.badArguments,
+        'fill_form 需要至少一个字段',
+        hint: 'fields 是数组，每项至少包含 ref 和 value；'
+            '例如 [{"ref":"a3","value":"张三"}]',
+      );
+    }
+
+    final rawSubmitRef = _string(args, 'submitRef')?.trim() ?? '';
+    // Existence is checked now; the disabled state is not. A submit button is
+    // often disabled precisely until the form has been filled, so judging it
+    // before the fields would reject the normal case. The click after filling
+    // reads the state the page actually reached.
+    final submitRecord =
+        rawSubmitRef.isEmpty ? null : session.refs.lookup(rawSubmitRef);
+
+    final fields = <_FillField>[];
+    for (var index = 0; index < rawFields.length; index++) {
+      final field = _parseFillField(rawFields[index], index);
+      if (submitRecord != null && field.ref == submitRecord.ref) {
+        throw ControlException(
+          ControlErrorCode.badArguments,
+          'submitRef 不能同时是一个填写字段（[${field.ref}]）',
+          hint: '提交按钮只放在 submitRef 里，不要放进 fields',
+          details: {'ref': field.ref},
+        );
+      }
+      fields.add(field);
+    }
+
+    final started = DateTime.now();
+    final urlBefore = await session.currentUrl();
+    final filled = <Map<String, Object?>>[];
+    final changes = <String>[];
+    final selectOutcomes = <bool>[];
+    var anyDelivered = false;
+    var anySelect = false;
+    var pageReacted = false;
+    var urlAfter = urlBefore;
+
+    for (var index = 0; index < fields.length; index++) {
+      final field = fields[index];
+      final Receipt receipt;
+      try {
+        receipt = field.action == 'select'
+            ? await session.select(
+                field.ref,
+                label: field.value.isEmpty ? null : field.value,
+                value: field.optionValue ??
+                    (field.value.isEmpty ? null : field.value),
+                index: field.optionIndex,
+                observe: false,
+              )
+            : await session.type(
+                field.ref,
+                field.value,
+                replace: field.replace,
+                secret: field.secret,
+                observe: false,
+              );
+      } on ControlException catch (error) {
+        return _fillFailure(
+          error,
+          fields: fields,
+          filled: filled,
+          failedIndex: index,
+          delivery: anyDelivered ? Delivery.delivered : Delivery.unknown,
+          pageReacted: pageReacted,
+          changes: changes,
+          urlBefore: urlBefore,
+          urlAfter: urlAfter,
+          started: started,
+        );
+      }
+
+      if (field.action == 'select') {
+        anySelect = true;
+        if (receipt.expectedStateReached != null) {
+          selectOutcomes.add(receipt.expectedStateReached!);
+        }
+      } else {
+        anyDelivered = true;
+      }
+      if (receipt.pageReacted == true) pageReacted = true;
+      if (receipt.urlAfter != null) urlAfter = receipt.urlAfter!;
+      changes.addAll(receipt.changes);
+      filled.add({
+        'ref': field.ref,
+        'label': field.label,
+        'action': field.action,
+        if (field.secret)
+          'secret': true
+        else if (field.value.isNotEmpty)
+          'value': _clip(field.value, 200),
+        'delivery': receipt.delivery.name,
+      });
+    }
+
+    // One capture for the whole batch: fields are independent by contract, so
+    // there is nothing to learn between them. The submit click below observes
+    // again on top of this state, so its diff contains only the submit itself.
+    try {
+      final observed = await session.observe();
+      if (observed.changed) pageReacted = true;
+      urlAfter = observed.url;
+      changes.addAll(observed.changes);
+    } on ControlException catch (error) {
+      // The fields are already in the page. A bare "read failed" would invite
+      // the model to type them all again.
+      return ToolResult(
+        ok: false,
+        error: ControlException(
+          error.code,
+          '已填写 ${filled.length} 个字段，但读取填写后的页面状态失败：'
+              '${error.message}',
+          hint: error.hint ??
+              '字段已经写入页面；先 snapshot 确认现状，不要重新填写全部字段',
+          details: {
+            ...?error.details,
+            'filled': filled.length,
+          },
+        ),
+        data: {
+          'fields': filled,
+          'fieldCount': filled.length,
+          'submitted': false,
+          'url': urlAfter,
+        },
+        receipt: Receipt(
+          tool: 'fill_form',
+          delivery: anyDelivered
+              ? Delivery.delivered
+              : anySelect
+                  ? Delivery.unknown
+                  : Delivery.notDelivered,
+          changes: changes.take(40).toList(),
+          urlBefore: urlBefore,
+          urlAfter: urlAfter,
+          elapsed: DateTime.now().difference(started),
+          note: '字段已填入，但没能读取填写后的页面状态',
+          details: {'fields': filled},
+        ),
+      );
+    }
+
+    Receipt? submitted;
+    if (submitRecord != null) {
+      try {
+        submitted = await session.click(submitRecord.ref);
+      } on ControlException catch (error) {
+        return ToolResult(
+          ok: false,
+          error: ControlException(
+            error.code,
+            '已填写 ${filled.length} 个字段，但提交失败：${error.message}',
+            hint: error.code == ControlErrorCode.disabled
+                ? '字段已填入，但表单仍认为不能提交；'
+                    '重新 snapshot 检查必填项、校验提示或同意勾选'
+                : error.hint ??
+                    '已填的字段保留在页面上；重新 snapshot 确认提交按钮，'
+                        '必要时用 click 重试，不要重新填写全部字段',
+            details: {
+              ...?error.details,
+              'filled': filled.length,
+              'submitRef': submitRecord.ref,
+            },
+          ),
+          data: {
+            'fields': filled,
+            'fieldCount': filled.length,
+            'submitted': false,
+            'url': urlAfter,
+          },
+          receipt: Receipt(
+            tool: 'fill_form',
+            delivery: anyDelivered
+                ? Delivery.delivered
+                : anySelect
+                    ? Delivery.unknown
+                    : Delivery.notDelivered,
+            pageReacted: pageReacted,
+            changes: changes.take(40).toList(),
+            urlBefore: urlBefore,
+            urlAfter: urlAfter,
+            elapsed: DateTime.now().difference(started),
+            note: '字段已填入，提交没有成功',
+            details: {'fields': filled},
+          ),
+        );
+      }
+      pageReacted = pageReacted || submitted.pageReacted == true;
+      urlAfter = submitted.urlAfter ?? urlAfter;
+      changes.addAll(submitted.changes);
+    }
+
+    final reached =
+        selectOutcomes.isEmpty ? null : selectOutcomes.every((value) => value);
+    final submittedReceipt = submitted;
+    final buffer = StringBuffer('已填写 ${filled.length} 个字段');
+    if (submitRecord == null) {
+      buffer.write('（未提交）');
+    } else {
+      buffer.write('，并点击「${_displayName(submitRecord.label)}」提交');
+    }
+    buffer.write('。');
+    if (anySelect) buffer.write('下拉项由脚本设置选中值。');
+    if (reached == false) {
+      buffer.write('有下拉项没有达到预期值，重新 snapshot 确认页面反映的选择。');
+    }
+
+    return ToolResult(
+      ok: true,
+      text: buffer.toString(),
+      data: {
+        'fields': filled,
+        'fieldCount': filled.length,
+        'submitted': submitted != null,
+        'url': urlAfter,
+      },
+      receipt: Receipt(
+        tool: submitted == null ? 'fill_form' : 'fill_form+submit',
+        delivery: submitted != null || anyDelivered
+            ? Delivery.delivered
+            : Delivery.unknown,
+        pageReacted: pageReacted,
+        expectedStateReached: reached,
+        changes: changes.take(40).toList(),
+        urlBefore: urlBefore,
+        urlAfter: urlAfter,
+        elapsed: DateTime.now().difference(started),
+        note: anySelect
+            ? '原生下拉项由脚本设置（系统弹层无法用鼠标事件驱动）'
+            : null,
+        details: {
+          'fields': filled,
+          if (submitRecord != null && submittedReceipt != null)
+            'submit': {
+              'ref': submitRecord.ref,
+              'label': submitRecord.label,
+              'delivery': submittedReceipt.delivery.name,
+              'pageReacted': submittedReceipt.pageReacted,
+            },
+        },
+      ),
+    );
+  }
+
+  _FillField _parseFillField(Object? raw, int index) {
+    if (raw is! Map) {
+      throw ControlException(
+        ControlErrorCode.badArguments,
+        'fields[$index] 必须是一个对象',
+        hint: '每项形如 {"ref":"a3","value":"张三"}',
+      );
+    }
+    // JSON keys are strings; anything else is a malformed call, not a reason
+    // to crash the layer with a cast error.
+    final field = <String, Object?>{
+      for (final entry in raw.entries)
+        if (entry.key is String) entry.key as String: entry.value,
+    };
+    final ref = _string(field, 'ref')?.trim() ?? '';
+    if (ref.isEmpty) {
+      throw ControlException(
+        ControlErrorCode.badArguments,
+        'fields[$index] 缺少 ref',
+        hint: 'ref 来自最近一次 snapshot，例如 a3',
+      );
+    }
+    final record = session.refs.lookup(ref);
+    if (record.disabled) {
+      throw ControlException(
+        ControlErrorCode.disabled,
+        '字段 [${record.ref}]（${record.label}）当前不可用',
+        hint: '等待页面加载完成，或先处理掉遮挡/禁用它的情况',
+        details: {'ref': record.ref, 'role': record.role},
+      );
+    }
+    final rawAction = _string(field, 'action')?.trim().toLowerCase() ?? '';
+    // Typing into a native `<select>` silently selects nothing. A combobox or
+    // listbox without an explicit action is therefore treated as a dropdown:
+    // a custom dropdown then fails loudly and the model can retry with
+    // action=type, which is the recoverable direction.
+    final roleHintsSelect =
+        record.role == 'combobox' || record.role == 'listbox';
+    final action = rawAction.isEmpty
+        ? (roleHintsSelect ? 'select' : 'type')
+        : rawAction;
+    if (action != 'type' && action != 'select') {
+      throw ControlException(
+        ControlErrorCode.badArguments,
+        'fields[$index] 的 action 只能是 type 或 select，收到「$action」',
+        details: {'ref': record.ref, 'action': action},
+      );
+    }
+    if (action == 'type') {
+      if (record.role == 'Iframe') {
+        throw ControlException(
+          ControlErrorCode.notEditable,
+          '字段 [${record.ref}] 是 iframe，不能直接输入文字',
+          hint: '读取 iframe 内部的输入框，用它的 ref 填写',
+          details: {'ref': record.ref},
+        );
+      }
+      if (!record.editable) {
+        throw ControlException(
+          ControlErrorCode.notEditable,
+          '字段 [${record.ref}] 不接受文字输入（${record.role}）',
+          hint: '输入框用 type；原生下拉把 action 设为 select；需要点击的用 click',
+          details: {'ref': record.ref, 'role': record.role},
+        );
+      }
+    }
+    final value = _string(field, 'value') ?? '';
+    // A missing value is a malformed call, not a request to clear: clearing a
+    // field by accident is not something a form fill should ever do.
+    if (action == 'type' && !field.containsKey('value')) {
+      throw ControlException(
+        ControlErrorCode.badArguments,
+        '字段 [${record.ref}] 缺少 value',
+        hint: '要清空这个输入框，请显式传 "value": ""；否则填入要写的文字',
+        details: {'ref': record.ref},
+      );
+    }
+    final optionValue = _string(field, 'optionValue');
+    final optionIndex = _int(field, 'optionIndex');
+    if (action == 'select' &&
+        value.isEmpty &&
+        (optionValue == null || optionValue.isEmpty) &&
+        optionIndex == null) {
+      throw ControlException(
+        ControlErrorCode.badArguments,
+        '下拉字段 [${record.ref}] 需要 value、optionValue 或 optionIndex 指定选项',
+        hint: 'value 可以填选项文字；更精确的做法是 optionValue 或 optionIndex',
+        details: {'ref': record.ref},
+      );
+    }
+    return _FillField(
+      ref: record.ref,
+      label: record.label,
+      value: value,
+      action: action,
+      replace: _bool(field, 'replace') ?? true,
+      secret: _bool(field, 'secret') ?? false,
+      optionValue: optionValue,
+      optionIndex: optionIndex,
+    );
+  }
+
+  ToolResult _fillFailure(
+    ControlException error, {
+    required List<_FillField> fields,
+    required List<Map<String, Object?>> filled,
+    required int failedIndex,
+    required Delivery delivery,
+    required bool pageReacted,
+    required List<String> changes,
+    required String urlBefore,
+    required String urlAfter,
+    required DateTime started,
+  }) {
+    final field = fields[failedIndex];
+    final prefix = filled.isEmpty ? '' : '已填写 ${filled.length} 个字段，';
+    return ToolResult(
+      ok: false,
+      error: ControlException(
+        error.code,
+        '$prefix第 ${failedIndex + 1} 个字段「${_displayName(field.label)}」'
+            '填写失败：${error.message}',
+        hint: error.hint ??
+            '重新 snapshot 确认页面；已填好的字段不要重复填，从失败的字段继续',
+        details: {
+          ...?error.details,
+          'filled': filled.length,
+          'failedRef': field.ref,
+        },
+      ),
+      data: {
+        'fields': filled,
+        'fieldCount': filled.length,
+        'submitted': false,
+        'failedAt': failedIndex,
+        'url': urlAfter,
+      },
+      receipt: Receipt(
+        tool: 'fill_form',
+        delivery: filled.isEmpty ? Delivery.notDelivered : delivery,
+        pageReacted: pageReacted,
+        changes: changes.take(40).toList(),
+        urlBefore: urlBefore,
+        urlAfter: urlAfter,
+        elapsed: DateTime.now().difference(started),
+        note: '表单只填写了一部分，没有提交',
+        details: {'fields': filled},
+      ),
+    );
+  }
+
+  static String _displayName(String label) {
+    final match = RegExp(r'"([^"]*)"').firstMatch(label);
+    final name = match?.group(1)?.trim();
+    return name == null || name.isEmpty ? label : name;
+  }
+
+  static String _clip(String text, int max) =>
+      text.length <= max ? text : '${text.substring(0, max - 1)}…';
+
   static String _requireRef(Map<String, Object?> args) {
     final ref = _string(args, 'ref');
     if (ref == null || ref.isEmpty) {
@@ -493,4 +913,33 @@ class Control {
     if (value is num) return value.round();
     return int.tryParse('$value');
   }
+}
+
+/// One validated entry of `fill_form.fields`.
+class _FillField {
+  const _FillField({
+    required this.ref,
+    required this.label,
+    required this.value,
+    required this.action,
+    required this.replace,
+    required this.secret,
+    this.optionValue,
+    this.optionIndex,
+  });
+
+  final String ref;
+
+  /// `textbox "姓名"`, kept from validation so a later error can name the field.
+  final String label;
+
+  final String value;
+
+  /// `type` or `select`.
+  final String action;
+
+  final bool replace;
+  final bool secret;
+  final String? optionValue;
+  final int? optionIndex;
 }

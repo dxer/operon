@@ -23,6 +23,7 @@ import '../control/tab_host.dart';
 import '../control/transport/endpoint.dart' show CdpTarget;
 import '../services/conversation_store.dart';
 import '../services/download_service.dart';
+import '../services/foreground_task_service.dart';
 import '../services/goal_handoff.dart';
 import '../services/haptic_service.dart';
 import '../services/notification_service.dart';
@@ -67,7 +68,7 @@ class BrowserPage extends StatefulWidget {
 }
 
 class _BrowserPageState extends State<BrowserPage>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late AgentLoopRunner _loopRunner;
   StorageService? _storage;
 
@@ -140,6 +141,15 @@ class _BrowserPageState extends State<BrowserPage>
   String? _confirmationShownFor;
   StreamSubscription<String>? _shareSub;
 
+  /// Whether the task notification is currently open, so the first state of a
+  /// run starts it and every later state only updates it.
+  bool _foregroundTaskOpen = false;
+
+  /// The app went to the background while working, and this page paused the
+  /// run on the user's behalf. Only then does returning resume it: a pause the
+  /// user asked for must stay a pause.
+  bool _autoPausedForBackground = false;
+
   /// Whether the configured model can read images: the composer offers an
   /// image picker only when something downstream can use one.
   bool get _modelTakesImages {
@@ -152,13 +162,11 @@ class _BrowserPageState extends State<BrowserPage>
   bool get _showAgentStatusBar {
     final status = _agentState.status;
     if (status == AgentStatus.idle) return false;
-    if (status == AgentStatus.completed ||
-        status == AgentStatus.error) {
+    if (status == AgentStatus.completed || status == AgentStatus.error) {
       return !_statusBarDismissed;
     }
     return true;
   }
-
 
   @override
   void initState() {
@@ -184,14 +192,23 @@ class _BrowserPageState extends State<BrowserPage>
     _loopRunner.tabHost = _buildTabHost();
     _loopSub = _loopRunner.stateStream.listen(_applyAgentState);
     NotificationService.getInstance().init();
+    WidgetsBinding.instance.addObserver(this);
+    // A task the user started should survive a trip to another app. Android
+    // only guarantees that for a foreground service, and the notification it
+    // requires is also the place to pause or stop without coming back.
+    ForegroundTaskService.instance.onAction = _onForegroundTaskAction;
+    unawaited(ForegroundTaskService.instance.init());
 
     // Links shared into the app open as a tab instead of interrupting the
     // current page, so the note the user was reading stays put.
     ShareIntentService.instance.init();
     _shareSub = ShareIntentService.instance.links.listen(_openSharedLink);
 
-    // "Ask this again" from the history page lands here.
+    // "Ask this again" from the history page lands here. First-run setup uses
+    // the same slot for its starter task, so a goal may already be waiting
+    // when this page mounts — a listener only fires on later writes.
     GoalHandoff.pending.addListener(_onGoalHandoff);
+    if (GoalHandoff.pending.value != null) _onGoalHandoff();
     _urlController.addListener(_onAddressControllerChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final initial = await ShareIntentService.instance.takeInitialLink();
@@ -207,16 +224,31 @@ class _BrowserPageState extends State<BrowserPage>
     }
   }
 
-
-
-
-
-
-
-
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused) {
+      // "后台继续执行" off is a request to stop spending tokens off-screen.
+      // Waiting states are deliberately left alone: pausing there would hide
+      // the confirmation the agent is blocked on.
+      final background = _storage?.getBackgroundTaskMode() ?? true;
+      final working = _agentState.status == AgentStatus.observing ||
+          _agentState.status == AgentStatus.thinking ||
+          _agentState.status == AgentStatus.executing;
+      if (!background && working) {
+        _autoPausedForBackground = true;
+        _loopRunner.pause();
+      }
+    } else if (state == AppLifecycleState.resumed && _autoPausedForBackground) {
+      _autoPausedForBackground = false;
+      _loopRunner.resume();
+    }
+  }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    ForegroundTaskService.instance.onAction = null;
+    unawaited(ForegroundTaskService.instance.stop());
     _loopSub?.cancel();
     _loopRunner.dispose();
     _gesturePulse.dispose();
@@ -229,26 +261,6 @@ class _BrowserPageState extends State<BrowserPage>
     super.dispose();
   }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
   /// The URL worth copying/sharing: the loaded page, not whatever is typed in
   /// the field, and never an internal `operon://` page.
   String? get _sharableUrl {
@@ -258,30 +270,10 @@ class _BrowserPageState extends State<BrowserPage>
     return url;
   }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
   /// Confirms a CAPTCHA only after re-checking the page.
   ///
   /// Tapping "done" before the challenge is actually solved would otherwise
   /// resume the agent into the same blocked page.
-
-
-
-
-
-
-
 
   @override
   Widget build(BuildContext context) {
@@ -355,8 +347,8 @@ class _BrowserPageState extends State<BrowserPage>
                         activeMatch: _findActiveMatch,
                         totalMatches: _findTotalMatches,
                         onQueryChanged: _updateFindQuery,
-                        onPrevious: () =>
-                            _currentTab.findController?.findNext(forward: false),
+                        onPrevious: () => _currentTab.findController
+                            ?.findNext(forward: false),
                         onNext: () =>
                             _currentTab.findController?.findNext(forward: true),
                         onClose: _closeFindInPage,
@@ -400,7 +392,9 @@ class _BrowserPageState extends State<BrowserPage>
                           const Positioned.fill(
                             child: IgnorePointer(child: AgentWorkingFrame()),
                           ),
-                        if (_addressFocused && !isStartPage && !_isFindingInPage)
+                        if (_addressFocused &&
+                            !isStartPage &&
+                            !_isFindingInPage)
                           Positioned.fill(
                             child: GestureDetector(
                               behavior: HitTestBehavior.opaque,

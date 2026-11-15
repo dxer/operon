@@ -163,13 +163,16 @@ void _moreTests() {
     await tester.pump();
 
     expect(find.text('试试'), findsOneWidget);
-    expect(find.text('GitHub 热榜'), findsOneWidget);
+    expect(find.text('搜索并总结'), findsOneWidget);
 
-    await tester.tap(find.text('GitHub 热榜'));
+    await tester.tap(find.text('搜索并总结'));
     await tester.pump();
 
     final field = tester.widget<TextField>(find.byType(TextField));
-    expect(field.controller?.text, '打开 GitHub 热榜并总结前 5 个项目');
+    expect(
+      field.controller?.text,
+      '打开 Bing 搜索「Flutter 3.35 发布说明」，打开第一条结果，总结更新要点',
+    );
     expect(tester.takeException(), isNull);
   });
 

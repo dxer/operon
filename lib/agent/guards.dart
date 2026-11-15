@@ -89,7 +89,15 @@ class Guards {
     final key = args['key']?.toString() ?? '';
     final direction = args['direction']?.toString() ?? '';
     final query = args['query']?.toString() ?? '';
-    return [tool, ref, text, url, key, direction, query].join('|');
+    // A form batch has nothing in the scalar fields above. Its refs and submit
+    // target distinguish one step from the next without putting values — which
+    // may be secrets — into the guard's memory.
+    final fields = args['fields'];
+    final form = tool == 'fill_form' && fields is List
+        ? '${fields.whereType<Map>().map((field) => field['ref'] ?? '').join(',')}'
+            '#${args['submitRef'] ?? ''}'
+        : '';
+    return [tool, ref, text, url, key, direction, query, form].join('|');
   }
 
   /// Returns a stop when this action has already been tried to death.

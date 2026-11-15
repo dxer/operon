@@ -115,6 +115,35 @@ void main() {
         isNot(Guards.signature('type', {'ref': 'a1', 'text': '第二句'})),
       );
     });
+
+    test('a form step is identified by its refs, not its values', () {
+      final first = Guards.signature('fill_form', {
+        'fields': [
+          {'ref': 'a1', 'value': '张三'},
+          {'ref': 'a2', 'value': '北京'},
+        ],
+        'submitRef': 'a9',
+      });
+      final other = Guards.signature('fill_form', {
+        'fields': [
+          {'ref': 'a3', 'value': '李四'},
+        ],
+        'submitRef': 'a9',
+      });
+      expect(first, isNot(other));
+
+      // The same refs with different values are still the same place; the
+      // values must not leak into the signature either.
+      final same = Guards.signature('fill_form', {
+        'fields': [
+          {'ref': 'a1', 'value': '李四'},
+          {'ref': 'a2', 'value': '上海'},
+        ],
+        'submitRef': 'a9',
+      });
+      expect(same, first);
+      expect(same, isNot(contains('张三')));
+    });
   });
 
   group('resumable state', () {

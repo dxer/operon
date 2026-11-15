@@ -9,6 +9,7 @@ import 'services/haptic_service.dart';
 import 'services/storage_service.dart';
 import 'services/theme_service.dart';
 import 'views/browser_page.dart';
+import 'views/onboarding_page.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -40,26 +41,56 @@ void main() async {
   await AppVersionService.load();
   final themeService = await ThemeService.getInstance();
 
-  runApp(OperonApp(themeService: themeService));
+  // A fresh install has nothing to drive a page with. Existing users already
+  // configured a model, so an upgrade must not send them back through setup.
+  final showOnboarding =
+      !storage.getOnboardingDone() && !storage.getLlmConfig().isValid;
+
+  runApp(
+    OperonApp(
+      themeService: themeService,
+      showOnboarding: showOnboarding,
+    ),
+  );
 }
 
-class OperonApp extends StatelessWidget {
+class OperonApp extends StatefulWidget {
   final ThemeService themeService;
 
-  const OperonApp({super.key, required this.themeService});
+  /// Whether first-run setup should be the first screen.
+  final bool showOnboarding;
+
+  const OperonApp({
+    super.key,
+    required this.themeService,
+    this.showOnboarding = false,
+  });
+
+  @override
+  State<OperonApp> createState() => _OperonAppState();
+}
+
+class _OperonAppState extends State<OperonApp> {
+  late bool _showOnboarding = widget.showOnboarding;
 
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: themeService,
+      listenable: widget.themeService,
       builder: (context, _) {
         return MaterialApp(
           title: AppConstants.appName,
           debugShowCheckedModeBanner: false,
-          themeMode: themeService.themeMode,
+          themeMode: widget.themeService.themeMode,
           theme: AppTheme.lightTheme,
           darkTheme: AppTheme.darkTheme,
-          home: const BrowserPage(),
+          // Setup is a gate, not a page in the browsing history: replacing it
+          // in place means back from the browser never lands on onboarding.
+          home: _showOnboarding
+              ? OnboardingPage(
+                  onDone: () => setState(() => _showOnboarding = false),
+                )
+              : const BrowserPage(),
         );
       },
     );

@@ -449,8 +449,10 @@ class FakePage {
 
   void receiveInput(String method, Map<String, Object?> params) {
     if (method == 'Input.dispatchKeyEvent') {
-      final key = params['key']?.toString();
-      if (key == 'a' || key == 'A') typedText.clear();
+      // Only the editing command clears the field. A plain「a」keypress must
+      // not, or a form filled field by field would look like one field.
+      final commands = params['commands'];
+      if (commands is List && commands.contains('selectAll')) typedText.clear();
       return;
     }
     final type = params['type']?.toString() ?? '';

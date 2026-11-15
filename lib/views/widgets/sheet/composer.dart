@@ -204,14 +204,30 @@ extension _SheetComposer on _AgentBottomSheetState {
 
   List<_ExampleGoal> get _exampleGoals => _pageHost == null
       ? const [
-          _ExampleGoal('GitHub 热榜', '打开 GitHub 热榜并总结前 5 个项目'),
-          _ExampleGoal('今日 AI 新闻', '搜索今天的 AI 新闻并总结要点'),
-          _ExampleGoal('Hacker News', '打开 Hacker News 看看热门内容'),
+          _ExampleGoal(
+            '搜索并总结',
+            '打开 Bing 搜索「Flutter 3.35 发布说明」，打开第一条结果，总结更新要点',
+          ),
+          _ExampleGoal(
+            '网页转表格',
+            '打开 GitHub Trending，把前 5 个项目整理成表格，'
+                '包含项目名、语言和今日新增 star',
+          ),
+          _ExampleGoal(
+            '填表查资料',
+            '打开维基百科，搜索「Alan Turing」，告诉我他的出生日期和主要贡献',
+          ),
         ]
       : const [
-          _ExampleGoal('总结这一页', '总结当前页面的主要内容'),
-          _ExampleGoal('提取列表', '提取当前页面列表中的条目'),
-          _ExampleGoal('找出链接', '找出当前页面可以继续点进去的链接'),
+          _ExampleGoal('总结这一页', '总结这一页的主要内容，并列出 3 个关键结论'),
+          _ExampleGoal(
+            '提取列表',
+            '把当前页面的列表提取成表格，缺失的字段直接标出来',
+          ),
+          _ExampleGoal(
+            '继续深入',
+            '找出当前页面里最值得继续点进去的 3 个链接，并说明理由',
+          ),
         ];
 
   /// The bottom of the chat: suggestions while it is empty, attachments,

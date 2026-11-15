@@ -37,6 +37,8 @@ String systemPrompt({String? extra}) {
     ..writeln('- 只读的调用可以一次发多个（几个 snapshot / find / read 放在同一条回复里），它们会一起执行；动作类调用按顺序执行，页面一变就停止后续。')
     ..writeln('- 元素很多或名字相似时用 find，不要在一个长列表里猜 ref。')
     ..writeln('- 原生下拉框（role 是 combobox / listbox）用 select，不要点它再猜选项；自定义下拉才用 click 展开再点。')
+    ..writeln('- 一次填写多个互不依赖的字段用 fill_form：fields 里每项给 ref 和 value，原生下拉把 action 设为 select；要提交就把提交按钮的 ref 放进 submitRef，用户会先看到全部字段和提交目标再决定。字段互相依赖（选了国家才出现省份）时分开填，不要放进同一批。')
+    ..writeln('- 密码、验证码、银行卡号不要放进 fill_form，也不要替用户输入；这些字段永远交给用户自己完成。')
     ..writeln('- 只有悬停才出现的菜单用 hover，鼠标会停在元素上；接下来别急着点别处，那会把它关掉。')
     ..writeln('- 走错了页面用 back，不要重新 navigate 同一个地址：只有历史项能保留表单和 SPA 状态。')
     ..writeln('- 动作打在了错的标签页上，用 tabs 看当前打开了什么，再用 switch_tab 切过去；切换后旧的 ref 全部失效。')

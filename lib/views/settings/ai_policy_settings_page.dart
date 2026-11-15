@@ -24,6 +24,7 @@ class _AiPolicySettingsPageState extends State<AiPolicySettingsPage> {
   bool _isLoading = true;
 
   bool _safeMode = true;
+  bool _backgroundTaskMode = true;
   List<String> _allowedSites = [];
   final TextEditingController _memoryController = TextEditingController();
   Timer? _memoryDebounce;
@@ -38,6 +39,7 @@ class _AiPolicySettingsPageState extends State<AiPolicySettingsPage> {
   Future<void> _loadSettings() async {
     _storage = await StorageService.getInstance();
     _safeMode = _storage.getSafeMode();
+    _backgroundTaskMode = _storage.getBackgroundTaskMode();
     _allowedSites = _storage.getAgentAllowedSites();
     _blockedSites = _storage.getAgentBlockedSites();
     _memoryController.text = _storage.getAgentMemory();
@@ -205,8 +207,7 @@ class _AiPolicySettingsPageState extends State<AiPolicySettingsPage> {
                   const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
               title: const Text('敏感操作人工授权 (Safe Mode)',
                   style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
-              subtitle: Text(
-                  '支付、发布、删除等高危动作前等待人工确认',
+              subtitle: Text('支付、发布、删除等高危动作前等待人工确认',
                   style: TextStyle(
                       fontSize: 11.5, color: AppInk.tertiary(isDark))),
               value: _safeMode,
@@ -215,6 +216,33 @@ class _AiPolicySettingsPageState extends State<AiPolicySettingsPage> {
                 setState(() => _safeMode = val);
                 await _storage.saveSafeMode(val);
                 widget.onSafeModeChanged?.call(val);
+              },
+            ),
+          ),
+          const SizedBox(height: 12),
+          Container(
+            decoration: BoxDecoration(
+              color: cardColor,
+              borderRadius: BorderRadius.circular(AppRadius.icon),
+              border: Border.all(
+                color: AppInk.hairline(isDark),
+                width: AppStroke.hairline,
+              ),
+            ),
+            child: SwitchListTile(
+              dense: true,
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+              title: const Text('后台继续执行',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+              subtitle: Text('切到其他应用时保持任务运行，并在通知栏显示进度；关闭后会在后台暂停',
+                  style: TextStyle(
+                      fontSize: 11.5, color: AppInk.tertiary(isDark))),
+              value: _backgroundTaskMode,
+              activeThumbColor: AppTheme.primaryOf(isDark),
+              onChanged: (val) async {
+                setState(() => _backgroundTaskMode = val);
+                await _storage.saveBackgroundTaskMode(val);
               },
             ),
           ),
@@ -343,8 +371,8 @@ class _AiPolicySettingsPageState extends State<AiPolicySettingsPage> {
                               padding:
                                   const EdgeInsets.symmetric(horizontal: 6),
                             ),
-                            child:
-                                const Text('清空', style: TextStyle(fontSize: 12)),
+                            child: const Text('清空',
+                                style: TextStyle(fontSize: 12)),
                           ),
                       ],
                     ),

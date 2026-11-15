@@ -18,6 +18,8 @@ import 'package:operon/config/app_tokens.dart';
 /// is converted.
 
 const _migrated = <String>[
+  // First run
+  'lib/views/onboarding_page.dart',
   // Shell
   'lib/views/widgets/browser_controls.dart',
   'lib/views/widgets/start_page_view.dart',

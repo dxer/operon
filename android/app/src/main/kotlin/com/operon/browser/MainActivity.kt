@@ -2,12 +2,14 @@ package com.operon.browser
 
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
 import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
 import java.security.KeyStore
@@ -21,9 +23,11 @@ import javax.crypto.spec.GCMParameterSpec
  * - [CHANNEL]: shared text & `VIEW` intents
  * - [SECURE_CHANNEL]: Android Keystore AES-GCM secret storage for API keys
  * - [FILES_CHANNEL]: opening downloaded files via FileProvider
+ * - [TASK_CHANNEL]: the foreground service that protects a running task
  */
 class MainActivity : FlutterActivity() {
     private var channel: MethodChannel? = null
+    private var taskChannel: MethodChannel? = null
     private var pendingShare: String? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -87,6 +91,79 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+
+        val task = MethodChannel(messenger, TASK_CHANNEL)
+        task.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "start", "update", "stop" ->
+                    result.success(handleTaskCommand(call.method, call))
+                else -> result.notImplemented()
+            }
+        }
+        taskChannel = task
+        // Notification actions are delivered to the service, which needs a way
+        // back to the run that owns them.
+        AgentBridge.attach(task)
+    }
+
+    /**
+     * Starts, updates or stops [AgentForegroundService]. Returns false when
+     * Android refuses (usually a background start on API 31+). The run itself
+     * is unaffected either way; only the notification is missing.
+     */
+    private fun handleTaskCommand(method: String, call: MethodCall): Boolean {
+        val service = Intent(this, AgentForegroundService::class.java)
+        return try {
+            when (method) {
+                "start" -> {
+                    service.action = AgentForegroundService.ACTION_START
+                    putTaskExtras(service, call)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        startForegroundService(service)
+                    } else {
+                        startService(service)
+                    }
+                    true
+                }
+                "update" -> {
+                    service.action = AgentForegroundService.ACTION_UPDATE
+                    putTaskExtras(service, call)
+                    // An already-running foreground service accepts a plain
+                    // start; if it is gone, the next "start" recreates it.
+                    startService(service)
+                    true
+                }
+                "stop" -> stopService(Intent(this, AgentForegroundService::class.java))
+                else -> false
+            }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun putTaskExtras(intent: Intent, call: MethodCall) {
+        intent.putExtra(
+            AgentForegroundService.EXTRA_TITLE,
+            call.argument<String>("title").orEmpty(),
+        )
+        intent.putExtra(
+            AgentForegroundService.EXTRA_BODY,
+            call.argument<String>("body").orEmpty(),
+        )
+        intent.putExtra(
+            AgentForegroundService.EXTRA_PAUSED,
+            call.argument<Boolean>("paused") ?: false,
+        )
+        intent.putExtra(
+            AgentForegroundService.EXTRA_CAN_PAUSE,
+            call.argument<Boolean>("canPause") ?: true,
+        )
+    }
+
+    override fun onDestroy() {
+        taskChannel?.let { AgentBridge.detach(it) }
+        taskChannel = null
+        super.onDestroy()
     }
 
     /** Opens the system share sheet. Returns false when there is nothing to send. */
@@ -211,6 +288,7 @@ class MainActivity : FlutterActivity() {
         private const val CHANNEL = "operon/share"
         private const val SECURE_CHANNEL = "operon/secure_storage"
         private const val FILES_CHANNEL = "operon/files"
+        private const val TASK_CHANNEL = "operon/agent_task"
         private const val SECRET_PREFS = "operon_secure_secrets"
         private const val KEYSTORE_PROVIDER = "AndroidKeyStore"
         private const val KEY_ALIAS = "operon_api_key_master_v1"

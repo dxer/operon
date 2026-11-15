@@ -7,6 +7,9 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- Notification permission for Android 13+ (API 33+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- A running agent task must stay alive while the user is in another app. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
     <application
         android:label="Operon"
@@ -52,6 +55,17 @@
                 <data android:scheme="https"/>
             </intent-filter>
         </activity>
+
+        <!--
+          Keeps the WebView, the model connection and a pending confirmation
+          alive while Operon is backgrounded. The task notification is the only
+          UI it owns; start/stop both come from Dart.
+        -->
+        <service
+            android:name=".AgentForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync"
+            android:stopWithTask="false" />
 
         <!-- Metadata for Flutter -->
         <meta-data

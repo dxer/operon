@@ -4,10 +4,12 @@ import 'package:flutter/material.dart';
 import '../../config/app_constants.dart';
 import '../../config/app_theme.dart';
 import '../../config/app_tokens.dart';
+import '../../config/provider_presets.dart';
 import '../../models/llm_config.dart';
 import '../../models/model_profile.dart';
 import '../../services/llm_service.dart';
 import '../../services/llm_tools.dart';
+import '../../services/model_probe.dart';
 import '../../services/storage_service.dart';
 import '../widgets/operon_list_row.dart';
 
@@ -300,49 +302,13 @@ class _AiEngineSettingsPageState extends State<AiEngineSettingsPage> {
     }
 
     setState(() => _isTestingApi = true);
-    final llmService = LlmService();
 
     try {
       // The agent needs one thing from a model: a tool call. A plain text
       // reply proves the key works but says nothing about whether the agent
-      // can drive a page, so the probe offers a trivial tool and checks that
-      // the model calls it.
-      final probe = await llmService.chatWithTools(
-        config: config,
-        // The probe is what tells the user whether this model can drive a page,
-        // so it asks the same question the run would.
-        profile: _profile,
-        messages: [
-          {
-            'role': 'user',
-            'content': '调用 ping 工具，把 name 设为 "ok"。只调用工具，不要解释。',
-          },
-        ],
-        tools: [
-          {
-            'type': 'function',
-            'function': {
-              'name': 'ping',
-              'description': '连通性探测',
-              'parameters': {
-                'type': 'object',
-                'properties': {
-                  'name': {'type': 'string', 'description': '固定填 ok'},
-                },
-                'required': ['name'],
-                'additionalProperties': false,
-              },
-            },
-          },
-        ],
-      );
-
-      final calls = probe.message['tool_calls'];
-      final calledTool = calls is List &&
-          calls.any((call) =>
-              call is Map &&
-              call['function'] is Map &&
-              (call['function'] as Map)['name'] == 'ping');
+      // can drive a page, so the shared probe offers a trivial tool and
+      // checks that the model calls it.
+      final probe = await probeModel(config: config, profile: _profile);
 
       if (mounted) {
         setState(() => _isTestingApi = false);
@@ -358,15 +324,17 @@ class _AiEngineSettingsPageState extends State<AiEngineSettingsPage> {
             shape:
                 RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
             title: Text(
-              calledTool ? 'API 与工具调用均正常' : 'API 连通，但模型没有调用工具',
+              probe.calledTool ? 'API 与工具调用均正常' : 'API 连通，但模型没有调用工具',
               style: TextStyle(
-                color: calledTool ? AppTheme.accentOf(isDark) : AppTheme.warningOf(isDark),
+                color: probe.calledTool
+                    ? AppTheme.accentOf(isDark)
+                    : AppTheme.warningOf(isDark),
                 fontSize: 16,
                 fontWeight: FontWeight.bold,
               ),
             ),
             content: Text(
-              calledTool
+              probe.calledTool
                   ? '模型响应正常，并能调用工具，可以直接驱动网页。$effortNote'
                   : '模型能返回内容，但没有调用工具。Operon 的智能体依赖 function calling；'
                       '请换一个支持工具调用的模型，否则任务无法执行。\n\n'
@@ -396,7 +364,7 @@ class _AiEngineSettingsPageState extends State<AiEngineSettingsPage> {
                     fontSize: 16,
                     fontWeight: FontWeight.bold)),
             content: Text(
-              '连接出现异常，请检查网络或密钥：\n$e',
+              '连接出现异常，请检查网络或密钥：\n${describeLlmFailure(e)}',
               style: const TextStyle(fontSize: 13),
             ),
             actions: [
@@ -408,8 +376,6 @@ class _AiEngineSettingsPageState extends State<AiEngineSettingsPage> {
           ),
         );
       }
-    } finally {
-      llmService.dispose();
     }
   }
 

@@ -538,6 +538,72 @@ void main() {
       );
     });
 
+    test('a form submit asks with every field and the button in the preview',
+        () async {
+      final llm = ScriptedLlm([
+        use([
+          call('fill_form', {
+            'fields': [
+              {'ref': 'a1', 'value': '张三'},
+              {'ref': 'a2', 'value': 'zhang@example.com'},
+            ],
+            'submitRef': 'a3',
+          }),
+        ]),
+        use([call('done', {'summary': '已提交', 'outcome': 'success'})]),
+      ]);
+      final control = FakeControl(labels: {
+        'a1': 'textbox "姓名"',
+        'a2': 'textbox "邮箱"',
+        'a3': 'button "提交申请"',
+      });
+      final host = FakeHost(answer: true);
+
+      await loop(llm: llm, control: control, host: host).run('提交申请');
+
+      expect(host.asks, hasLength(1));
+      expect(host.asks.single.title, '确认提交表单');
+      expect(host.asks.single.reason, contains('2 个字段'));
+      final payload = host.asks.single.payload ?? '';
+      // The button is the first line: a five-line card must never hide it.
+      expect(payload.split('\n').first, contains('提交：提交申请'));
+      expect(payload, contains('姓名：张三'));
+      expect(payload, contains('邮箱：zhang@example.com'));
+      expect(control.calls, contains('fill_form'));
+    });
+
+    test('a password field hands the form over and never shows its value',
+        () async {
+      final llm = ScriptedLlm([
+        use([
+          call('fill_form', {
+            'fields': [
+              {'ref': 'a1', 'value': 'user@example.com'},
+              {'ref': 'a2', 'value': 'hunter2'},
+            ],
+            'submitRef': 'a3',
+          }),
+        ]),
+        use([call('done', {'summary': '请用户自己登录', 'outcome': 'partial'})]),
+      ]);
+      final control = FakeControl(labels: {
+        'a1': 'textbox "用户名"',
+        'a2': 'textbox "密码"',
+        'a3': 'button "登录"',
+      });
+      final host = FakeHost(answer: true);
+
+      await loop(llm: llm, control: control, host: host).run('登录');
+
+      expect(host.asks.single.handoff, isTrue);
+      expect(host.asks.single.reason, contains('请自己填写'));
+      final payload = host.asks.single.payload ?? '';
+      expect(payload, contains('密码：（敏感内容，未显示）'));
+      expect(payload, isNot(contains('hunter2')));
+      expect(control.calls, isNot(contains('fill_form')),
+          reason: 'a yes on a credential card means the user did it');
+    });
+
     test('a normal submit still runs after a yes', () async {
       final llm = ScriptedLlm([
         use([call('click', {'ref': 'a1'})]),

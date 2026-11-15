@@ -265,6 +265,17 @@ class ControlSession {
     return outline;
   }
 
+  /// Re-reads the page and reports what changed since the last capture.
+  ///
+  /// The public face of the settle-and-diff every single action does
+  /// internally, for a batch that deferred its reads to the end
+  /// (`fill_form`): eight fields should cost one capture, not eight.
+  Future<({bool changed, List<String> changes, String url})> observe() async {
+    _ensureUsable();
+    final urlBefore = await currentUrl();
+    return _settleAndObserve(urlBefore, _lastLines);
+  }
+
   Future<List<AxNode>> _captureAxNodes() async {
     final nodes = <AxNode>[];
     nodes.addAll(await _captureSession(null));
@@ -382,6 +393,7 @@ class ControlSession {
     bool replace = false,
     bool submit = false,
     bool secret = false,
+    bool observe = true,
     InputMode? mode,
   }) async {
     final started = DateTime.now();
@@ -423,6 +435,26 @@ class ControlSession {
         _connection,
         keySpecFor('Enter')!,
         sessionId: record.sessionId,
+      );
+    }
+    if (!observe) {
+      // A batch fills several fields and reads once at the end: settling and
+      // capturing the accessibility tree per field would cost more than the
+      // whole form. The caller knows the page may still be moving.
+      return Receipt(
+        tool: submit ? 'type+submit' : 'type',
+        delivery: Delivery.delivered,
+        urlBefore: urlBefore,
+        elapsed: DateTime.now().difference(started),
+        note: secret ? '输入的是敏感内容，未记录正文' : null,
+        details: {
+          'ref': ref,
+          'role': record.role,
+          'chars': text.length,
+          if (!secret) 'text': text,
+          if (replace) 'replace': true,
+          if (submit) 'submit': true,
+        },
       );
     }
     final observed = await _settleAndObserve(
@@ -495,6 +527,7 @@ class ControlSession {
     String? label,
     String? value,
     int? index,
+    bool observe = true,
   }) async {
     final started = DateTime.now();
     _ensureUsable();
@@ -523,9 +556,30 @@ class ControlSession {
     ];
     final choice = chooseOption(options, label: label, value: value, index: index);
     final applied = await _callOnRef(record, _applySelectJs, [choice.option.index]);
+    final after = applied['value']?.toString();
+
+    if (!observe) {
+      return Receipt(
+        tool: 'select',
+        delivery: Delivery.unknown,
+        expectedStateReached: after == choice.option.value,
+        urlBefore: urlBefore,
+        elapsed: DateTime.now().difference(started),
+        note: '原生下拉由脚本设置选中项（系统弹层无法用鼠标事件驱动）',
+        details: {
+          'ref': ref,
+          'role': record.role,
+          'matchedBy': choice.how,
+          'label': choice.option.label,
+          'value': choice.option.value,
+          'index': choice.option.index,
+          'optionCount': options.length,
+          'selectionAfter': after,
+        },
+      );
+    }
 
     final observed = await _settleAndObserve(urlBefore, linesBefore);
-    final after = applied['value']?.toString();
     return Receipt(
       tool: 'select',
       delivery: Delivery.unknown,

@@ -417,8 +417,13 @@ class AgentLoop {
       return null;
     }
 
-    final label = control.refLabel(call.args['ref']?.toString());
-    final write = assessWrite(call.name, call.args, targetLabel: label);
+    final label = _actionLabel(call);
+    final write = assessWrite(
+      call.name,
+      call.args,
+      targetLabel: label,
+      targetLabels: _contextLabels(call),
+    );
     if (_needsConfirm(write)) {
       final approved = await host.confirm(ConfirmRequest(
         title: write.destructive ? '这一步需要你来做' : '确认${write.label}',
@@ -600,12 +605,50 @@ class AgentLoop {
     return null;
   }
 
+  /// The element the call's risk sits on: the submit button for a form, the
+  /// target for everything else.
+  String? _actionLabel(ToolCallRequest call) {
+    if (call.name == 'fill_form') {
+      final submitRef = call.args['submitRef']?.toString().trim() ?? '';
+      return submitRef.isEmpty ? null : control.refLabel(submitRef);
+    }
+    return control.refLabel(call.args['ref']?.toString());
+  }
+
+  /// The field labels of a form batch, so a password field cannot hide in a
+  /// call whose only other label is a harmless one.
+  List<String> _contextLabels(ToolCallRequest call) {
+    if (call.name != 'fill_form') return const [];
+    final raw = call.args['fields'];
+    if (raw is! List) return const [];
+    final labels = <String>[];
+    for (final item in raw) {
+      if (item is! Map) continue;
+      final ref = item['ref']?.toString();
+      if (ref == null || ref.isEmpty) continue;
+      final label = control.refLabel(ref);
+      if (label != null && label.isNotEmpty) labels.add(label);
+    }
+    return labels;
+  }
+
   String _confirmReason(WriteAssessment write, ToolCallRequest call, String? label) {
+    if (call.name == 'fill_form') {
+      final count = (call.args['fields'] as List?)?.length ?? 0;
+      final target = label == null ? '' : '「${_elementName(label)}」';
+      if (write.handoff) {
+        return '表单里有密码、验证码或支付类字段。'
+            '请自己填写这些内容${label == null ? '' : '，再决定是否点击$target'}。';
+      }
+      return '模型要填写 $count 个字段'
+          '${label == null ? '' : '，然后点击$target提交'}。';
+    }
     final target = label == null ? '' : '「$label」';
     return '模型要执行${write.label}$target（${describeToolCall(call.name, call.args)}）。';
   }
 
   String? _confirmPayload(ToolCallRequest call) {
+    if (call.name == 'fill_form') return _fillFormPreview(call);
     final text = call.args['text']?.toString();
     if (call.name == 'type' && text != null && text.isNotEmpty) {
       return text.length > 400 ? '${text.substring(0, 400)}…' : text;
@@ -614,6 +657,56 @@ class AgentLoop {
     if (call.name == 'navigate' && url != null) return url;
     return null;
   }
+
+  /// A form's values, one line per field, with the submit target first so a
+  /// five-line card never hides which button will be pressed.
+  String? _fillFormPreview(ToolCallRequest call) {
+    final rawFields = call.args['fields'];
+    if (rawFields is! List || rawFields.isEmpty) return null;
+    final lines = <String>[];
+    final submitRef = call.args['submitRef']?.toString().trim() ?? '';
+    if (submitRef.isNotEmpty) {
+      final submitLabel = control.refLabel(submitRef) ?? submitRef;
+      lines.add('提交：${_elementName(submitLabel)}（共 ${rawFields.length} 项）');
+    }
+    for (final item in rawFields) {
+      if (item is! Map) continue;
+      final ref = item['ref']?.toString() ?? '';
+      final rawLabel = control.refLabel(ref) ?? ref;
+      final action = (item['action'] ?? 'type').toString();
+      var value = item['value']?.toString() ?? '';
+      if (action == 'select' && value.isEmpty) {
+        value = item['optionValue']?.toString() ?? '';
+      }
+      final replace = item['replace'] != false && item['replace'] != 'false';
+      final hidden = toolFlag(item['secret']) || looksSensitive(rawLabel);
+      final String shown;
+      if (hidden) {
+        shown = '（敏感内容，未显示）';
+      } else if (value.isEmpty) {
+        shown = action == 'select'
+            ? '（按选项下标选择）'
+            : replace
+                ? '（清空）'
+                : '（不改变）';
+      } else {
+        shown = _clip(value, 120);
+      }
+      lines.add('${_elementName(rawLabel)}：$shown'
+          '${action == 'select' ? '（下拉选择）' : ''}');
+    }
+    final preview = lines.join('\n');
+    return preview.length > 800 ? '${preview.substring(0, 799)}…' : preview;
+  }
+
+  static String _elementName(String label) {
+    final match = RegExp(r'"([^"]*)"').firstMatch(label);
+    final name = match?.group(1)?.trim();
+    return name == null || name.isEmpty ? label : name;
+  }
+
+  static String _clip(String text, int max) =>
+      text.length <= max ? text : '${text.substring(0, max - 1)}…';
 
   void _rememberUrl(ToolResult result) {
     final raw = result.data?['url'] ?? result.receipt?.urlAfter;

@@ -208,6 +208,157 @@ void main() {
     expect(result.error!.hint, contains('click'));
   });
 
+  test('fill_form fills every field, picks the option and submits once', () async {
+    final page = FakePage(
+      url: 'https://jobs.example.com/apply',
+      title: '申请表',
+      nodes: const [
+        FakePageNode(backendNodeId: 80, role: 'textbox', name: '姓名', editable: true),
+        FakePageNode(backendNodeId: 81, role: 'textbox', name: '邮箱', editable: true),
+        FakePageNode(backendNodeId: 82, role: 'combobox', name: '城市'),
+        FakePageNode(backendNodeId: 83, role: 'button', name: '提交申请'),
+      ],
+    );
+    page.boxes
+      ..[80] = const FakeBox(20, 40, 200, 32)
+      ..[81] = const FakeBox(20, 90, 200, 32)
+      ..[82] = const FakeBox(20, 140, 200, 32)
+      ..[83] = const FakeBox(20, 200, 120, 36);
+    page.selects[82] = const [
+      FakeSelectOption('', '请选择'),
+      FakeSelectOption('110000', '北京'),
+      FakeSelectOption('310000', '上海'),
+    ];
+    fake = await FakeDevTools.start(page);
+    control = await attachTo(page, fake);
+    final snapshot = await control.execute('snapshot');
+
+    final clicked = <String>[];
+    page.onClick = (node) => clicked.add(node.name);
+
+    final result = await control.execute('fill_form', {
+      'fields': [
+        {
+          'ref': _refOf(snapshot, '姓名'),
+          'value': '张三',
+          // The fake tracks one text log, not one value per field; appending
+          // lets the test see both fields.
+          'replace': false,
+        },
+        {
+          'ref': _refOf(snapshot, '邮箱'),
+          'value': 'zhang@example.com',
+          'replace': false,
+        },
+        // No action: a combobox must choose an option rather than receive
+        // text, so the layer treats it as select on its own.
+        {'ref': _refOf(snapshot, '城市'), 'value': '上海'},
+      ],
+      'submitRef': _refOf(snapshot, '提交申请'),
+    });
+
+    expect(result.ok, isTrue, reason: result.error?.toString());
+    expect(page.typedText, ['张三', 'zhang@example.com']);
+    expect(page.selectedIndex[82], 2);
+    // Focusing a field is also a click; what matters is that the submit button
+    // is clicked exactly once, after the fields.
+    expect(clicked.where((name) => name == '提交申请'), hasLength(1));
+    expect(clicked.last, '提交申请');
+    expect(result.data!['submitted'], isTrue);
+    expect(result.data!['fieldCount'], 3);
+    final fields = result.data!['fields'] as List;
+    expect((fields[0] as Map)['value'], '张三');
+    expect((fields[2] as Map)['action'], 'select');
+    expect(result.receipt!.tool, 'fill_form+submit');
+    expect(result.receipt!.details!['submit'], isA<Map>());
+  });
+
+  test('fill_form validates every ref before the first keystroke', () async {
+    final page = searchPage();
+    fake = await FakeDevTools.start(page);
+    control = await attachTo(page, fake);
+    final snapshot = await control.execute('snapshot');
+
+    final result = await control.execute('fill_form', {
+      'fields': [
+        {'ref': _refOf(snapshot, '搜索'), 'value': '关键词'},
+        {'ref': 'a999', 'value': '不会写进去'},
+      ],
+    });
+
+    expect(result.ok, isFalse);
+    expect(result.error!.code, ControlErrorCode.unknownRef);
+    expect(page.typedText, isEmpty,
+        reason: 'a bad field after a good one must not leave a half-filled form');
+  });
+
+  test('fill_form refuses a field with no value instead of clearing it', () async {
+    final page = searchPage();
+    fake = await FakeDevTools.start(page);
+    control = await attachTo(page, fake);
+    final snapshot = await control.execute('snapshot');
+
+    final result = await control.execute('fill_form', {
+      'fields': [
+        {'ref': _refOf(snapshot, '搜索')},
+      ],
+    });
+
+    expect(result.ok, isFalse);
+    expect(result.error!.code, ControlErrorCode.badArguments);
+    expect(result.error!.message, contains('缺少 value'));
+    expect(page.typedText, isEmpty);
+  });
+
+  test('fill_form reports what was filled when a later field fails', () async {
+    final page = searchPage();
+    fake = await FakeDevTools.start(page);
+    control = await attachTo(page, fake);
+    final snapshot = await control.execute('snapshot');
+
+    final result = await control.execute('fill_form', {
+      'fields': [
+        {'ref': _refOf(snapshot, '搜索'), 'value': '已写入'},
+        {
+          'ref': _refOf(snapshot, '搜索按钮'),
+          'value': '北京',
+          'action': 'select',
+        },
+      ],
+      'submitRef': _refOf(snapshot, '下一条'),
+    });
+
+    expect(result.ok, isFalse);
+    expect(result.error!.message, contains('已填写 1 个字段'));
+    expect(result.error!.message, contains('搜索按钮'));
+    expect(result.data!['submitted'], isFalse);
+    expect(result.data!['failedAt'], 1);
+    expect(page.typedText, ['已写入']);
+  });
+
+  test('fill_form masks a secret value in its structured result', () async {
+    final page = searchPage();
+    fake = await FakeDevTools.start(page);
+    control = await attachTo(page, fake);
+    final snapshot = await control.execute('snapshot');
+
+    final result = await control.execute('fill_form', {
+      'fields': [
+        {
+          'ref': _refOf(snapshot, '搜索'),
+          'value': 'hunter2',
+          'secret': true,
+        },
+      ],
+    });
+
+    expect(result.ok, isTrue, reason: result.error?.toString());
+    final field = (result.data!['fields'] as List).single as Map;
+    expect(field['secret'], isTrue);
+    expect(field.containsKey('value'), isFalse);
+    expect('${result.data}', isNot(contains('hunter2')));
+  });
+
   test('hover keeps the pointer on the element', () async {
     final page = searchPage();
     fake = await FakeDevTools.start(page);

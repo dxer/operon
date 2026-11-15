@@ -1,7 +1,7 @@
 part of 'control.dart';
 
 /// The value types a tool parameter can take, and the JSON Schema type for it.
-enum ControlParamType { text, number, boolean, choice }
+enum ControlParamType { text, number, boolean, choice, objectList }
 
 /// One tool parameter: the name the model must use, what it means, and whether
 /// it is required.
@@ -12,6 +12,7 @@ class ControlParam {
     this.type = ControlParamType.text,
     this.required = false,
     this.options = const [],
+    this.itemFields = const [],
   });
 
   final String name;
@@ -22,14 +23,31 @@ class ControlParam {
   /// Allowed values for [ControlParamType.choice].
   final List<String> options;
 
+  /// The shape of each entry for [ControlParamType.objectList].
+  final List<ControlParam> itemFields;
+
   Map<String, Object?> toJsonSchema() => {
         'type': switch (type) {
           ControlParamType.text || ControlParamType.choice => 'string',
           ControlParamType.number => 'number',
           ControlParamType.boolean => 'boolean',
+          ControlParamType.objectList => 'array',
         },
         'description': description,
         if (options.isNotEmpty) 'enum': options,
+        if (type == ControlParamType.objectList && itemFields.isNotEmpty)
+          'items': {
+            'type': 'object',
+            'properties': {
+              for (final field in itemFields) field.name: field.toJsonSchema(),
+            },
+            if (itemFields.any((field) => field.required))
+              'required': [
+                for (final field in itemFields)
+                  if (field.required) field.name,
+              ],
+            'additionalProperties': false,
+          },
       };
 }
 
@@ -159,6 +177,62 @@ const List<ControlToolSpec> controlToolCatalog = [
         name: 'secret',
         description: '内容是密码或验证码，不写日志，默认 false',
         type: ControlParamType.boolean,
+      ),
+    ],
+    mutates: true,
+  ),
+  ControlToolSpec(
+    name: 'fill_form',
+    summary: '一次填写多个输入框或原生下拉框，可选地点击提交。'
+        '字段互不依赖时用它，比逐个 type/select 少很多往返；'
+        '给出 submitRef 时，人工授权模式会先让用户看到全部字段与提交目标。',
+    params: [
+      ControlParam(
+        name: 'fields',
+        description: '要填的字段，按页面上的顺序排列',
+        type: ControlParamType.objectList,
+        required: true,
+        itemFields: [
+          ControlParam(
+            name: 'ref',
+            description: '输入框或下拉框的 ref',
+            required: true,
+          ),
+          ControlParam(
+            name: 'value',
+            description: '要填入的内容；下拉框填选项文字或选项 value',
+          ),
+          ControlParam(
+            name: 'action',
+            description: 'type 输入文字；select 选择原生下拉项。'
+                '省略时，combobox / listbox 按 select 处理，其余按 type 处理',
+            type: ControlParamType.choice,
+            options: ['type', 'select'],
+          ),
+          ControlParam(
+            name: 'optionValue',
+            description: '下拉项的 value，比选项文字更精确',
+          ),
+          ControlParam(
+            name: 'optionIndex',
+            description: '下拉项下标，从 0 开始',
+            type: ControlParamType.number,
+          ),
+          ControlParam(
+            name: 'replace',
+            description: '输入前清空原内容，默认 true',
+            type: ControlParamType.boolean,
+          ),
+          ControlParam(
+            name: 'secret',
+            description: '内容是密码或验证码：不记录正文，并且会交给用户自己完成',
+            type: ControlParamType.boolean,
+          ),
+        ],
+      ),
+      ControlParam(
+        name: 'submitRef',
+        description: '提交按钮的 ref；省略表示只填写、不提交',
       ),
     ],
     mutates: true,

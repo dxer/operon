@@ -36,6 +36,25 @@ void main() {
       expect((properties['mode'] as Map)['enum'], containsAll(['auto', 'touch', 'mouse']));
     });
 
+    test('fill_form describes each field as an object in an array', () {
+      final fill = buildToolSchemas()
+          .firstWhere((schema) => (schema['function'] as Map)['name'] == 'fill_form');
+      final parameters = (fill['function'] as Map)['parameters'] as Map;
+      expect(parameters['required'], contains('fields'));
+      final properties = parameters['properties'] as Map;
+      final fields = properties['fields'] as Map;
+      expect(fields['type'], 'array');
+      final items = fields['items'] as Map;
+      expect(items['type'], 'object');
+      expect(items['additionalProperties'], isFalse);
+      expect(items['required'], contains('ref'));
+      final itemProperties = items['properties'] as Map;
+      expect((itemProperties['ref'] as Map)['type'], 'string');
+      expect((itemProperties['action'] as Map)['enum'], ['type', 'select']);
+      // The preview and the submit both depend on this being addressable.
+      expect(properties['submitRef'], isA<Map>());
+    });
+
     test('boolean and number parameters keep their json types', () {
       final type = buildToolSchemas()
           .firstWhere((schema) => (schema['function'] as Map)['name'] == 'type');

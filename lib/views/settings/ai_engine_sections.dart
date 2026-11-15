@@ -1,13 +1,8 @@
 part of 'ai_engine_settings_page.dart';
 
-const List<({String name, String url})> _endpointPresets = [
-  (name: 'OpenAI 官方', url: 'https://api.openai.com/v1'),
-  (name: 'DeepSeek', url: 'https://api.deepseek.com/v1'),
-  (name: 'OpenRouter', url: 'https://openrouter.ai/api/v1'),
-  (name: '硅基流动 SiliconFlow', url: 'https://api.siliconflow.cn/v1'),
-  (name: 'Moonshot Kimi', url: 'https://api.moonshot.cn/v1'),
-  (name: '智谱 GLM', url: 'https://open.bigmodel.cn/api/paas/v4'),
-  (name: 'Ollama (本地)', url: 'http://localhost:11434/v1'),
+final List<({String name, String url})> _endpointPresets = [
+  for (final preset in providerPresets)
+    (name: preset.name, url: preset.baseUrl),
 ];
 
 const List<int?> _quickMaxTokens = [null, 2048, 4096, 8192, 16384, 32768];

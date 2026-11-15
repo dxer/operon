@@ -1,5 +1,6 @@
 import '../control/control.dart';
 import '../control/protocol/results.dart';
+import 'permission.dart';
 import 'prompt.dart';
 import 'ports.dart';
 
@@ -156,15 +157,19 @@ String describeToolCall(String name, Map<String, Object?> args) {
     case 'click':
       return '点击 [${arg('ref')}]';
     case 'type':
-      final secret = args['secret'] == true;
-      final submit = args['submit'] == true;
+      final secret = toolFlag(args['secret']);
+      final submit = toolFlag(args['submit']);
       return '输入${secret ? '敏感内容' : '文字'}到 [${arg('ref')}]${submit ? ' 并提交' : ''}';
+    case 'fill_form':
+      final count = args['fields'] is List ? (args['fields'] as List).length : 0;
+      final submit = arg('submitRef').isNotEmpty;
+      return '填写表单（$count 项）${submit ? '并提交' : ''}';
     case 'press':
       return '按键 ${arg('key')}';
     case 'scroll':
       return '滚动 ${arg('direction').isEmpty ? 'down' : arg('direction')}';
     case 'navigate':
-      return args['newTab'] == true
+      return toolFlag(args['newTab'])
           ? '在新标签页打开 ${arg('url')}'
           : '打开 ${arg('url')}';
     case 'clear':
@@ -178,7 +183,7 @@ String describeToolCall(String name, Map<String, Object?> args) {
       final ms = arg('ms');
       return ms.isEmpty ? '等待页面稳定' : '等待 $ms ms';
     case 'handle_dialog':
-      return args['accept'] == true ? '接受页面弹窗' : '取消页面弹窗';
+      return toolFlag(args['accept']) ? '接受页面弹窗' : '取消页面弹窗';
     case doneToolName:
       return '结束任务';
     case askUserToolName:

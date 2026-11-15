@@ -36,6 +36,7 @@ class AppConstants {
   static const String keyMaxOutputTokens = 'pref_llm_max_tokens';
   static const String keyUserAgent = 'pref_user_agent';
   static const String keySafeMode = 'pref_safe_mode';
+  static const String keyBackgroundTaskMode = 'pref_background_task_mode';
   static const String keyHomepage = 'pref_homepage';
   static const String keyThemeMode =
       'pref_theme_mode'; // 'system', 'light', 'dark'
@@ -53,6 +54,9 @@ class AppConstants {
   static const String keySavedTabs = 'pref_saved_tabs';
   static const String keyAutoCompactEnabled = 'pref_auto_compact_enabled';
   static const String keyAutoCompactTokens = 'pref_auto_compact_tokens';
+
+  /// First-run guidance has been completed or explicitly skipped.
+  static const String keyOnboardingDone = 'pref_onboarding_done';
   static const int defaultAutoCompactTokens = 200000;
 
   // Default Homepage
