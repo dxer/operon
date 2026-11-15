@@ -360,6 +360,12 @@ class _BrowserPageState extends State<BrowserPage>
                   else if (!isStartPage)
                     SizeTransition(
                       sizeFactor: _chromeController,
+                      // `alignment` replaced this in 3.41 and `axisAlignment` is
+                      // deprecated, but this machine's SDK (3.35.5) has no
+                      // `alignment` at all, so the newer spelling would not even
+                      // compile here. One line, one ignore, until both ends reach
+                      // 3.41: then this becomes `alignment: Alignment.topCenter`.
+                      // ignore: deprecated_member_use
                       axisAlignment: -1,
                       child: MediaQuery.withClampedTextScaling(
                         maxScaleFactor: 1.25,
