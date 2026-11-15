@@ -9,16 +9,12 @@ extension _SheetRunBar on _AgentBottomSheetState {
     final surface = AppInk.sunken(isDark);
     final hairline = AppInk.hairline(isDark);
     final onSurface = AppInk.primary(isDark);
-    final muted = AppInk.tertiary(isDark);
     final paused = state.status == AgentStatus.paused;
     final waiting = state.status == AgentStatus.waitingConfirmation ||
         state.status == AgentStatus.waitingCaptcha;
     final accent = paused || waiting
         ? AppTheme.warningOf(isDark)
         : AppTheme.primaryOf(isDark);
-    // The message itself is already in the transcript above; repeating it in
-    // the control bar was the old form's way of saying "this is what is
-    // running". Here the bar says what the run is *doing*.
     final label = paused
         ? '已暂停 · 点继续回到这一步'
         : waiting
@@ -53,18 +49,21 @@ extension _SheetRunBar on _AgentBottomSheetState {
               style: AppType.label.copyWith(color: onSurface),
             ),
           ),
-          IconButton(
-            tooltip: paused ? '继续' : '暂停',
-            onPressed:
-                waiting ? null : (paused ? widget.onResume : widget.onPause),
-            icon: Icon(
-              paused ? Icons.play_arrow_rounded : Icons.pause_rounded,
-              size: 20,
+          // No pause button. Stopping a run half-way through a form is the
+          // thing this bar exists to do; pausing it left the page in a
+          // half-filled state with nothing on screen explaining why. The one
+          // pause that remains is involuntary — the app going to the
+          // background with "后台继续执行" off — and for that the bar offers
+          // its way back.
+          if (paused)
+            IconButton(
+              tooltip: '继续',
+              onPressed: widget.onResume,
+              icon: const Icon(Icons.play_arrow_rounded, size: 20),
+              color: accent,
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
             ),
-            color: paused ? accent : muted,
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
-          ),
           IconButton(
             tooltip: '停止运行',
             onPressed: widget.onStop,

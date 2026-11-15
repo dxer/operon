@@ -54,7 +54,8 @@ class _ExampleGoal {
 class AgentBottomSheet extends StatefulWidget {
   final AgentState state;
   final AgentStartHandler onStart;
-  final VoidCallback onPause;
+  /// Only ever needed for a pause the app caused itself (backgrounded with
+  /// "后台继续执行" off). There is no pause button left to ask for one.
   final VoidCallback onResume;
   final VoidCallback onStop;
   final Function(bool confirmed) onConfirmAction;
@@ -102,7 +103,6 @@ class AgentBottomSheet extends StatefulWidget {
     super.key,
     required this.state,
     required this.onStart,
-    required this.onPause,
     required this.onResume,
     required this.onStop,
     required this.onConfirmAction,
@@ -367,9 +367,15 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
               ),
               if (_showsChat)
                 Expanded(
-                  child: _buildChatBody(
-                    state: state,
-                    isRunning: isRunning,
+                  // Answers are worth keeping, and what a user wants is usually
+                  // one sentence inside one — the copy button hands over the
+                  // whole reply. SelectionArea makes the transcript behave like
+                  // text everywhere else on a phone: long-press, drag, copy.
+                  child: SelectionArea(
+                    child: _buildChatBody(
+                      state: state,
+                      isRunning: isRunning,
+                    ),
                   ),
                 )
               else

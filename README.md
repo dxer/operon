@@ -11,7 +11,7 @@
 
 1. **Via 式极简交互**：
    * 顶部单行胶囊地址栏 + 底部操作栏，单手即可完成浏览与 AI 调度。
-   * 全屏 edge-to-edge 画布、停靠式 AI 状态条、克制的动效与触感反馈。
+   * 全屏 edge-to-edge 画布、克制的动效与触感反馈。
 2. **纯 Dart CDP 控制层 (`lib/control/`)**：
    * 基于 Android 原生 Chromium WebView，直连本进程 `@webview_devtools_remote_<pid>` 抽象 Socket，无需额外打包浏览器内核。
    * 通过 `Accessibility.getFullAXTree` 生成稳定的交互 `ref`，支持 Shadow DOM 与 IFrame 穿透。
@@ -54,15 +54,15 @@ operon/
 │   └── js/page_helpers.js            # 页内助手：阅读模式 / 划词信息 / 伪装辅助
 ├── lib/
 │   ├── main.dart                     # 入口：edge-to-edge、WebView DevTools 开启、主题
-│   ├── config/                       # 主题、Token 规范与基础常量
+│   ├── config/                       # 主题、Token 规范、服务商预设与基础常量
 │   ├── agent/                        # 通用 Agent 循环、上下文裁剪、防呆守卫、权限分级、工具协议
 │   ├── control/                      # 纯 Dart CDP 控制层：transport / perception / interaction / protocol
 │   ├── models/                       # AgentState / Conversation / LlmConfig & LlmPreset / ModelProfile / WebTab
-│   ├── services/                     # OpenAI 兼容客户端、存储、通知、对话持久化、下载、Intent
-│   ├── utils/                        # URL 规范化、取消令牌
-│   └── views/                        # 浏览器主页、设置页、诊断页与底部 AI 对话面板
+│   ├── services/                     # OpenAI 兼容客户端、存储、通知、对话持久化、下载、Intent、模型体检、前台任务服务
+│   ├── utils/                        # URL 规范化、取消令牌、结果导出
+│   └── views/                        # 浏览器主页、首次启动向导、设置页、诊断页与底部 AI 对话面板
 ├── test/                             # 单元测试与 FakeDevTools / FakeOpenAi 端到端测试
-├── android/                          # 原生 Android 权限、图标资源与 Gradle 配置
+├── android/                          # 原生 Android 权限、图标资源、前台服务与 Gradle 配置
 └── pubspec.yaml
 ```
 
@@ -70,7 +70,7 @@ operon/
 
 ## 📦 在 GitHub 上自动编译并下载 APK
 
-项目内置 GitHub Actions 工作流 [`.github/workflows/build-apk.yml`](.github/workflows/build-apk.yml)，CI 会先执行 `flutter analyze` 与 `flutter test`，通过后再编译并发布纯 `.apk` 至 **GitHub Releases**：
+项目内置 GitHub Actions 工作流 [`.github/workflows/build-apk.yml`](.github/workflows/build-apk.yml)，CI 会先执行 `flutter analyze` 与 `flutter test`，通过后再编译并发布纯 `.apk` 至 **GitHub Releases**。CI 只编译 `android-arm64`（现代手机），产物约 23 MB，可直接安装：
 
 ```bash
 git tag vX.Y.Z
@@ -80,6 +80,8 @@ git push origin vX.Y.Z
 ---
 
 ## 💻 本地编译与运行
+
+运行要求：**Android 7.0（API 24）及以上**。
 
 ```bash
 # 1. 获取依赖
@@ -92,10 +94,17 @@ flutter test --no-pub
 # 3. 连接 Android 手机或模拟器调试
 flutter run
 
-# 4. 本地打包 Release APK
-flutter build apk --release
+# 4. 本地打包 Release APK（只含 arm64，约 23 MB，与 CI 一致）
+flutter build apk --release --target-platform android-arm64
 # 生成路径：build/app/outputs/flutter-apk/app-release.apk
+
+# 需要支持 32 位旧设备或模拟器时，按 CPU 架构分开打包
+flutter build apk --release --split-per-abi
+# 产物：app-arm64-v8a-release.apk / app-armeabi-v7a-release.apk / app-x86_64-release.apk
 ```
+
+> 不带架构参数的 `flutter build apk --release` 会把 arm64、armv7、x86_64 三套引擎
+> 打进同一个包（约 59 MB）。分发时请用上面的单架构或分包命令。
 
 ---
 

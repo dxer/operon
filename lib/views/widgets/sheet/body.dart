@@ -363,8 +363,68 @@ extension _SheetBody on _AgentBottomSheetState {
     final muted = AppInk.secondary(isDark);
     final turns = _conversation?.turns ?? const <AgentTurn>[];
     final live = _showsLiveBlock(state, turns);
+    final goal = state.goal.trim();
 
-    return ListView(
+    // One row per entry, each built only when it scrolls into view. The list
+    // used to be passed whole to `ListView(children:)`: elements still mounted
+    // lazily, but every turn's widget subtree was constructed on every rebuild
+    // — and this pane rebuilds on every streamed chunk of a run.
+    final rows = <Widget Function()>[];
+    if (turns.isEmpty && !live) rows.add(_buildEmptyChat);
+    for (final turn in turns) {
+      rows.add(() => _buildTurnBlock(turn));
+    }
+    // The message you just sent belongs in the transcript the moment you
+    // send it. It used to appear only when the answer did, because the
+    // transcript was built from finished turns only.
+    if (live && goal.isNotEmpty) {
+      rows.add(() => Padding(
+            padding: const EdgeInsets.only(bottom: AppSpace.x3),
+            child: _buildUserBubble(goal),
+          ));
+    }
+    if (live) {
+      rows.addAll(_buildLiveBlock(state).map((row) => () => row));
+    }
+    if (!live && turns.isNotEmpty && !isRunning) {
+      // Room to breathe under the last answer: the composer sits directly
+      // below, and text touching it reads as one paragraph.
+      rows.add(() => const SizedBox(height: AppSpace.x1));
+    }
+    if (!_safeMode) {
+      rows.add(() {
+        final warning = AppTheme.warningOf(isDark);
+        return Padding(
+          padding: const EdgeInsets.only(top: AppSpace.x2),
+          child: Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, size: 14, color: warning),
+              const SizedBox(width: AppSpace.x2 - 2),
+              Expanded(
+                child: Text(
+                  '全自动模式：支付、发布、删除等操作不会暂停确认',
+                  style: AppType.caption.copyWith(color: warning),
+                ),
+              ),
+            ],
+          ),
+        );
+      });
+    }
+    if (state.extractedData != null) {
+      rows.add(() => Padding(
+            padding: const EdgeInsets.only(top: AppSpace.x3),
+            child: _buildExtractedCard(
+              data: state.extractedData,
+              surface: surface,
+              hairline: hairline,
+              onSurface: onSurface,
+              muted: muted,
+            ),
+          ));
+    }
+
+    return ListView.builder(
       controller: _bodyScroll,
       keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
       padding: const EdgeInsets.fromLTRB(
@@ -373,54 +433,8 @@ extension _SheetBody on _AgentBottomSheetState {
         AppSpace.page,
         AppSpace.x2,
       ),
-      children: [
-        if (turns.isEmpty && !live) _buildEmptyChat(),
-        for (final turn in turns) _buildTurnBlock(turn),
-        // The message you just sent belongs in the transcript the moment you
-        // send it. It used to appear only when the answer did, because the
-        // transcript was built from finished turns only.
-        if (live && state.goal.trim().isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.only(bottom: AppSpace.x3),
-            child: _buildUserBubble(state.goal.trim()),
-          ),
-        if (live) ..._buildLiveBlock(state),
-        if (!live && turns.isNotEmpty && !isRunning)
-          // Room to breathe under the last answer: the composer sits directly
-          // below, and text touching it reads as one paragraph.
-          const SizedBox(height: AppSpace.x1),
-        if (!_safeMode) ...[
-          const SizedBox(height: AppSpace.x2),
-          Row(
-            children: [
-              Icon(
-                Icons.warning_amber_rounded,
-                size: 14,
-                color: AppTheme.warningOf(isDark),
-              ),
-              const SizedBox(width: AppSpace.x2 - 2),
-              Expanded(
-                child: Text(
-                  '全自动模式：支付、发布、删除等操作不会暂停确认',
-                  style: AppType.caption.copyWith(
-                    color: AppTheme.warningOf(isDark),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ],
-        if (state.extractedData != null) ...[
-          const SizedBox(height: AppSpace.x3),
-          _buildExtractedCard(
-            data: state.extractedData,
-            surface: surface,
-            hairline: hairline,
-            onSurface: onSurface,
-            muted: muted,
-          ),
-        ],
-      ],
+      itemCount: rows.length,
+      itemBuilder: (context, index) => rows[index](),
     );
   }
 

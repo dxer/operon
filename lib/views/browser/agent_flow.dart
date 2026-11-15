@@ -39,7 +39,8 @@ extension _AgentFlow on _BrowserPageState {
           return true;
         },
         open: (url) async {
-          _createNewTab(url: url);
+          // Refused at the tab cap; there is no target to wait for.
+          if (!_createNewTab(url: url)) return;
           // The WebView needs a frame before its DevTools target exists.
           await Future<void>.delayed(const Duration(milliseconds: 120));
         },
@@ -72,6 +73,13 @@ extension _AgentFlow on _BrowserPageState {
   }
 
   /// Applies one state update, whichever engine produced it.
+  ///
+  /// Deliberately *not* a `setState`. This fires on every streamed chunk — up
+  /// to ~8 times a second — and the only things on screen that change with it
+  /// are the panel (which listens to the stream itself) and one boolean (kept
+  /// in [_agentBusy]). Rebuilding the browser shell at that rate rebuilt every
+  /// tab's WebView with it, which is why the page felt sticky while the model
+  /// was typing.
   void _applyAgentState(AgentState state) {
     if (!mounted) return;
     // A run scrolls the page on its own; the controls must not disappear while
@@ -82,37 +90,40 @@ extension _AgentFlow on _BrowserPageState {
     } else if (!_agentSheetOpen) {
       _chrome.unlock();
     }
-    setState(() {
-      if (state.isRunning || state.status == AgentStatus.paused) {
-        _statusBarDismissed = false;
-      }
-      if (state.status == AgentStatus.idle ||
-          state.status == AgentStatus.completed ||
-          state.status == AgentStatus.error) {
-        _agentTabId = null;
-        _runCoordinator.end(RunKind.agent);
-      }
-      _agentState = state;
-      final isTerminal = state.status == AgentStatus.completed ||
-          state.status == AgentStatus.error;
-      final shouldRecord = isTerminal ||
-          (state.status == AgentStatus.idle && _taskStartedAt != null);
-      if (shouldRecord &&
-          !_turnSaved &&
-          state.goal.isNotEmpty &&
-          state.goal != '/compact') {
-        _turnSaved = true;
-        unawaited(_saveTurn(state));
-      }
-      if (state.status == AgentStatus.idle) {
-        _taskStartedAt = null;
-      }
-    });
+    if (state.status == AgentStatus.idle ||
+        state.status == AgentStatus.completed ||
+        state.status == AgentStatus.error) {
+      _agentTabId = null;
+      _runCoordinator.end(RunKind.agent);
+    }
+    _agentState = state;
+    _agentBusy.value = state.isRunning;
+    final isTerminal = state.status == AgentStatus.completed ||
+        state.status == AgentStatus.error;
+    final shouldRecord = isTerminal ||
+        (state.status == AgentStatus.idle && _taskStartedAt != null);
+    if (shouldRecord &&
+        !_turnSaved &&
+        state.goal.isNotEmpty &&
+        state.goal != '/compact') {
+      _turnSaved = true;
+      unawaited(_saveTurn(state));
+    }
+    if (state.status == AgentStatus.idle) {
+      _taskStartedAt = null;
+    }
     _syncForegroundTask(state);
     if (state.status == AgentStatus.waitingConfirmation) {
       _maybeShowConfirmationCard(state);
     } else {
       _confirmationShownFor = null;
+    }
+    // A CAPTCHA is a stop that only a person can clear, and now that the dock
+    // strip is gone the panel is the only place that says so.
+    if (state.status == AgentStatus.waitingCaptcha) {
+      _maybeOpenPanelForCaptcha();
+    } else {
+      _captchaPanelShown = false;
     }
   }
 
@@ -194,7 +205,6 @@ extension _AgentFlow on _BrowserPageState {
         return;
       }
       _agentTabId = _currentTab.id;
-      _statusBarDismissed = false;
       _runningConversationId = null;
       _turnSaved = true;
       try {
@@ -250,7 +260,6 @@ extension _AgentFlow on _BrowserPageState {
     _runningConversationId = conversation?.id;
 
     _agentTabId = _currentTab.id;
-    _statusBarDismissed = false;
     _taskStartedAt = DateTime.now();
     _runningAttachmentNames =
         attachments.map((item) => item.label).toList(growable: false);
@@ -361,7 +370,8 @@ extension _AgentFlow on _BrowserPageState {
     return null;
   }
 
-  /// Notification buttons are the status strip's buttons, off-screen.
+  /// The notification is now the only control surface while the panel is
+  /// closed, so its actions land here.
   void _onForegroundTaskAction(String action) {
     if (!mounted) return;
     switch (action) {
@@ -537,14 +547,35 @@ extension _AgentFlow on _BrowserPageState {
         '${state.confirmationPayload ?? ''}';
   }
 
+  /// Pops the panel by itself when a run stops on a CAPTCHA.
+  ///
+  /// The banner with "我已完成验证" lives in the panel. The dock strip used to
+  /// announce the block from the page; without it, a run that needs a human
+  /// would wait behind a screen saying nothing at all. Once per episode: if the
+  /// user closes the panel again, they know where it is.
+  void _maybeOpenPanelForCaptcha() {
+    if (_agentSheetOpen || _confirmationCardOpen || _captchaPanelShown) return;
+    _captchaPanelShown = true;
+    // A state update no longer calls setState, so nothing else schedules the
+    // frame this callback needs. `addPostFrameCallback` does not schedule one.
+    WidgetsBinding.instance.ensureVisualUpdate();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _agentSheetOpen) return;
+      if (_agentState.status != AgentStatus.waitingCaptcha) return;
+      unawaited(_openAgentBottomSheet());
+    });
+  }
+
   /// Pops the dedicated authorization card as soon as a task stops on a
   /// sensitive action, so the user never has to hunt for the panel. Once per
-  /// pending action: dismissing it leaves the status strip's "审阅" button.
+  /// pending action: dismissing it leaves the panel's own banner.
   void _maybeShowConfirmationCard(AgentState state) {
     if (_agentSheetOpen || _confirmationCardOpen) return;
     final token = _confirmationToken(state);
     if (_confirmationShownFor == token) return;
     _confirmationShownFor = token;
+    // See [_maybeOpenPanelForCaptcha]: nothing schedules the frame for us.
+    WidgetsBinding.instance.ensureVisualUpdate();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && !_agentSheetOpen) _showConfirmationCard();
     });
@@ -623,16 +654,17 @@ extension _AgentFlow on _BrowserPageState {
       builder: (ctx) {
         return DraggableScrollableSheet(
           // Three resting heights: enough to read an answer, enough to see the
-          // page behind it, and 80% for a long transcript.
+          // page behind it, and 90% for a long transcript.
           //
-          // Never full height. The page above is the thing being talked about,
-          // and a panel that can cover all of it turns the browser into a chat
-          // app — the one thing this product is not.
+          // Never full height. Even at its largest the panel leaves the top of
+          // the page visible: what the agent is doing up there is the context
+          // for the conversation, and a panel that can cover all of it turns
+          // the browser into a chat app — the one thing this product is not.
           initialChildSize: 0.6,
           minChildSize: 0.38,
-          maxChildSize: 0.8,
+          maxChildSize: 0.9,
           snap: true,
-          snapSizes: const [0.6, 0.72, 0.8],
+          snapSizes: const [0.6, 0.75, 0.9],
           expand: false,
           builder: (context, scrollController) {
             return StreamBuilder<AgentState>(
@@ -664,7 +696,6 @@ extension _AgentFlow on _BrowserPageState {
                     _activeConversationId = conversationId;
                     _startAgentTask(goal, attachments);
                   },
-                  onPause: _loopRunner.pause,
                   onResume: _loopRunner.resume,
                   onStop: _loopRunner.stop,
                   onConfirmAction: _loopRunner.confirmAction,

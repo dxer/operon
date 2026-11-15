@@ -9,12 +9,26 @@ part of '../browser_page.dart';
 // The tab list and what happens when one opens, switches or closes.
 
 extension _TabActions on _BrowserPageState {
-  void _createNewTab({
+  /// Opens a tab. Returns false when the strip is already at its cap.
+  bool _createNewTab({
     String? url,
     bool switchToTab = true,
     bool isIncognito = false,
     int? windowId,
   }) {
+    // A tab is a live WebView, not a row in a list. Past the cap the honest
+    // move is to refuse and say so, not to let the phone decide which tab dies.
+    if (_tabs.length >= AppConstants.maxTabs) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            '最多同时打开 ${AppConstants.maxTabs} 个标签页，先关掉一个再试',
+          ),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return false;
+    }
     final homepage = _storage?.getHomepage() ?? AppConstants.defaultHomepage;
     final targetUrl = isIncognito && url == null
         ? AppConstants.defaultHomepage
@@ -41,6 +55,7 @@ extension _TabActions on _BrowserPageState {
       }
     });
     _persistTabSession();
+    return true;
   }
 
   void _switchTab(int index) {

@@ -27,7 +27,11 @@ class ConversationStore {
   final File? _file;
   final List<AgentConversation> _conversations;
 
-  /// Newest first: what the list shows, in the order it shows it.
+  /// A write is running; another is owed because the store changed under it.
+  bool _dirty = false;
+  Future<void>? _pendingWrite;
+
+  /// Newest first: what the list shows, in the order it shows them.
   List<AgentConversation> get conversations =>
       List.unmodifiable(_conversations);
 
@@ -172,10 +176,39 @@ class ConversationStore {
     if (_conversations.length != before) await save();
   }
 
-  Future<void> save() async {
+  /// Marks the store dirty and writes it out.
+  ///
+  /// Every write is the whole file, so calls that arrive while one is running
+  /// are coalesced into a single extra pass afterwards. A finishing run, a
+  /// rename and a prune in the same second used to be three full encodes and
+  /// three temp-file renames; the future returned by each caller still
+  /// completes only once the change it asked for is on disk.
+  Future<void> save() {
     if (_conversations.length > maxConversations) {
       _conversations.removeRange(maxConversations, _conversations.length);
     }
+    _dirty = true;
+    return _pendingWrite ??= _flush();
+  }
+
+  Future<void> _flush() async {
+    try {
+      while (true) {
+        _dirty = false;
+        await _writeToDisk();
+        // A save that arrived mid-write marked the store dirty again; one more
+        // pass picks it up. Nothing can slip in between this check and the next
+        // pass, because the two run without an await.
+        if (!_dirty) break;
+      }
+    } finally {
+      // Cleared even if the write threw: a stuck pending future would make
+      // every later save a no-op, which is a worse failure than a lost write.
+      _pendingWrite = null;
+    }
+  }
+
+  Future<void> _writeToDisk() async {
     final file = _file;
     if (file == null) return;
     final payload = jsonEncode([

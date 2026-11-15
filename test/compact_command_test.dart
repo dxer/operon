@@ -328,7 +328,6 @@ void main() {
             body: AgentBottomSheet(
               state: const AgentState(),
               onStart: (_, goal, __) => startedGoal = goal,
-              onPause: () {},
               onResume: () {},
               onStop: () {},
               onConfirmAction: (_) {},

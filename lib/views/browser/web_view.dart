@@ -216,21 +216,19 @@ extension _WebViewBuilders on _BrowserPageState {
           onCreateWindow: (controller, createWindowAction) async {
             final url = createWindowAction.request.url?.toString();
             if (url != null && url.isNotEmpty) {
-              _createNewTab(
+              return _createNewTab(
                 url: url,
                 switchToTab: true,
                 isIncognito: tab.isIncognito,
               );
-              return true;
             }
             if (createWindowAction.windowId > 0) {
-              _createNewTab(
+              return _createNewTab(
                 url: 'about:blank',
                 switchToTab: true,
                 isIncognito: tab.isIncognito,
                 windowId: createWindowAction.windowId,
               );
-              return true;
             }
             return false;
           },
@@ -486,18 +484,26 @@ extension _WebViewBuilders on _BrowserPageState {
             );
           },
           onConsoleMessage: (controller, consoleMessage) {
-            debugPrint('[WebView Console] ${consoleMessage.message}');
+            // `debugPrint` still writes in release. A JS-heavy page logs
+            // constantly, and every line is a string built and pushed to logcat
+            // for nobody.
+            if (kDebugMode) {
+              debugPrint('[WebView Console] ${consoleMessage.message}');
+            }
           },
         ),
         // Minimalist Native Start Page Overlay when tab is on operon://newtab
         if (isStartPage && _storage != null)
           MediaQuery.withClampedTextScaling(
             maxScaleFactor: 1.3,
-            child: StartPageView(
-              storageService: _storage!,
-              onOpenUrl: _loadUrl,
-              onOpenAgent: _openAgentBottomSheet,
-              agentBusy: _agentState.isRunning,
+            child: ValueListenableBuilder<bool>(
+              valueListenable: _agentBusy,
+              builder: (context, busy, _) => StartPageView(
+                storageService: _storage!,
+                onOpenUrl: _loadUrl,
+                onOpenAgent: _openAgentBottomSheet,
+                agentBusy: busy,
+              ),
             ),
           ),
         if (!isStartPage && tab.errorMessage != null) _buildErrorOverlay(tab),

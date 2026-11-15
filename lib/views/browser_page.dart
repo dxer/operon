@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
@@ -37,7 +38,6 @@ import 'settings/browsing_settings_page.dart';
 import 'settings/settings_page.dart';
 import 'widgets/agent_bottom_sheet.dart';
 import 'widgets/agent_confirmation_card.dart';
-import 'widgets/agent_status_bar.dart';
 import 'widgets/agent_working_frame.dart';
 import 'widgets/browser_controls.dart';
 import 'widgets/chrome_visibility.dart';
@@ -128,8 +128,15 @@ class _BrowserPageState extends State<BrowserPage>
   bool get _isCleanMode => _currentTab.isCleanMode;
 
   AgentState _agentState = const AgentState();
+
+  /// Whether a run is driving the page, on its own notifier.
+  ///
+  /// The state stream emits on every streamed chunk (up to ~8 times a second),
+  /// and the two widgets below only care about one boolean of it. Rebuilding the
+  /// whole shell at that rate rebuilt every tab's WebView with it, which is why
+  /// typing felt sticky while the agent was thinking.
+  final ValueNotifier<bool> _agentBusy = ValueNotifier<bool>(false);
   final RunCoordinator _runCoordinator = RunCoordinator();
-  bool _statusBarDismissed = false;
   String? _agentTabId;
   DateTime? _taskStartedAt;
   List<String> _runningAttachmentNames = const [];
@@ -139,6 +146,10 @@ class _BrowserPageState extends State<BrowserPage>
   bool _agentSheetOpen = false;
   bool _confirmationCardOpen = false;
   String? _confirmationShownFor;
+
+  /// The panel was already opened once for this CAPTCHA; closing it again is a
+  /// decision, not a request to be interrupted twice.
+  bool _captchaPanelShown = false;
   StreamSubscription<String>? _shareSub;
 
   /// Whether the task notification is currently open, so the first state of a
@@ -157,15 +168,6 @@ class _BrowserPageState extends State<BrowserPage>
     if (storage == null) return true;
     final config = storage.getLlmConfig();
     return storage.getModelProfile(config).visionFor(config.model);
-  }
-
-  bool get _showAgentStatusBar {
-    final status = _agentState.status;
-    if (status == AgentStatus.idle) return false;
-    if (status == AgentStatus.completed || status == AgentStatus.error) {
-      return !_statusBarDismissed;
-    }
-    return true;
   }
 
   @override
@@ -251,6 +253,7 @@ class _BrowserPageState extends State<BrowserPage>
     unawaited(ForegroundTaskService.instance.stop());
     _loopSub?.cancel();
     _loopRunner.dispose();
+    _agentBusy.dispose();
     _gesturePulse.dispose();
     _shareSub?.cancel();
     GoalHandoff.pending.removeListener(_onGoalHandoff);
@@ -360,21 +363,24 @@ class _BrowserPageState extends State<BrowserPage>
                       axisAlignment: -1,
                       child: MediaQuery.withClampedTextScaling(
                         maxScaleFactor: 1.25,
-                        child: BrowserControls(
-                          urlController: _urlController,
-                          pageTitle: _currentTab.title,
-                          isLoading: _isLoading,
-                          progress: _progress,
-                          isIncognito: _currentTab.isIncognito,
-                          onSubmitUrl: _loadUrl,
-                          onReload: () => _webViewController?.reload(),
-                          onStopLoad: () => _webViewController?.stopLoading(),
-                          onSummarize: _quickSummarize,
-                          onOpenAgent: _openAgentBottomSheet,
-                          agentBusy: _agentState.isRunning,
-                          onCopyUrl: _copyCurrentUrl,
-                          onShareUrl: _shareCurrentUrl,
-                          onFocusChanged: _handleAddressFocusChanged,
+                        child: ValueListenableBuilder<bool>(
+                          valueListenable: _agentBusy,
+                          builder: (context, busy, _) => BrowserControls(
+                            urlController: _urlController,
+                            pageTitle: _currentTab.title,
+                            isLoading: _isLoading,
+                            progress: _progress,
+                            isIncognito: _currentTab.isIncognito,
+                            onSubmitUrl: _loadUrl,
+                            onReload: () => _webViewController?.reload(),
+                            onStopLoad: () => _webViewController?.stopLoading(),
+                            onSummarize: _quickSummarize,
+                            onOpenAgent: _openAgentBottomSheet,
+                            agentBusy: busy,
+                            onCopyUrl: _copyCurrentUrl,
+                            onShareUrl: _shareCurrentUrl,
+                            onFocusChanged: _handleAddressFocusChanged,
+                          ),
                         ),
                       ),
                     ),
@@ -388,10 +394,16 @@ class _BrowserPageState extends State<BrowserPage>
                           children: _tabs.map(_buildTabWebView).toList(),
                         ),
                         // Which page the agent is on, at a glance.
-                        if (_agentState.isRunning)
-                          const Positioned.fill(
-                            child: IgnorePointer(child: AgentWorkingFrame()),
+                        Positioned.fill(
+                          child: IgnorePointer(
+                            child: ValueListenableBuilder<bool>(
+                              valueListenable: _agentBusy,
+                              builder: (context, busy, _) => busy
+                                  ? const AgentWorkingFrame()
+                                  : const SizedBox.shrink(),
+                            ),
                           ),
+                        ),
                         if (_addressFocused &&
                             !isStartPage &&
                             !_isFindingInPage)
@@ -428,31 +440,10 @@ class _BrowserPageState extends State<BrowserPage>
                     ),
                   ),
 
-                  // Docked agent status strip
-                  AnimatedSize(
-                    duration: const Duration(milliseconds: 220),
-                    curve: Curves.easeOutCubic,
-                    alignment: Alignment.topCenter,
-                    child: _showAgentStatusBar
-                        ? MediaQuery.withClampedTextScaling(
-                            maxScaleFactor: 1.2,
-                            child: AgentStatusBar(
-                              state: _agentState,
-                              safeMode: _storage?.getSafeMode() ?? true,
-                              startedAt: _taskStartedAt,
-                              onOpen: _openAgentBottomSheet,
-                              onPause: _loopRunner.pause,
-                              onResume: _loopRunner.resume,
-                              onStop: _loopRunner.stop,
-                              onConfirmCaptcha: () =>
-                                  _loopRunner.confirmCaptchaSolved(true),
-                              onConfirmAction: _showConfirmationCard,
-                              onDismiss: () =>
-                                  setState(() => _statusBarDismissed = true),
-                            ),
-                          )
-                        : const SizedBox(width: double.infinity),
-                  ),
+                  // No docked agent strip: the page keeps its full height, and
+                  // progress lives where the conversation does — the panel and
+                  // the system notification. The pulsing frame around the page
+                  // still says a run is touching it.
 
                   // Via-Style One-Handed Bottom Toolbar: anchored steadily at
                   // the thumb zone so Android WebView never flickers/resizes on

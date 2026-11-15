@@ -586,7 +586,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
         const _ValueRow(
           icon: Icons.visibility_outlined,
           title: '每一步都看得见',
-          body: 'AI 在真实页面上点击和输入，落点有光标和描边，随时可以暂停。',
+          body: 'AI 在真实页面上点击和输入，落点有光标和描边，随时可以中止。',
         ),
         const SizedBox(height: AppSpace.x5),
         const _ValueRow(

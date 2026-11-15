@@ -439,12 +439,12 @@ class _AiPolicySettingsPageState extends State<AiPolicySettingsPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  '手动暂停与接管',
+                  '随时中止',
                   style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  '执行期间可正常滚动页面；需要接管时点底部状态条「暂停」，完成后可继续。',
+                  '执行期间可正常滚动页面，也能直接操作网页；要中止就在对话面板底部点停止。锁屏或切到别的应用后，暂停与停止在通知栏里。',
                   style: TextStyle(
                       fontSize: 11.5,
                       color: AppInk.tertiary(isDark),

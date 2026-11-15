@@ -22,7 +22,6 @@ void main() {
           onSafeModeChanged: (value) => changedTo = value,
           conversationId: 'test',
           onStart: (_, __, ___) {},
-          onPause: () {},
           onResume: () {},
           onStop: () {},
           onConfirmAction: (_) {},
@@ -66,7 +65,6 @@ Widget _sheet({
         onSafeModeChanged: (_) {},
         conversationId: 'test',
         onStart: (_, goal, __) => onStart?.call(goal),
-        onPause: () {},
         onResume: () {},
         onStop: () {},
         onConfirmAction: (_) {},
@@ -136,8 +134,28 @@ void _moreTests() {
     expect(find.byType(TextField), findsNothing);
     expect(find.text('正在执行的任务'), findsOneWidget);
     expect(find.text('第 3 步'), findsNothing);
-    expect(find.byTooltip('暂停'), findsOneWidget);
+    // One control, not two. Pausing mid-form left the page half-filled with
+    // nothing on screen saying why, so the bar only offers stop.
+    expect(find.byTooltip('暂停'), findsNothing);
     expect(find.byTooltip('停止运行'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('the transcript is selectable text, not a picture of it',
+      (tester) async {
+    await tester.pumpWidget(_sheet(
+      state: const AgentState(
+        status: AgentStatus.completed,
+        goal: '这一页讲了什么',
+        currentThought: '讲的是三件事。',
+      ),
+    ));
+    await tester.pump();
+
+    // Long-press → drag → 复制 is what a phone does with text. The copy button
+    // hands over the whole answer; this is how you take one sentence out of it.
+    expect(find.byType(SelectionArea), findsOneWidget);
+    expect(find.text('这一页讲了什么'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -444,7 +462,6 @@ void _moreTests() {
           safeMode: true,
           onSafeModeChanged: (_) {},
           onStart: (_, __, ___) {},
-          onPause: () {},
           onResume: () {},
           onStop: () {},
           onConfirmAction: (_) {},
@@ -474,7 +491,6 @@ void _moreTests() {
           safeMode: true,
           onSafeModeChanged: (_) {},
           onStart: (_, __, ___) {},
-          onPause: () {},
           onResume: () {},
           onStop: () {},
           onConfirmAction: (_) {},
@@ -516,7 +532,6 @@ void _moreTests() {
           safeMode: true,
           onSafeModeChanged: (_) {},
           onStart: (_, __, ___) {},
-          onPause: () {},
           onResume: () {},
           onStop: () {},
           onConfirmAction: (_) {},

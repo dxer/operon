@@ -77,6 +77,23 @@ void main() {
       expect(empty.conversations, isEmpty);
     });
 
+    test('a save that lands mid-write is still on disk when it returns',
+        () async {
+      final store = await ConversationStore.open(directory: dir);
+      final conversation = store.create();
+      await store.appendTurn(conversation.id, turn());
+
+      // Second change while the first write is still running: coalescing must
+      // merge them, not drop the later one behind the earlier write.
+      final first = store.save();
+      final renamed = store.rename(conversation.id, '后到的标题');
+      await Future.wait([first, renamed]);
+
+      final reopened = await ConversationStore.open(directory: dir);
+      expect(reopened.conversations.first.title, '后到的标题');
+      expect(reopened.conversations.first.turns, hasLength(1));
+    });
+
     test('a conversation with no message is not kept', () async {
       final store = await ConversationStore.open(directory: dir);
       final opened = store.create();
@@ -187,7 +204,6 @@ void main() {
             onConversationChanged: onConversationChanged,
             onSafeModeChanged: (_) {},
             onStart: (id, goal, _) => onStart?.call(id, goal),
-            onPause: () {},
             onResume: () {},
             onStop: () {},
             onConfirmAction: (_) {},

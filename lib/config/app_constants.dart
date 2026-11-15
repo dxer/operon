@@ -61,4 +61,11 @@ class AppConstants {
 
   // Default Homepage
   static const String defaultHomepage = 'operon://newtab';
+
+  /// How many tabs can be open at once.
+  ///
+  /// Every tab is a live `InAppWebView`, and a WebView is the heaviest thing a
+  /// browser holds. The cap is a safety net against OOM on mid-range phones,
+  /// not a product limit: nobody browses twelve things at once on purpose.
+  static const int maxTabs = 12;
 }
