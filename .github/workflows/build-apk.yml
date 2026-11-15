@@ -54,10 +54,17 @@ jobs:
           cache: 'gradle'
 
       # 3. Setup Flutter SDK with Pub cache
+      #
+      # Pinned on purpose. `channel: stable` silently moved CI to 3.50, which
+      # deprecates `package:flutter/material.dart` in favour of material_ui and
+      # adds lints (unawaited_return_in_try_block) that fail `flutter analyze`
+      # on code this repo has not migrated. 3.47.9 is the toolchain the last
+      # released APK was built with, and the one the app is developed against;
+      # bump it together with a migration, not by drift.
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          channel: 'stable'
+          flutter-version: '3.47.9'
           cache: true
 
       # 4. Install project dependencies
