@@ -218,6 +218,20 @@ String describeLlmFailure(Object error) {
   if (lower.contains('timed out') || lower.contains('timeout')) {
     return '模型请求超时。请稍后重试，或换一个更快的模型。原始信息：$text';
   }
+  // The one the phone reports most often. It is not the model saying no: the
+  // request never arrived. Casting it the way the platform does — "Handshake
+  // Connection terminated during handshake" — tells the user nothing, so the
+  // cause and the next move are spelled out here, for any path that still
+  // surfaces a raw transport error.
+  if (lower.contains('handshake') ||
+      lower.contains('connection terminated') ||
+      lower.contains('connection reset') ||
+      lower.contains('connection closed') ||
+      lower.contains('socketexception') ||
+      lower.contains('connection attempt failed')) {
+    return '与模型服务的连接中断了（网络切换、代理或 VPN 抖动都可能造成），'
+        '这次请求没有到达模型。换个网络或稍后再试通常就好。原始信息：$text';
+  }
   return text.replaceFirst('Exception: ', '');
 }
 

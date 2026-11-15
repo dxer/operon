@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show HandshakeException, HttpException, SocketException, TlsException;
 import 'package:http/http.dart' as http;
 import '../models/llm_config.dart';
 import '../utils/cancellation.dart';
@@ -70,6 +71,30 @@ class LlmService {
 
   String get _timeoutMessage =>
       '大模型请求超时（$_timeoutLabel），请稍后重试或换一个更快的模型';
+
+  /// Failures that mean "this attempt never reached the model", not "the model
+  /// said no".
+  ///
+  /// A TLS handshake cut in half, a socket reset by a proxy, a phone that moved
+  /// from Wi-Fi to cellular — each one is a lost attempt, not an answer. Only
+  /// [http.ClientException] used to be understood here, so a
+  /// `HandshakeException` escaped on the first try and reached the user as the
+  /// platform's own sentence: "Connection terminated during handshake".
+  static bool _isTransportFailure(Object error) =>
+      error is http.ClientException ||
+      error is HandshakeException ||
+      error is TlsException ||
+      error is SocketException ||
+      error is HttpException;
+
+  /// What the user reads once the last attempt has failed.
+  String _retryFailureMessage(int retries, Object? lastError) {
+    if (lastError != null && _isTransportFailure(lastError)) {
+      return '与模型服务的连接没能建立（已重试 $retries 次）。'
+          '多半是网络切换、代理或 VPN 抖动，换个网络再试通常就好。原始信息：$lastError';
+    }
+    return '大模型请求失败（已重试 $retries 次）: $lastError';
+  }
 
   /// Sends a JSON POST with abort support and bounded retries.
   ///
@@ -163,7 +188,7 @@ class LlmService {
           await Future.delayed(_retryBackoff * (attempt + 1));
           continue;
         }
-        if (e is http.ClientException) {
+        if (_isTransportFailure(e)) {
           lastError = e;
         } else {
           rethrow;
@@ -175,7 +200,7 @@ class LlmService {
       }
     }
 
-    throw LlmRequestException('大模型请求失败（已重试 ${maxAttempts - 1} 次）: $lastError');
+    throw LlmRequestException(_retryFailureMessage(maxAttempts - 1, lastError));
   }
 
   bool _isRetryableStatus(int status) =>
@@ -440,6 +465,9 @@ class LlmService {
         throw const LlmCancelledException();
       }
       final isLastAttempt = attempt >= maxAttempts - 1;
+      // Set once any text reached the screen. A retry after that would show the
+      // answer twice, so this attempt is the only one that may fail this way.
+      var streamedText = false;
       final abort = Completer<void>();
       void abortNow() {
         if (!abort.isCompleted) abort.complete();
@@ -475,7 +503,10 @@ class LlmService {
             (streamed.headers['content-type'] ?? '').toLowerCase();
         if (contentType.contains('text/event-stream')) {
           final acc = OpenAiSseAccumulator(
-            onTextDelta: onTextDelta,
+            onTextDelta: (delta) {
+              streamedText = true;
+              onTextDelta?.call(delta);
+            },
             onReasoningDelta: onReasoningDelta,
           );
           final result = await acc.consume(streamed.stream);
@@ -544,7 +575,12 @@ class LlmService {
           await Future.delayed(_retryBackoff * (attempt + 1));
           continue;
         }
-        if (e is http.ClientException) {
+        if (_isTransportFailure(e)) {
+          if (streamedText) {
+            throw LlmRequestException(
+              '与模型服务的连接中途断开，这次回答不完整。原始信息：$e',
+            );
+          }
           lastError = e;
           if (!isLastAttempt) {
             await Future.delayed(_retryBackoff * (attempt + 1));
@@ -555,7 +591,7 @@ class LlmService {
       }
     }
 
-    throw LlmRequestException('大模型请求失败（已重试 ${maxAttempts - 1} 次）: $lastError');
+    throw LlmRequestException(_retryFailureMessage(maxAttempts - 1, lastError));
   }
 
   /// Sends one already-built request body and returns the raw 200 response.

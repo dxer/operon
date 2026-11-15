@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show HandshakeException;
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -126,6 +127,87 @@ void main() {
       expect(response.finishReason, 'stop');
     });
 
+    test('a TLS handshake cut short before any text is retried', () async {
+      var calls = 0;
+      final client = MockClient.streaming((request, bodyStream) async {
+        calls++;
+        if (calls == 1) {
+          // What the phone actually reports on a flaky network or a proxy that
+          // closes the tunnel: the first attempt never reached the model.
+          throw const HandshakeException('Connection terminated during handshake');
+        }
+        final sse = [
+          'data: {"choices":[{"index":0,"delta":{"content":"好了"},"finish_reason":"stop"}]}\n\n',
+          'data: [DONE]\n\n',
+        ].join();
+        return http.StreamedResponse(
+          Stream.value(utf8.encode(sse)),
+          200,
+          headers: {'content-type': 'text/event-stream; charset=utf-8'},
+        );
+      });
+
+      final service = LlmService(client: client, retryBackoff: Duration.zero);
+      final received = <String>[];
+      final response = await service.chatWithTools(
+        config: testConfig,
+        messages: const [
+          {'role': 'user', 'content': 'hello'},
+        ],
+        tools: const [],
+        onTextDelta: received.add,
+      );
+
+      expect(calls, 2, reason: 'a lost attempt is not the model failing');
+      expect(received, ['好了']);
+      expect(response.content, '好了');
+    });
+
+    test('a connection that dies after text was shown is not retried', () async {
+      var calls = 0;
+      final client = MockClient.streaming((request, bodyStream) async {
+        calls++;
+        Stream<List<int>> halfThenBroken() async* {
+          yield utf8.encode(
+            'data: {"choices":[{"index":0,"delta":{"content":"半句话"}}]}\n\n',
+          );
+          throw const HandshakeException('Connection terminated during handshake');
+        }
+
+        return http.StreamedResponse(
+          halfThenBroken(),
+          200,
+          headers: {'content-type': 'text/event-stream; charset=utf-8'},
+        );
+      });
+
+      final service = LlmService(client: client, retryBackoff: Duration.zero);
+      final received = <String>[];
+
+      await expectLater(
+        service.chatWithTools(
+          config: testConfig,
+          messages: const [
+            {'role': 'user', 'content': 'hello'},
+          ],
+          tools: const [],
+          onTextDelta: received.add,
+        ),
+        throwsA(
+          isA<LlmRequestException>().having(
+            (error) => error.message,
+            'message',
+            contains('中途断开'),
+          ),
+        ),
+      );
+
+      // Retrying would print the answer a second time, so the first attempt is
+      // the only one: the excerpt already on screen says what arrived.
+      expect(calls, 1);
+      expect(received, ['半句话']);
+    });
+
     test('chatWithTools handles non-stream application/json fallback cleanly',
         () async {
       final client = MockClient.streaming((request, bodyStream) async {
@@ -192,6 +274,19 @@ void main() {
 
       expect(chunks, ['A', 'B']);
       expect(text, 'AB');
+    });
+  });
+
+  group('describeLlmFailure', () {
+    test('a raw handshake error points at the network, not the model', () {
+      final message = describeLlmFailure(
+        const HandshakeException('Connection terminated during handshake'),
+      );
+
+      expect(message, contains('连接中断'));
+      expect(message, contains('没有到达模型'));
+      expect(message, contains('HandshakeException'),
+          reason: 'the raw text stays, for diagnosis');
     });
   });
 }

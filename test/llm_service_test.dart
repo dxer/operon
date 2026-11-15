@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io' show HandshakeException;
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -28,6 +29,51 @@ void main() {
         client: client,
         retryBackoff: Duration.zero,
       );
+
+  test('a handshake that never completed is retried, not reported as failure',
+      () async {
+    var calls = 0;
+    final client = MockClient((request) async {
+      calls++;
+      if (calls == 1) {
+        throw const HandshakeException('Connection terminated during handshake');
+      }
+      return _ok('done');
+    });
+
+    final text = await service(client).chatCompletion(
+      config: _config,
+      messages: const [
+        {'role': 'user', 'content': 'hi'},
+      ],
+    );
+
+    expect(text, 'done');
+    expect(calls, 2);
+  });
+
+  test('a transport failure that survives every attempt says what to do',
+      () async {
+    final client = MockClient((request) async {
+      throw const HandshakeException('Connection terminated during handshake');
+    });
+
+    await expectLater(
+      service(client).chatCompletion(
+        config: _config,
+        messages: const [
+          {'role': 'user', 'content': 'hi'},
+        ],
+      ),
+      throwsA(
+        isA<LlmRequestException>().having(
+          (error) => error.message,
+          'message',
+          allOf(contains('连接没能建立'), contains('换个网络')),
+        ),
+      ),
+    );
+  });
 
   test('a transient 500 is retried and the next success is used', () async {
     var calls = 0;
