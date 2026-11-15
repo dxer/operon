@@ -486,6 +486,7 @@ class AgentLoopRunner {
       targetUrl: request.url ?? _state.targetUrl,
       confirmationPayload: request.payload,
       confirmationHandoff: request.handoff,
+      confirmationNavigation: request.navigation,
     );
     _emit();
     final approved = await completer.future;

@@ -193,6 +193,12 @@ class AgentState {
   /// Payment or credential: the user does it, the card offers no approve.
   final bool confirmationHandoff;
 
+  /// The pending request is a site change, not a write. The card says so, and
+  /// it does not offer "this site always allowed": that list waives write
+  /// confirmations, and letting it waive getting there too would answer a
+  /// different question.
+  final bool confirmationNavigation;
+
   /// What this run has cost so far, in tokens. Zero until the first reply.
   final int promptTokens;
   final int completionTokens;
@@ -210,6 +216,7 @@ class AgentState {
     this.targetUrl,
     this.confirmationPayload,
     this.confirmationHandoff = false,
+    this.confirmationNavigation = false,
     this.promptTokens = 0,
     this.completionTokens = 0,
     this.logs = const [],
@@ -234,6 +241,7 @@ class AgentState {
     String? targetUrl,
     String? confirmationPayload,
     bool? confirmationHandoff,
+    bool? confirmationNavigation,
     int? promptTokens,
     int? completionTokens,
     List<AgentLogItem>? logs,
@@ -262,6 +270,9 @@ class AgentState {
       confirmationHandoff: clearConfirmationContext
           ? false
           : (confirmationHandoff ?? this.confirmationHandoff),
+      confirmationNavigation: clearConfirmationContext
+          ? false
+          : (confirmationNavigation ?? this.confirmationNavigation),
       promptTokens: promptTokens ?? this.promptTokens,
       completionTokens: completionTokens ?? this.completionTokens,
       logs: logs ?? this.logs,

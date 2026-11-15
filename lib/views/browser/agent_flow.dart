@@ -50,6 +50,17 @@ extension _AgentFlow on _BrowserPageState {
     for (var index = 0; index < _tabs.length; index++) {
       if (_tabs[index].url == page.url) return index;
     }
+    // The app's start page and an `about:blank` target are the same page with
+    // two names; without this the first tab can never be matched, and attaching
+    // to it would look like the screen failing to follow.
+    if (page.url.isEmpty || page.url.startsWith('about:')) {
+      for (var index = 0; index < _tabs.length; index++) {
+        final url = _tabs[index].url;
+        if (url.isEmpty || url == 'about:blank' || url == 'operon://newtab') {
+          return index;
+        }
+      }
+    }
     // A half-typed address or a redirect can leave the two out of step; the
     // host is the next best identity for the same page.
     final host = Uri.tryParse(page.url)?.host ?? '';

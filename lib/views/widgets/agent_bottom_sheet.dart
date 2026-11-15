@@ -235,8 +235,11 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
   }
 
   /// Host of the tab the sheet was opened from; null means start page.
-  String? get _pageHost {
-    final url = widget.currentUrl;
+  String? get _pageHost => _hostOf(widget.currentUrl);
+
+  /// The host of a URL, named the way the header shows it. Null for the start
+  /// page and for anything that is not a web page.
+  String? _hostOf(String? url) {
     if (url == null || url.isEmpty || url == 'about:blank') return null;
     final uri = Uri.tryParse(url);
     if (uri == null || uri.host.isEmpty || uri.scheme == 'operon') {

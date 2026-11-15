@@ -101,7 +101,9 @@ extension _SheetHeader on _AgentBottomSheetState {
   }) {
     final isDark = _isDarkTheme;
     final meta = _statusMeta(state.status);
-    final host = _pageHost;
+    // The agent's own target first: it is where the run is, even if the user
+    // has since moved the tab they are looking at.
+    final host = _hostOf(state.targetUrl) ?? _pageHost;
     final running = state.isRunning || state.status == AgentStatus.paused;
     final title = _conversation?.displayTitle ?? '新对话';
 

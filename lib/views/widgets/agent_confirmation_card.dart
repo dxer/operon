@@ -48,7 +48,7 @@ class AgentConfirmationCard extends StatelessWidget {
 
     return Semantics(
       container: true,
-      label: '敏感操作待授权',
+      label: state.confirmationNavigation ? '前往新站点待授权' : '敏感操作待授权',
       child: Container(
         padding: const EdgeInsets.fromLTRB(12, 11, 12, 6),
         decoration: BoxDecoration(
@@ -67,7 +67,7 @@ class AgentConfirmationCard extends StatelessWidget {
                     size: 15, color: AppTheme.dangerOf(isDark)),
                 const SizedBox(width: 6),
                 Text(
-                  '敏感操作，等待授权',
+                  state.confirmationNavigation ? '前往新站点，等待授权' : '敏感操作，等待授权',
                   style: TextStyle(
                     color: AppTheme.dangerOf(isDark),
                     fontWeight: FontWeight.w600,
@@ -79,7 +79,7 @@ class AgentConfirmationCard extends StatelessWidget {
             if (payload.isNotEmpty) ...[
               const SizedBox(height: 8),
               Text(
-                '将发送',
+                state.confirmationNavigation ? '将要访问' : '将发送',
                 style: TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.w600,
@@ -154,8 +154,14 @@ class AgentConfirmationCard extends StatelessWidget {
               ],
             ),
             // A handoff is not a site policy question: allowing the site would
-            // still not let the agent pay or type a password.
-            if (!handoff && onAllowSite != null && host.isNotEmpty)
+            // still not let the agent pay or type a password. Neither is a
+            // navigation: that allow list waives *write* confirmations, and
+            // answering "may I go there" with it would answer a different
+            // question.
+            if (!handoff &&
+                !state.confirmationNavigation &&
+                onAllowSite != null &&
+                host.isNotEmpty)
               Align(
                 alignment: Alignment.centerRight,
                 child: TextButton.icon(

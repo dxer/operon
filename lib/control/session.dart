@@ -116,12 +116,28 @@ class ControlSession {
         if (page.url.isNotEmpty && urlHint.startsWith(_origin(page.url))) return page;
       }
     }
+    // The app's start page is an `about:blank` WebView, and a hint that names it
+    // is a real answer, not a missing one. Skipping blank targets is right when
+    // the user asked about a page; it is wrong when the start page *is* the page
+    // — the run then attached to whichever tab happened to be first and worked
+    // on a screen nobody was watching.
+    if (_isBlankHint(urlHint)) {
+      for (final page in pages) {
+        if (page.url.isEmpty || page.url.startsWith('about:')) return page;
+      }
+    }
     // About:blank targets appear before a WebView navigates; they are never
     // what the user means.
     for (final page in pages) {
       if (page.url.isNotEmpty && !page.url.startsWith('about:')) return page;
     }
     return pages.first;
+  }
+
+  /// True when the app says "the user is looking at the start page".
+  static bool _isBlankHint(String? urlHint) {
+    if (urlHint == null || urlHint.isEmpty) return true;
+    return urlHint == 'operon://newtab' || urlHint.startsWith('about:');
   }
 
   static String _origin(String url) {
@@ -172,6 +188,10 @@ class ControlSession {
 
   /// Anything the capture could not show, kept for the caller's report.
   List<String> get notes => List.unmodifiable(_notes);
+
+  /// Records a hint worth showing the user — for instance that the screen could
+  /// not follow the layer onto another tab.
+  void note(String text) => _note(text);
 
   Future<void> _prepare() async {
     _events = _connection.events.listen(_onEvent);

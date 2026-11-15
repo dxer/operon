@@ -85,6 +85,7 @@ class ConfirmRequest {
     this.payload,
     this.destructive = false,
     this.handoff = false,
+    this.navigation = false,
   });
 
   final String title;
@@ -102,6 +103,9 @@ class ConfirmRequest {
   /// The user does this step themselves; there is no button that lets the agent
   /// do it.
   final bool handoff;
+
+  /// The question is "may I go to this site", not "may I do this here".
+  final bool navigation;
 }
 
 /// A step only a person can take: solving a challenge, or answering a question

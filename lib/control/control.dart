@@ -41,7 +41,7 @@ class Control {
       targetId: targetId,
       timeout: timeout,
     );
-    return Control._(
+    final control = Control._(
       session,
       tabHost: tabHost,
       connect: connect ??
@@ -50,6 +50,26 @@ class Control {
             return connectDevTools(address, timeout: timeout);
           },
     );
+    // Attaching is not the same as showing. The app is the only one who knows
+    // which tab is in front, so it is asked to follow before the first action:
+    // a run that drives a background tab acts on a page nobody is looking at,
+    // and the working frame then pulses over the wrong one.
+    await control._showTargetToUser(session.target);
+    return control;
+  }
+
+  /// Brings the page the layer is attached to onto the user's screen.
+  ///
+  /// Returns false when the app has tabs but could not match this page to one
+  /// of them — which means the user is looking at something else.
+  Future<bool> _showTargetToUser(CdpTarget target) async {
+    final host = _tabHost;
+    if (host?.activate == null) return true;
+    final shown = await host!.activate!(target);
+    if (!shown) {
+      _session.note('界面上没能切到智能体正在操作的标签页，用户看到的可能不是这一页');
+    }
+    return shown;
   }
 
   /// The connector kept for a tab switch. Switching pages means a new
@@ -147,7 +167,7 @@ class Control {
     await _attachToTarget(target.id);
     // The app has its own idea of which tab is in front, and until this call
     // it did not follow: the agent worked on a page the user could not see.
-    final shown = await _tabHost?.activate?.call(target) ?? false;
+    final shown = await _showTargetToUser(target);
     return ToolResult(
       ok: true,
       text: '已切换到 ${target.title.trim().isEmpty ? target.url : target.title}'

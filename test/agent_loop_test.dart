@@ -752,4 +752,90 @@ void main() {
       expect(end.outcome, LoopOutcome.partial);
     });
   });
+
+  group('going to a new site', () {
+    test('asks before leaving the current host', () async {
+      final llm = ScriptedLlm([
+        use([call('navigate', {'url': 'https://evil.example/steal'})]),
+        use([call('done', {'summary': '完成', 'outcome': 'success'})]),
+      ]);
+      final control = FakeControl();
+      final host = FakeHost();
+
+      await loop(
+        llm: llm,
+        control: control,
+        host: host,
+        startUrl: 'https://shop.example/cart',
+      ).run('去别的地方看看');
+
+      // A page can tell the model where to go next. Going there is the user's
+      // decision, and it is the one step no write assessment covers.
+      expect(host.asks, hasLength(1));
+      expect(host.asks.single.navigation, isTrue);
+      expect(host.asks.single.payload, 'https://evil.example/steal');
+      expect(control.calls, contains('navigate'));
+    });
+
+    test('a link on the same site is not a decision', () async {
+      final llm = ScriptedLlm([
+        use([call('navigate', {'url': 'https://shop.example/checkout'})]),
+        use([call('done', {'summary': '完成', 'outcome': 'success'})]),
+      ]);
+      final control = FakeControl();
+      final host = FakeHost();
+
+      await loop(
+        llm: llm,
+        control: control,
+        host: host,
+        startUrl: 'https://shop.example/cart',
+      ).run('去结算');
+
+      expect(host.asks, isEmpty);
+      expect(control.calls, contains('navigate'));
+    });
+
+    test('one approval covers the rest of the run', () async {
+      final llm = ScriptedLlm([
+        use([call('navigate', {'url': 'https://a.example/one'})]),
+        use([call('navigate', {'url': 'https://a.example/two'})]),
+        use([call('done', {'summary': '完成', 'outcome': 'success'})]),
+      ]);
+      final control = FakeControl();
+      final host = FakeHost();
+
+      await loop(
+        llm: llm,
+        control: control,
+        host: host,
+        startUrl: 'https://shop.example/cart',
+      ).run('搬去 a.example');
+
+      expect(host.asks, hasLength(1));
+      expect(control.calls.where((name) => name == 'navigate'), hasLength(2));
+    });
+
+    test('a refusal keeps the page where it is and is not retried', () async {
+      final llm = ScriptedLlm([
+        use([call('navigate', {'url': 'https://evil.example/steal'})]),
+        use([call('done', {'summary': '没去', 'outcome': 'partial'})]),
+      ]);
+      final control = FakeControl();
+      final host = FakeHost()..answer = false;
+
+      final end = await loop(
+        llm: llm,
+        control: control,
+        host: host,
+        startUrl: 'https://shop.example/cart',
+      ).run('去别的地方看看');
+
+      expect(control.calls, isNot(contains('navigate')));
+      expect(end.outcome, LoopOutcome.partial);
+      final toolMessages =
+          llm.requests.last.where((message) => message['role'] == 'tool').toList();
+      expect(toolMessages.single['content'], contains('没有同意'));
+    });
+  });
 }

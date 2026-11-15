@@ -76,6 +76,41 @@ void main() {
     });
   });
 
+  group('attach', () {
+    test('shows the page it attached to before the first action', () async {
+      fake = await FakeDevTools.start(newsPage());
+      final activated = <CdpTarget>[];
+      control = await Control.attach(
+        connect: fake.connect,
+        tabHost: TabHost(activate: (page) async {
+          activated.add(page);
+          return true;
+        }),
+      );
+
+      // Attaching is not showing. Without this the run can work on a tab the
+      // user is not looking at, and the working frame pulses over the wrong one.
+      expect(activated, hasLength(1));
+      expect(activated.single.id, 'T1');
+    });
+
+    test('a start-page hint attaches to the start page, not another tab',
+        () async {
+      final start = FakePage(id: 'T0', url: 'about:blank', title: '新标签页');
+      fake = await FakeDevTools.start(newsPage(), also: [start]);
+
+      control = await Control.attach(
+        connect: fake.connect,
+        urlHint: 'operon://newtab',
+      );
+
+      // The start page is an `about:blank` WebView. Skipping blank targets is
+      // right when the hint names a real page and wrong when it names this one:
+      // the run then drove whichever tab happened to be first.
+      expect(control.session.target.id, 'T0');
+    });
+  });
+
   group('switch_tab', () {
     test('tells the app to follow, because the user cannot see CDP', () async {
       fake = await FakeDevTools.start(newsPage(), also: [docsPage()]);
@@ -87,6 +122,8 @@ void main() {
           return true;
         }),
       );
+      // Attaching already asked once, so the record starts from the attach.
+      activated.clear();
       await control.execute('snapshot');
 
       final result = await control.execute('switch_tab', {'tabId': 'T2'});
@@ -123,12 +160,13 @@ void main() {
           return true;
         }),
       );
+      final afterAttach = calls;
       await control.execute('snapshot');
 
       final result = await control.execute('switch_tab', {'tabId': 'T1'});
 
       expect(result.text, contains('已经在这个标签页上'));
-      expect(calls, 0);
+      expect(calls, afterAttach, reason: 'switching to the page already shown asks nothing');
     });
   });
 
@@ -193,6 +231,8 @@ void main() {
           },
         ),
       );
+      // Attaching already showed T1; the order under test starts after that.
+      order.clear();
       await control.execute('snapshot');
 
       final result = await control.execute('close_tab', {'tabId': 'T1'});

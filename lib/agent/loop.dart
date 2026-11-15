@@ -417,6 +417,29 @@ class AgentLoop {
       return null;
     }
 
+    final leaving = _crossSiteTarget(call);
+    if (leaving != null) {
+      final approved = await host.confirm(ConfirmRequest(
+        title: '确认前往新站点',
+        reason: '要离开当前页面去 $leaving。页面上的文字也能这样指使它，'
+            '只有你认这个站点时才继续。',
+        url: call.args['url']?.toString(),
+        payload: call.args['url']?.toString(),
+        navigation: true,
+      ));
+      if (!approved) {
+        guards.record(call.name, call.args, ToolResultSummary.of(false, true));
+        _messages.add(toolMessage(
+          call.id,
+          '用户没有同意去 $leaving，页面还停在原地。不要换个地址再试；'
+          '如果任务必须去那里，用 done 说明情况，或先在当前页面上完成能做的部分。',
+        ));
+        onSkipped?.call(call, '用户不允许前往该站点');
+        return null;
+      }
+      _navApproved.add(leaving);
+    }
+
     final label = _actionLabel(call);
     final write = assessWrite(
       call.name,
@@ -590,6 +613,34 @@ class AgentLoop {
     if (url == null || url.isEmpty) return null;
     final host = hostOf(url);
     return host.isEmpty ? null : host;
+  }
+
+  /// Hosts the user already waved through during this run.
+  final Set<String> _navApproved = {};
+
+  /// The host a `navigate` is leaving for, when that is a new site.
+  ///
+  /// A link on the same site, a redirect, or a login page under the same host is
+  /// the task itself and asking would train the user to tap through. Leaving for
+  /// another host is the one step where a sentence written in the page can spend
+  /// the user's trust — the model reads the page, and the page can tell it where
+  /// to go. So: ask once per host per run, then let it be.
+  String? _crossSiteTarget(ToolCallRequest call) {
+    if (call.name != 'navigate') return null;
+    final raw = (call.args['url'] ?? '').toString().trim();
+    if (raw.isEmpty) return null;
+    final target = normalizeHostInput(raw);
+    if (target.isEmpty) return null;
+    if (_navApproved.any((host) => _sameSite(host, target))) return null;
+    final current = _currentHost;
+    if (current != null && _sameSite(current, target)) return null;
+    return target;
+  }
+
+  /// `m.example.com` and `example.com` are the same publisher, not two sites.
+  static bool _sameSite(String a, String b) {
+    if (a == b) return true;
+    return a.endsWith('.$b') || b.endsWith('.$a');
   }
 
   String? _blockedHostFor(ToolCallRequest call) {

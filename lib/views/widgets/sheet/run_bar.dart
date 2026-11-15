@@ -20,6 +20,12 @@ extension _SheetRunBar on _AgentBottomSheetState {
         : waiting
             ? '等待你的操作'
             : '正在执行…';
+    // Where the run actually is, not just that it is running: the page is the
+    // half of the task the panel covers.
+    final host = hostOf(state.targetUrl ?? widget.currentUrl ?? '');
+    final running = host.isEmpty
+        ? label
+        : (paused || waiting ? label : '正在 ${compactHost(host)} 操作…');
 
     return Container(
       constraints: const BoxConstraints(minHeight: 52),
@@ -43,7 +49,7 @@ extension _SheetRunBar on _AgentBottomSheetState {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              label,
+              running,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: AppType.label.copyWith(color: onSurface),
