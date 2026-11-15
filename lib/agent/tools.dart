@@ -164,7 +164,14 @@ String describeToolCall(String name, Map<String, Object?> args) {
     case 'scroll':
       return '滚动 ${arg('direction').isEmpty ? 'down' : arg('direction')}';
     case 'navigate':
-      return '打开 ${arg('url')}';
+      return args['newTab'] == true
+          ? '在新标签页打开 ${arg('url')}'
+          : '打开 ${arg('url')}';
+    case 'clear':
+      return '清空 [${arg('ref')}]';
+    case 'close_tab':
+      final id = arg('tabId');
+      return id.isEmpty ? '关闭当前标签页' : '关闭标签页 $id';
     case 'wait':
       final ref = arg('ref');
       if (ref.isNotEmpty) return '等待 [$ref] 出现';

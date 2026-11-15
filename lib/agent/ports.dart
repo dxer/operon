@@ -1,4 +1,5 @@
 import '../control/perception/captcha.dart';
+import '../control/protocol/gesture.dart';
 import '../control/protocol/results.dart';
 
 /// One tool call the model asked for.
@@ -29,6 +30,7 @@ class LlmTurn {
     this.finishReason,
     this.promptTokens,
     this.completionTokens,
+    this.reasoningOnly = false,
   });
 
   final String? content;
@@ -36,6 +38,9 @@ class LlmTurn {
   final String? finishReason;
   final int? promptTokens;
   final int? completionTokens;
+
+  /// The endpoint sent reasoning and no answer at all.
+  final bool reasoningOnly;
 
   int get totalTokens => (promptTokens ?? 0) + (completionTokens ?? 0);
 
@@ -67,8 +72,8 @@ abstract class ControlPort {
   /// the only evidence available for that.
   String? refLabel(String? ref);
 
-  /// Notified before an input is dispatched, with the point it lands on.
-  set onGesture(void Function(double x, double y, String label)? value);
+  /// Notified before an input is dispatched, with the point and box it lands on.
+  set onGesture(void Function(GestureTarget target)? value);
 }
 
 /// A question only a person may answer.
@@ -76,6 +81,7 @@ class ConfirmRequest {
   const ConfirmRequest({
     required this.title,
     required this.reason,
+    this.url,
     this.payload,
     this.destructive = false,
     this.handoff = false,
@@ -83,6 +89,9 @@ class ConfirmRequest {
 
   final String title;
   final String reason;
+
+  /// Current page URL where the action is being dispatched.
+  final String? url;
 
   /// What would be sent or chosen, shown to the user verbatim.
   final String? payload;
@@ -122,6 +131,12 @@ abstract class HostPort {
   /// Returns their answer for a question, `ok` once a challenge is solved, or
   /// null when they cancelled. The loop never answers either of these itself.
   Future<String?> askPerson(PersonRequest request);
+
+  /// Lets the user pick device files for an `upload` tool call.
+  ///
+  /// Returns selected absolute file paths, or null/empty when cancelled or
+  /// unsupported.
+  Future<List<String>?> pickFiles();
 
   /// Reports an event the user should see, without stopping the run.
   void note(String title, {String? detail, bool isError = false});

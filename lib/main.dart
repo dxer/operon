@@ -15,6 +15,15 @@ void main() async {
 
   // Via-style edge-to-edge canvas: browser content owns the whole screen.
   await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  SystemChrome.setSystemUIOverlayStyle(
+    const SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      systemNavigationBarColor: Colors.transparent,
+      systemNavigationBarDividerColor: Colors.transparent,
+      systemStatusBarContrastEnforced: false,
+      systemNavigationBarContrastEnforced: false,
+    ),
+  );
 
   // The control layer reaches the page through the WebView DevTools socket,
   // which only exists while WebView debugging is on. It has to stay on in

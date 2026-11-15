@@ -26,11 +26,38 @@ extension _LifecycleActions on _BrowserPageState {
 
   Future<void> _initStorage() async {
     _storage = await StorageService.getInstance();
+    unawaited(DownloadService.instance.init());
+    // The chat history is a file, not a preference, so it loads on its own and
+    // may arrive after the first frame. The panel copes with a null store: it
+    // shows the list and the button that creates the first conversation.
+    unawaited(_openConversations());
     final homepage = _storage?.getHomepage() ?? AppConstants.defaultHomepage;
     final isDesktop = _storage?.getDesktopMode() ?? false;
 
-    // The seed tab has not navigated yet: apply the user's saved homepage once.
-    if (_tabs.length == 1 && _tabs.first.url == AppConstants.defaultHomepage) {
+    final seedUntouched =
+        _tabs.length == 1 && _tabs.first.url == AppConstants.defaultHomepage;
+    final savedSession = seedUntouched ? _storage?.getSavedTabSession() : null;
+
+    if (seedUntouched && savedSession != null && savedSession.tabs.isNotEmpty) {
+      final restored = <WebTab>[];
+      final base = DateTime.now().millisecondsSinceEpoch;
+      for (var i = 0; i < savedSession.tabs.length; i++) {
+        final item = savedSession.tabs[i];
+        restored.add(WebTab(
+          id: 'tab_${base}_$i',
+          url: item.url,
+          title: item.title,
+          isDesktopMode: item.isDesktopMode,
+        ));
+      }
+      _tabs
+        ..clear()
+        ..addAll(restored);
+      _currentTabIndex = savedSession.activeIndex;
+      final activeUrl = _currentTab.url;
+      _urlController.text = activeUrl.startsWith('operon://') ? '' : activeUrl;
+    } else if (seedUntouched) {
+      // The seed tab has not navigated yet: apply the user's saved homepage once.
       final tab = _tabs.first;
       final homepageChanged = tab.url != homepage;
       tab.url = homepage;
@@ -47,6 +74,26 @@ extension _LifecycleActions on _BrowserPageState {
     }
 
     if (mounted) setState(() {});
+  }
+
+  void _persistTabSession() {
+    final storage = _storage;
+    if (storage == null) return;
+    final snapshots = <SavedTabSnapshot>[];
+    var mappedActive = 0;
+    for (var i = 0; i < _tabs.length; i++) {
+      final tab = _tabs[i];
+      if (tab.isIncognito) continue;
+      if (i == _currentTabIndex) {
+        mappedActive = snapshots.length;
+      }
+      snapshots.add(SavedTabSnapshot(
+        url: tab.url,
+        title: tab.title,
+        isDesktopMode: tab.isDesktopMode,
+      ));
+    }
+    unawaited(storage.saveTabSession(snapshots, mappedActive));
   }
 
   /// Opens the composer with a goal the user asked to repeat, on the page it
@@ -85,8 +132,9 @@ extension _LifecycleActions on _BrowserPageState {
     );
   }
 
-  /// Draws one gesture above the WebView.
-  Future<void> _showGesture(double cssX, double cssY, String label) async {
+  /// Draws one gesture above the WebView: the cursor, and the box it is about
+  /// to operate.
+  Future<void> _showGesture(GestureTarget target) async {
     var scale = 1.0;
     final controller = _webViewController;
     if (controller != null) {
@@ -98,8 +146,16 @@ extension _LifecycleActions on _BrowserPageState {
     }
     if (!mounted) return;
     _gesturePulse.value = GesturePulse(
-      at: Offset(cssX * scale, cssY * scale),
-      label: label,
+      at: Offset(target.x * scale, target.y * scale),
+      bounds: target.hasBox
+          ? Rect.fromLTWH(
+              target.x * scale,
+              target.y * scale,
+              target.width * scale,
+              target.height * scale,
+            )
+          : null,
+      label: target.label,
       seq: ++_gestureSeq,
     );
   }
@@ -153,6 +209,22 @@ extension _LifecycleActions on _BrowserPageState {
       return answer;
     } finally {
       controller.dispose();
+    }
+  }
+
+  /// Opens the system file picker when the agent calls `upload` without paths.
+  Future<List<String>?> _pickUploadFiles() async {
+    if (!mounted) return null;
+    try {
+      final result = await FilePicker.pickFiles(allowMultiple: true);
+      if (result == null) return null;
+      final paths = result.files
+          .map((file) => file.path?.trim() ?? '')
+          .where((path) => path.isNotEmpty)
+          .toList(growable: false);
+      return paths.isEmpty ? null : paths;
+    } catch (_) {
+      return null;
     }
   }
 }

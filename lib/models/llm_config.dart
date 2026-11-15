@@ -108,4 +108,51 @@ class LlmConfig {
         name.startsWith('o4') ||
         name.startsWith('gpt-5');
   }
+
+  /// Reasoning series models that reject custom `temperature` values (such as
+  /// 0.1) on OpenAI-compatible endpoints.
+  static bool omitsTemperature(String model) {
+    final name = model.trim().toLowerCase();
+    return name.startsWith('o1') ||
+        name.startsWith('o3') ||
+        name.startsWith('o4');
+  }
+}
+
+/// A named, reusable LLM endpoint configuration preset.
+class LlmPreset {
+  const LlmPreset({
+    required this.id,
+    required this.name,
+    required this.config,
+  });
+
+  final String id;
+  final String name;
+  final LlmConfig config;
+
+  LlmPreset copyWith({
+    String? id,
+    String? name,
+    LlmConfig? config,
+  }) =>
+      LlmPreset(
+        id: id ?? this.id,
+        name: name ?? this.name,
+        config: config ?? this.config,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        'config': config.toJson(),
+      };
+
+  factory LlmPreset.fromJson(Map<String, dynamic> json) => LlmPreset(
+        id: json['id']?.toString() ?? '',
+        name: json['name']?.toString() ?? '',
+        config: json['config'] is Map
+            ? LlmConfig.fromJson(Map<String, dynamic>.from(json['config'] as Map))
+            : LlmConfig.defaultConfig(),
+      );
 }

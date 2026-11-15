@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:operon/agent/loop.dart';
 import 'package:operon/agent/ports.dart';
+import 'package:operon/control/protocol/gesture.dart';
 import 'package:operon/control/perception/captcha.dart';
 import 'package:operon/control/protocol/results.dart';
 import 'package:operon/models/agent_state.dart';
@@ -35,7 +36,7 @@ class _Control implements ControlPort {
   String? refLabel(String? ref) => ref == null ? null : '搜索';
 
   @override
-  set onGesture(void Function(double x, double y, String label)? value) {}
+  set onGesture(void Function(GestureTarget target)? value) {}
 }
 
 class _Host implements HostPort {
@@ -44,6 +45,9 @@ class _Host implements HostPort {
 
   @override
   Future<String?> askPerson(PersonRequest request) async => null;
+
+  @override
+  Future<List<String>?> pickFiles() async => null;
 
   @override
   void note(String title, {String? detail, bool isError = false}) {}

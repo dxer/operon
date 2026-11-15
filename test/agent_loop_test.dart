@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:operon/agent/loop.dart';
 import 'package:operon/agent/ports.dart';
+import 'package:operon/control/protocol/gesture.dart';
 import 'package:operon/agent/tools.dart';
 import 'package:operon/control/perception/captcha.dart';
 import 'package:operon/control/protocol/errors.dart';
@@ -51,7 +52,7 @@ class FakeControl implements ControlPort {
   String? refLabel(String? ref) => ref == null ? null : labels[ref];
 
   @override
-  set onGesture(void Function(double x, double y, String label)? value) {}
+  set onGesture(void Function(GestureTarget target)? value) {}
 }
 
 class FakeHost implements HostPort {
@@ -70,11 +71,21 @@ class FakeHost implements HostPort {
   /// Answers handed out for a person request, in order.
   final List<String?> personAnswers = [];
 
+  /// Files returned by [pickFiles].
+  List<String>? pickedFiles;
+  int pickFilesCount = 0;
+
   @override
   Future<String?> askPerson(PersonRequest request) async {
     notes.add('${request.kind}:${request.title}');
     if (personAnswers.isEmpty) return null;
     return personAnswers.removeAt(0);
+  }
+
+  @override
+  Future<List<String>?> pickFiles() async {
+    pickFilesCount++;
+    return pickedFiles;
   }
 
   @override
@@ -116,7 +127,6 @@ AgentLoop loop({
   bool Function(String)? isSiteBlocked,
   List<AgentAttachment> attachments = const [],
   String? startUrl,
-  int maxTurns = 20,
 }) =>
     AgentLoop(
       llm: llm,
@@ -124,7 +134,6 @@ AgentLoop loop({
       host: host ?? FakeHost(),
       system: 'test system',
       tools: buildToolSchemas(),
-      maxTurns: maxTurns,
       safeMode: safeMode,
       isSiteAllowed: isSiteAllowed,
       isSiteBlocked: isSiteBlocked,
@@ -280,16 +289,29 @@ void main() {
     expect(end.stopReason, contains('没有让页面发生变化'));
   });
 
-  test('a plain answer ends the run as partial: only done may claim success', () async {
+  test('an answer in words is an answer, not a protocol complaint', () async {
+    // 「你好」 gets 「你好」. The old behaviour returned partial with
+    // 「模型用文字结束，没有调用 done」, which the panel then showed *as* the
+    // answer: an internal note where the reply should be.
     final llm = ScriptedLlm([say('我建议你先登录。')]);
     final control = FakeControl();
 
     final end = await loop(llm: llm, control: control).run('该怎么办');
 
-    expect(end.outcome, LoopOutcome.partial);
+    expect(end.outcome, LoopOutcome.success);
     expect(end.summary, '我建议你先登录。');
-    expect(end.stopReason, contains('没有调用 done'));
+    expect(end.stopReason, isNull);
     expect(control.calls, isEmpty);
+  });
+
+  test('a reply that is neither words nor a call says so', () async {
+    final llm = ScriptedLlm([const LlmTurn()]);
+    final control = FakeControl();
+
+    final end = await loop(llm: llm, control: control).run('你好');
+
+    expect(end.outcome, LoopOutcome.failed);
+    expect(end.stopReason, contains('没有回答'));
   });
 
   test('a truncated reply executes nothing', () async {
@@ -357,14 +379,39 @@ void main() {
     expect(end.error, contains('script exhausted'));
   });
 
-  test('the turn budget ends the run instead of looping forever', () async {
-    final llm = ScriptedLlm(List.generate(5, (_) => use([call('snapshot')])));
+  test('a run that only looks at the page is stopped by itself', () async {
+    // There is no step ceiling any more, so nothing counts turns except this:
+    // a model that keeps calling snapshot never touches the page, and every
+    // call succeeds, so the guards see nothing wrong either.
+    final llm = ScriptedLlm(List.generate(20, (_) => use([call('snapshot')])));
     final control = FakeControl(results: {'snapshot': snapshotResult()});
 
-    final end = await loop(llm: llm, control: control, maxTurns: 3).run('一直看');
+    final end = await loop(llm: llm, control: control).run('一直看');
 
     expect(end.outcome, LoopOutcome.partial);
-    expect(end.stopReason, contains('3 轮'));
+    expect(end.stopReason, contains('只观察页面'));
+    expect(end.turns, lessThan(15));
+  });
+
+  test('a run that acts keeps going past that point', () async {
+    // Reading a lot is fine as long as it does something in between: the
+    // counter is about a streak, not about a total.
+    final llm = ScriptedLlm([
+      for (var round = 0; round < 3; round++) ...[
+        ...List.generate(6, (_) => use([call('snapshot')])),
+        use([call('click', {'ref': 'a1'})]),
+      ],
+      use([call('done', {'summary': '好了', 'outcome': 'success'})]),
+    ]);
+    final control = FakeControl(results: {
+      'snapshot': snapshotResult(),
+      'click': clickResult(),
+    });
+
+    final end = await loop(llm: llm, control: control).run('做事');
+
+    expect(end.outcome, LoopOutcome.success);
+    expect(end.turns, greaterThan(10));
   });
 
   test('stop is honoured between calls, and nothing after it runs', () async {
@@ -576,6 +623,67 @@ void main() {
         parts.where((part) => part['type'] == 'image_url'),
         hasLength(1),
       );
+    });
+  });
+
+  group('blocked navigation and upload handoff', () {
+    test('navigate to a blocked host is rejected before loading it', () async {
+      final llm = ScriptedLlm([
+        use([call('navigate', {'url': 'https://www.blocked.example/login'})]),
+        use([call('done', {'summary': '被禁止了', 'outcome': 'partial'})]),
+      ]);
+      final control = FakeControl();
+      final end = await loop(
+        llm: llm,
+        control: control,
+        startUrl: 'https://allowed.example/',
+        isSiteBlocked: (host) => host == 'blocked.example',
+      ).run('打开网站');
+
+      expect(control.calls, isNot(contains('navigate')));
+      expect(end.outcome, LoopOutcome.partial);
+      final toolText = llm.requests.last
+          .firstWhere((m) => m['role'] == 'tool')['content']
+          .toString();
+      expect(toolText, contains('blocked.example'));
+    });
+
+    test('upload without files invokes host picker and forwards selected paths', () async {
+      final llm = ScriptedLlm([
+        use([call('upload', {'ref': 'a4'})]),
+        use([call('done', {'summary': '已上传', 'outcome': 'success'})]),
+      ]);
+      final control = FakeControl();
+      final host = FakeHost()..pickedFiles = ['/tmp/report.pdf'];
+      final end = await loop(
+        llm: llm,
+        control: control,
+        host: host,
+        safeMode: false,
+      ).run('上传文件');
+
+      expect(host.pickFilesCount, 1);
+      expect(control.calls, contains('upload'));
+      expect(end.outcome, LoopOutcome.success);
+    });
+
+    test('upload cancelled by user in picker does not execute upload', () async {
+      final llm = ScriptedLlm([
+        use([call('upload', {'ref': 'a4'})]),
+        use([call('done', {'summary': '用户取消', 'outcome': 'partial'})]),
+      ]);
+      final control = FakeControl();
+      final host = FakeHost()..pickedFiles = null;
+      final end = await loop(
+        llm: llm,
+        control: control,
+        host: host,
+        safeMode: false,
+      ).run('上传文件');
+
+      expect(host.pickFilesCount, 1);
+      expect(control.calls, isNot(contains('upload')));
+      expect(end.outcome, LoopOutcome.partial);
     });
   });
 }

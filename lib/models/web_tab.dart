@@ -8,12 +8,15 @@ class WebTab {
   InAppWebViewController? controller;
   WebViewControllerWrapper? wrapper;
   PullToRefreshController? pullToRefresh;
+  FindInteractionController? findController;
   bool isLoading;
   double progress;
   bool canGoBack;
   bool canGoForward;
   bool isDesktopMode;
   bool isCleanMode;
+  bool isIncognito;
+  int? windowId;
   String? errorMessage;
 
   WebTab({
@@ -23,12 +26,15 @@ class WebTab {
     this.controller,
     this.wrapper,
     this.pullToRefresh,
+    this.findController,
     this.isLoading = false,
     this.progress = 0.0,
     this.canGoBack = false,
     this.canGoForward = false,
     this.isDesktopMode = false,
     this.isCleanMode = false,
+    this.isIncognito = false,
+    this.windowId,
     this.errorMessage,
   });
 
@@ -39,12 +45,15 @@ class WebTab {
     InAppWebViewController? controller,
     WebViewControllerWrapper? wrapper,
     PullToRefreshController? pullToRefresh,
+    FindInteractionController? findController,
     bool? isLoading,
     double? progress,
     bool? canGoBack,
     bool? canGoForward,
     bool? isDesktopMode,
     bool? isCleanMode,
+    bool? isIncognito,
+    int? windowId,
     String? errorMessage,
   }) {
     return WebTab(
@@ -54,12 +63,15 @@ class WebTab {
       controller: controller ?? this.controller,
       wrapper: wrapper ?? this.wrapper,
       pullToRefresh: pullToRefresh ?? this.pullToRefresh,
+      findController: findController ?? this.findController,
       isLoading: isLoading ?? this.isLoading,
       progress: progress ?? this.progress,
       canGoBack: canGoBack ?? this.canGoBack,
       canGoForward: canGoForward ?? this.canGoForward,
       isDesktopMode: isDesktopMode ?? this.isDesktopMode,
       isCleanMode: isCleanMode ?? this.isCleanMode,
+      isIncognito: isIncognito ?? this.isIncognito,
+      windowId: windowId ?? this.windowId,
       errorMessage: errorMessage ?? this.errorMessage,
     );
   }

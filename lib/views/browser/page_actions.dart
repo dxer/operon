@@ -46,6 +46,15 @@ extension _PageActions on _BrowserPageState {
     }
   }
 
+  void _openDownloadsSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const DownloadsSheet(),
+    );
+  }
+
   void _openHistoryBookmarksSheet({int initialTab = 0}) {
     if (_storage == null) return;
     showModalBottomSheet(
@@ -67,24 +76,39 @@ extension _PageActions on _BrowserPageState {
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.sheet)),
       ),
       builder: (ctx) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            const SizedBox(height: AppSpace.x2),
+            Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: AppInk.tertiary(isDark).withValues(alpha: 0.45),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              padding: const EdgeInsets.fromLTRB(
+                AppSpace.page,
+                AppSpace.x3,
+                AppSpace.page,
+                AppSpace.x2,
+              ),
               child: Text(
                 linkUrl,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style:
-                    TextStyle(fontSize: 12, color: AppTheme.neutralOf(isDark)),
+                style: AppType.caption.copyWith(color: AppInk.secondary(isDark)),
               ),
             ),
-            const Divider(height: 1),
+            Divider(height: AppStroke.hairline, color: AppInk.hairline(isDark)),
             ListTile(
               leading: const Icon(Icons.open_in_new_rounded),
               title: const Text('在新标签页中打开'),
@@ -108,7 +132,10 @@ extension _PageActions on _BrowserPageState {
                 Navigator.pop(ctx);
                 Clipboard.setData(ClipboardData(text: linkUrl));
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('已复制链接地址')),
+                  const SnackBar(
+                    content: Text('已复制链接地址'),
+                    duration: Duration(seconds: 1),
+                  ),
                 );
               },
             ),
@@ -123,24 +150,39 @@ extension _PageActions on _BrowserPageState {
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.sheet)),
       ),
       builder: (ctx) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            const SizedBox(height: AppSpace.x2),
+            Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: AppInk.tertiary(isDark).withValues(alpha: 0.45),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              padding: const EdgeInsets.fromLTRB(
+                AppSpace.page,
+                AppSpace.x3,
+                AppSpace.page,
+                AppSpace.x2,
+              ),
               child: Text(
                 imageUrl,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style:
-                    TextStyle(fontSize: 12, color: AppTheme.neutralOf(isDark)),
+                style: AppType.caption.copyWith(color: AppInk.secondary(isDark)),
               ),
             ),
-            const Divider(height: 1),
+            Divider(height: AppStroke.hairline, color: AppInk.hairline(isDark)),
             ListTile(
               leading: const Icon(Icons.image_search_rounded),
               title: const Text('在新标签页中打开图片'),
@@ -156,7 +198,10 @@ extension _PageActions on _BrowserPageState {
                 Navigator.pop(ctx);
                 Clipboard.setData(ClipboardData(text: imageUrl));
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('已复制图片链接')),
+                  const SnackBar(
+                    content: Text('已复制图片链接'),
+                    duration: Duration(seconds: 1),
+                  ),
                 );
               },
             ),

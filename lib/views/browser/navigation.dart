@@ -13,6 +13,7 @@ extension _NavigationActions on _BrowserPageState {
     String trimmed = input.trim();
     if (trimmed.isEmpty) return;
 
+    _closeFindInPage();
     // Submitting an address is a moment the user wants to watch.
     _revealChrome();
 
@@ -94,27 +95,29 @@ extension _NavigationActions on _BrowserPageState {
   }
 
   Future<void> _applyCurrentWebViewSettings() async {
-    if (_webViewController == null) return;
-
-    final userAgent = _currentTab.isDesktopMode
-        ? AppConstants.uaDesktopChrome
-        : (_storage?.getUserAgent() ?? AppConstants.uaAndroidChrome);
     final isEffectivelyDark = _webDarkEnabled;
     final blockImages = _storage?.getBlockImages() ?? false;
     final jsEnabled = _storage?.getJavaScriptEnabled() ?? true;
     final textZoom = _storage?.getTextZoom() ?? 100;
+    final customUa = _storage?.getUserAgent() ?? AppConstants.uaAndroidChrome;
 
-    await _webViewController!.setSettings(
-      settings: InAppWebViewSettings(
-        userAgent: userAgent,
-        forceDark: isEffectivelyDark ? ForceDark.ON : ForceDark.OFF,
-        algorithmicDarkeningAllowed: isEffectivelyDark,
-        blockNetworkImage: blockImages,
-        javaScriptEnabled: jsEnabled,
-        textZoom: textZoom,
-      ),
-    );
-    _applyThemeToWebPage(_webViewController!);
+    for (final tab in _tabs) {
+      final controller = tab.controller;
+      if (controller == null) continue;
+      final userAgent =
+          tab.isDesktopMode ? AppConstants.uaDesktopChrome : customUa;
+      await controller.setSettings(
+        settings: InAppWebViewSettings(
+          userAgent: userAgent,
+          forceDark: isEffectivelyDark ? ForceDark.ON : ForceDark.OFF,
+          algorithmicDarkeningAllowed: isEffectivelyDark,
+          blockNetworkImage: blockImages,
+          javaScriptEnabled: jsEnabled,
+          textZoom: textZoom,
+        ),
+      );
+      _applyThemeToWebPage(controller);
+    }
   }
 
   void _toggleDesktopMode() async {
@@ -161,43 +164,96 @@ extension _NavigationActions on _BrowserPageState {
     setState(() {});
   }
 
-  void _injectMatchedUserScripts(String currentUrl) async {
-    if (currentUrl.isEmpty ||
-        currentUrl.startsWith('about:') ||
-        _wrapper == null) {
-      return;
+  void _handleAddressFocusChanged(bool focused) {
+    if (focused) {
+      _chrome.lock();
+      _revealChrome();
+      unawaited(_loadClipboardUrlForOmnibox());
+    } else {
+      _chrome.unlock();
     }
-    try {
-      final scriptService = await UserScriptService.getInstance();
-      final scripts = scriptService.getScripts();
-      int count = 0;
-      for (final s in scripts) {
-        if (s.matchesUrl(currentUrl)) {
-          await _wrapper!.evaluateJavascript(s.code);
-          count++;
-        }
-      }
-      if (count > 0) {
-        debugPrint(
-            '[UserScript] Injected $count active user scripts into $currentUrl');
-      }
-    } catch (e) {
-      debugPrint('[UserScript] Injection error: $e');
+    if (mounted && _addressFocused != focused) {
+      setState(() => _addressFocused = focused);
     }
   }
 
-  void _openUserScripts() async {
-    final currentUrl = await _wrapper?.getUrl() ?? _urlController.text;
-    final currentTitle = await _wrapper?.getTitle() ?? '';
-    if (mounted) {
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => UserScriptsPage(
-            currentUrl: currentUrl,
-            currentTitle: currentTitle,
-          ),
-        ),
-      );
+  Future<void> _loadClipboardUrlForOmnibox() async {
+    try {
+      final data = await Clipboard.getData(Clipboard.kTextPlain);
+      final url = extractClipboardWebUrl(data?.text);
+      if (mounted && url != _clipboardUrl) {
+        setState(() => _clipboardUrl = url);
+      }
+    } catch (_) {}
+  }
+
+  void _openFindInPage() {
+    _chrome.lock();
+    _revealChrome();
+    setState(() {
+      _isFindingInPage = true;
+      _findActiveMatch = 0;
+      _findTotalMatches = 0;
+    });
+    if (_findController.text.isNotEmpty) {
+      _updateFindQuery(_findController.text);
     }
+  }
+
+  void _updateFindQuery(String query) {
+    final trimmed = query.trim();
+    if (trimmed.isEmpty) {
+      _currentTab.findController?.clearMatches();
+      setState(() {
+        _findActiveMatch = 0;
+        _findTotalMatches = 0;
+      });
+      return;
+    }
+    _currentTab.findController?.findAll(find: trimmed);
+  }
+
+  void _closeFindInPage() {
+    if (!_isFindingInPage) return;
+    _currentTab.findController?.clearMatches();
+    _findController.clear();
+    _chrome.unlock();
+    setState(() {
+      _isFindingInPage = false;
+      _findActiveMatch = 0;
+      _findTotalMatches = 0;
+    });
+  }
+
+  Future<void> _toggleQuickWebDarkMode() async {
+    final storage = _storage;
+    if (storage == null) return;
+    final next = !storage.getWebDarkMode();
+    await storage.saveWebDarkMode(next);
+    await _applyCurrentWebViewSettings();
+    if (!mounted) return;
+    setState(() {});
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(next ? '已开启网页夜间模式' : '已关闭网页夜间模式'),
+        duration: const Duration(seconds: 1),
+      ),
+    );
+  }
+
+  Future<void> _toggleQuickBlockImages() async {
+    final storage = _storage;
+    if (storage == null) return;
+    final next = !storage.getBlockImages();
+    await storage.saveBlockImages(next);
+    await _applyCurrentWebViewSettings();
+    if (!mounted) return;
+    setState(() {});
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(next ? '已开启无图省流（刷新页面生效）' : '已恢复图片加载'),
+        duration: const Duration(seconds: 1),
+      ),
+    );
   }
 }

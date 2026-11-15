@@ -1,12 +1,17 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import '../../config/app_constants.dart';
 import '../../config/app_theme.dart';
+import '../../config/app_tokens.dart';
 import '../../models/llm_config.dart';
 import '../../models/model_profile.dart';
 import '../../services/llm_service.dart';
 import '../../services/llm_tools.dart';
 import '../../services/storage_service.dart';
+import '../widgets/operon_list_row.dart';
+
+part 'ai_engine_sections.dart';
 
 class AiEngineSettingsPage extends StatefulWidget {
   const AiEngineSettingsPage({super.key});
@@ -22,6 +27,7 @@ class _AiEngineSettingsPageState extends State<AiEngineSettingsPage> {
   bool _isTestingApi = false;
   bool _isLoadingModels = false;
   List<String> _models = const [];
+  List<LlmPreset> _presets = const [];
   ThinkingLevel _thinking = ThinkingLevel.auto;
   final TextEditingController _maxTokensController = TextEditingController();
 
@@ -38,11 +44,12 @@ class _AiEngineSettingsPageState extends State<AiEngineSettingsPage> {
   ModelProfile _profile = const ModelProfile();
   String? _profileFor;
   final TextEditingController _contextWindowController = TextEditingController();
+  bool _autoCompactEnabled = true;
+  final TextEditingController _autoCompactController = TextEditingController();
 
   final TextEditingController _baseUrlController = TextEditingController();
   final TextEditingController _apiKeyController = TextEditingController();
   final TextEditingController _modelController = TextEditingController();
-  double _temperature = 0.1;
 
   @override
   void initState() {
@@ -62,21 +69,112 @@ class _AiEngineSettingsPageState extends State<AiEngineSettingsPage> {
     _modelController.dispose();
     _maxTokensController.dispose();
     _contextWindowController.dispose();
+    _autoCompactController.dispose();
     super.dispose();
   }
 
   Future<void> _loadSettings() async {
     _storage = await StorageService.getInstance();
     final config = _storage.getLlmConfig();
-    _baseUrlController.text = config.baseUrl;
-    _apiKeyController.text = config.apiKey;
-    _modelController.text = config.model;
-    _temperature = config.temperature;
-    _thinking = config.thinking;
-    _maxTokensController.text = config.maxOutputTokens?.toString() ?? '';
+    _presets = _storage.getLlmPresets();
+    _autoCompactEnabled = _storage.getAutoCompactEnabled();
+    _autoCompactController.text = '${_storage.getAutoCompactTokens()}';
+    _applyConfigFields(config);
     _loadProfile();
     if (mounted) {
       setState(() => _isLoading = false);
+    }
+  }
+
+  void _saveAutoCompactEnabled(bool enabled) {
+    setState(() => _autoCompactEnabled = enabled);
+    unawaited(_storage.saveAutoCompactEnabled(enabled));
+  }
+
+  void _saveAutoCompactTokens(int tokens) {
+    unawaited(_storage.saveAutoCompactTokens(tokens));
+  }
+
+  void _applyConfigFields(LlmConfig config) {
+    _baseUrlController.text = config.baseUrl;
+    _apiKeyController.text = config.apiKey;
+    _modelController.text = config.model;
+    _thinking = config.thinking;
+    _maxTokensController.text = config.maxOutputTokens?.toString() ?? '';
+  }
+
+  bool _isPresetActive(LlmPreset preset) {
+    final current = _currentConfig;
+    return preset.config.baseUrl.trim() == current.baseUrl &&
+        preset.config.model.trim() == current.model &&
+        preset.config.apiKey.trim() == current.apiKey;
+  }
+
+  Future<void> _applyPreset(LlmPreset preset) async {
+    _saveDebounce?.cancel();
+    _applyConfigFields(preset.config);
+    await _storage.saveLlmConfig(preset.config);
+    _loadProfile();
+    if (mounted) {
+      setState(() {});
+      _snack('已切换到「${preset.name}」');
+    }
+  }
+
+  Future<void> _saveCurrentAsPreset() async {
+    final config = _currentConfig;
+    if (config.baseUrl.isEmpty || config.model.isEmpty) {
+      _snack('请先填写 Base URL 和 Model 模型名');
+      return;
+    }
+    final controller = TextEditingController(text: config.model);
+    try {
+      final name = await showDialog<String>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('保存为配置预设'),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            decoration: const InputDecoration(
+              labelText: '预设名称',
+              hintText: '例如：DeepSeek 日常 / GPT-4o 视觉',
+              isDense: true,
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
+              child: const Text('保存'),
+            ),
+          ],
+        ),
+      );
+      if (name == null || name.isEmpty) return;
+      final preset = LlmPreset(
+        id: 'p_${DateTime.now().microsecondsSinceEpoch}',
+        name: name,
+        config: config,
+      );
+      await _storage.saveLlmPreset(preset);
+      await _storage.saveLlmConfig(config);
+      if (mounted) {
+        setState(() => _presets = _storage.getLlmPresets());
+        _snack('已保存预设「$name」');
+      }
+    } finally {
+      controller.dispose();
+    }
+  }
+
+  Future<void> _deletePreset(LlmPreset preset) async {
+    await _storage.deleteLlmPreset(preset.id);
+    if (mounted) {
+      setState(() => _presets = _storage.getLlmPresets());
     }
   }
 
@@ -86,7 +184,6 @@ class _AiEngineSettingsPageState extends State<AiEngineSettingsPage> {
         baseUrl: _baseUrlController.text.trim(),
         apiKey: _apiKeyController.text.trim(),
         model: _modelController.text.trim(),
-        temperature: _temperature,
         thinking: _thinking,
         // 0 and negatives are a 400 at the endpoint, not a ceiling.
         maxOutputTokens: _parsedMaxTokens,
@@ -160,8 +257,9 @@ class _AiEngineSettingsPageState extends State<AiEngineSettingsPage> {
     FocusScope.of(context).unfocus();
     await _persist();
     setState(() => _isLoadingModels = true);
+    final llmService = LlmService();
     try {
-      final models = await LlmService().fetchModels(config);
+      final models = await llmService.fetchModels(config);
       if (!mounted) return;
       setState(() {
         _models = models;
@@ -175,6 +273,8 @@ class _AiEngineSettingsPageState extends State<AiEngineSettingsPage> {
       if (!mounted) return;
       setState(() => _isLoadingModels = false);
       _snack(describeLlmFailure(error));
+    } finally {
+      llmService.dispose();
     }
   }
 
@@ -313,44 +413,15 @@ class _AiEngineSettingsPageState extends State<AiEngineSettingsPage> {
     }
   }
 
-  Widget _sectionLabel(String text) => Text(
-        text,
-        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-      );
+  LlmPreset? get _activePreset {
+    for (final preset in _presets) {
+      if (_isPresetActive(preset)) return preset;
+    }
+    return null;
+  }
 
-  /// Three-way switch: the user's answer, or "you decide".
-  Widget _traitRow(
-    String title,
-    ModelTrait value,
-    ValueChanged<ModelTrait> onChanged, {
-    required String autoLabel,
-  }) {
-    final labels = {
-      ModelTrait.auto: autoLabel,
-      ModelTrait.yes: '支持',
-      ModelTrait.no: '不支持',
-    };
-    return Row(
-      children: [
-        Expanded(
-          child: Text(title,
-              style:
-                  const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
-        ),
-        Wrap(
-          spacing: 6,
-          children: [
-            for (final trait in ModelTrait.values)
-              ChoiceChip(
-                label: Text(labels[trait]!,
-                    style: const TextStyle(fontSize: 11.5)),
-                selected: value == trait,
-                onSelected: (_) => onChanged(trait),
-              ),
-          ],
-        ),
-      ],
-    );
+  void _mutate(VoidCallback fn) {
+    if (mounted) setState(fn);
   }
 
   @override
@@ -362,7 +433,13 @@ class _AiEngineSettingsPageState extends State<AiEngineSettingsPage> {
     }
 
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final cardColor = isDark ? AppTheme.darkCard : Colors.white;
+    final cardColor = isDark ? AppTheme.darkCard : AppTheme.lightCard;
+    final hairline = AppInk.hairline(isDark);
+    final activePreset = _activePreset;
+    final uniqueModels = _shownModels.toSet().toList();
+    final currentModel = _modelController.text.trim();
+    final matchedModel =
+        uniqueModels.contains(currentModel) ? currentModel : null;
 
     return Scaffold(
       appBar: AppBar(
@@ -377,310 +454,25 @@ class _AiEngineSettingsPageState extends State<AiEngineSettingsPage> {
       ),
       body: ListView(
         padding: EdgeInsets.fromLTRB(
-            16, 16, 16, 16 + MediaQuery.of(context).viewPadding.bottom),
+          AppSpace.page,
+          AppSpace.page,
+          AppSpace.page,
+          AppSpace.page + MediaQuery.of(context).viewPadding.bottom,
+        ),
         children: [
-          const SizedBox(height: 16),
-          Container(
-            decoration: BoxDecoration(
-              color: cardColor,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-                width: 0.8,
-              ),
-            ),
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'OpenAI 兼容端点配置',
-                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 14),
-                TextField(
-                  controller: _baseUrlController,
-                  style: const TextStyle(fontSize: 14),
-                  decoration: InputDecoration(
-                    labelText: 'Base URL',
-                    hintText: 'https://api.example.com/v1',
-                    helperText: '任意 OpenAI 兼容端点，末尾会自动补 /chat/completions',
-                    border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10)),
-                  ),
-                  onChanged: (_) {
-                    _schedulePersist();
-                    _reloadProfileIfModelChanged();
-                  },
-                ),
-                const SizedBox(height: 14),
-                TextField(
-                  controller: _apiKeyController,
-                  obscureText: _obscureApiKey,
-                  style: const TextStyle(fontSize: 14),
-                  decoration: InputDecoration(
-                    labelText: 'API Key',
-                    hintText: 'sk-...',
-                    border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10)),
-                    suffixIcon: IconButton(
-                      icon: Icon(
-                        _obscureApiKey
-                            ? Icons.visibility_off_outlined
-                            : Icons.visibility_outlined,
-                        size: 20,
-                      ),
-                      onPressed: () =>
-                          setState(() => _obscureApiKey = !_obscureApiKey),
-                    ),
-                  ),
-                  onChanged: (_) => _schedulePersist(),
-                ),
-                const SizedBox(height: 14),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _modelController,
-                        style: const TextStyle(fontSize: 14),
-                        decoration: InputDecoration(
-                          labelText: 'Model 模型名',
-                          hintText: '点右侧获取，或直接填写',
-                          border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(10)),
-                        ),
-                        onChanged: (_) {
-                          _schedulePersist();
-                          _reloadProfileIfModelChanged();
-                        },
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    SizedBox(
-                      height: 56,
-                      child: OutlinedButton(
-                        onPressed: _isLoadingModels ? null : _fetchModels,
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10)),
-                        ),
-                        child: _isLoadingModels
-                            ? const SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(strokeWidth: 2),
-                              )
-                            : const Text('获取列表', style: TextStyle(fontSize: 12)),
-                      ),
-                    ),
-                  ],
-                ),
-                if (_shownModels.isNotEmpty) ...[
-                  const SizedBox(height: 10),
-                  // Picking is the point: a name typed from memory is the most
-                  // common way a working endpoint stops working. The list is
-                  // capped and scrolls because a router can offer hundreds.
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          '${_shownModels.length} 个可用模型',
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: isDark ? Colors.white38 : Colors.black38,
-                          ),
-                        ),
-                      ),
-                      if (_modelController.text.isNotEmpty &&
-                          _shownModels.contains(_modelController.text))
-                        Icon(Icons.check_circle_rounded,
-                            size: 13, color: AppTheme.accentOf(isDark)),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                  Container(
-                    constraints: const BoxConstraints(maxHeight: 148),
-                    decoration: BoxDecoration(
-                      border: Border.all(
-                        color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-                        width: 0.8,
-                      ),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    padding: const EdgeInsets.all(8),
-                    child: SingleChildScrollView(
-                      child: Wrap(
-                        spacing: 6,
-                        runSpacing: 6,
-                        children: [
-                          for (final model in _shownModels)
-                            ChoiceChip(
-                              label: Text(model,
-                                  style: const TextStyle(fontSize: 11.5)),
-                              selected: _modelController.text == model,
-                              onSelected: (_) {
-                                setState(() => _modelController.text = model);
-                                _persist();
-                                _reloadProfileIfModelChanged();
-                              },
-                            ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-                const SizedBox(height: 16),
-                const Text(
-                  '思考级别',
-                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
-                ),
-                const SizedBox(height: 6),
-                Wrap(
-                  spacing: 6,
-                  children: [
-                    for (final level in ThinkingLevel.values)
-                      ChoiceChip(
-                        label: Text(level.label, style: const TextStyle(fontSize: 12)),
-                        selected: _thinking == level,
-                        onSelected: (_) {
-                          setState(() => _thinking = level);
-                          _persist();
-                        },
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  _thinking.description,
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: isDark ? Colors.white38 : Colors.black38,
-                  ),
-                ),
-                const SizedBox(height: 14),
-                TextField(
-                  controller: _maxTokensController,
-                  style: const TextStyle(fontSize: 14),
-                  keyboardType: TextInputType.number,
-                  decoration: InputDecoration(
-                    labelText: '最大输出 token（可留空）',
-                    hintText: '留空则交给模型自己决定',
-                    border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10)),
-                  ),
-                  onChanged: (_) => _schedulePersist(),
-                ),
-                const SizedBox(height: 16),
-                _sectionLabel('模型能力'),
-                const SizedBox(height: 4),
-                Text(
-                  '这里填的是这个模型自己的规格。不填就按默认猜：上下文 32000、'
-                  '视觉看模型名。填对了，长任务不会提前被压缩，也不会在本地小模型上溢出。',
-                  style: TextStyle(
-                    fontSize: 11,
-                    height: 1.4,
-                    color: isDark ? Colors.white38 : Colors.black38,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: _contextWindowController,
-                  style: const TextStyle(fontSize: 14),
-                  keyboardType: TextInputType.number,
-                  decoration: InputDecoration(
-                    labelText: '上下文窗口（token）',
-                    hintText: '${ModelProfile.defaultContextWindow}',
-                    helperText: '模型一次能读多少个 token',
-                    border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10)),
-                  ),
-                  onChanged: (text) {
-                    final value = int.tryParse(text.trim());
-                    if (value == null || value < 1000) return;
-                    _saveProfile(_profile.copyWith(contextWindow: value));
-                  },
-                ),
-                const SizedBox(height: 12),
-                _traitRow(
-                  '图片输入',
-                  _profile.vision,
-                  (trait) => _saveProfile(_profile.copyWith(vision: trait)),
-                  autoLabel: '按模型名猜',
-                ),
-                const SizedBox(height: 8),
-                _traitRow(
-                  '思考参数',
-                  _profile.reasoning,
-                  (trait) => _saveProfile(_profile.copyWith(reasoning: trait)),
-                  autoLabel: '先试，被拒再退',
-                ),
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  dense: true,
-                  value: _profile.supportsTools,
-                  title: const Text('支持工具调用',
-                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
-                  subtitle: Text(
-                    '关掉后智能体不会用这个模型跑任务',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: isDark ? Colors.white38 : Colors.black38,
-                    ),
-                  ),
-                  onChanged: (value) =>
-                      _saveProfile(_profile.copyWith(supportsTools: value)),
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text('Temperature 采样温度',
-                        style: TextStyle(
-                            fontSize: 13, fontWeight: FontWeight.w500)),
-                    Text(_temperature.toStringAsFixed(2),
-                        style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.bold,
-                            color: AppTheme.primaryOf(isDark))),
-                  ],
-                ),
-                Slider(
-                  value: _temperature,
-                  min: 0.0,
-                  max: 1.0,
-                  divisions: 20,
-                  label: _temperature.toStringAsFixed(2),
-                  activeColor: AppTheme.primaryOf(isDark),
-                  onChanged: (val) {
-                    setState(() => _temperature = val);
-                  },
-                  onChangeEnd: (val) async {
-                    await _persist();
-                  },
-                ),
-                const SizedBox(height: 10),
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton.icon(
-                    onPressed: _isTestingApi ? null : _testConnection,
-                    icon: _isTestingApi
-                        ? const SizedBox(
-                            width: 14,
-                            height: 14,
-                            child: CircularProgressIndicator(strokeWidth: 2))
-                        : const Icon(Icons.bolt_rounded, size: 18),
-                    label: Text(_isTestingApi ? '正在测试连接中...' : '测试 API 连通性'),
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10)),
-                    ),
-                  ),
-                ),
-              ],
-            ),
+          _buildPresetsCard(
+            isDark: isDark,
+            cardColor: cardColor,
+            hairline: hairline,
+            activePreset: activePreset,
+          ),
+          const SizedBox(height: AppSpace.x3),
+          _buildEndpointConfigCard(
+            isDark: isDark,
+            cardColor: cardColor,
+            hairline: hairline,
+            uniqueModels: uniqueModels,
+            matchedModel: matchedModel,
           ),
         ],
       ),

@@ -27,9 +27,8 @@ class ModelProfile {
     this.supportsTools = true,
   });
 
-  /// What every model was assumed to have before profiles existed. Kept as the
-  /// default so an unconfigured install behaves as it did.
-  static const int defaultContextWindow = 32000;
+  /// Default context window assumed for unconfigured models.
+  static const int defaultContextWindow = 200000;
 
   const ModelProfile.fallback() : this();
 

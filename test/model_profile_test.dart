@@ -16,7 +16,7 @@ void main() {
   group('the profile itself', () {
     test('a fresh profile says nothing it does not know', () {
       const profile = ModelProfile();
-      expect(profile.contextWindow, 32000);
+      expect(profile.contextWindow, 200000);
       expect(profile.vision, ModelTrait.auto);
       expect(profile.reasoning, ModelTrait.auto);
       expect(profile.supportsTools, isTrue);
@@ -73,7 +73,7 @@ void main() {
 
       await storage.saveModelProfile(a, const ModelProfile(contextWindow: 8000));
       expect(storage.getModelProfile(a).contextWindow, 8000);
-      expect(storage.getModelProfile(b).contextWindow, 32000,
+      expect(storage.getModelProfile(b).contextWindow, 200000,
           reason: 'a capability belongs to one model, not to the app');
     });
 

@@ -7,7 +7,6 @@ enum AgentStatus {
   waitingCaptcha,
   paused,
   completed,
-  maxStepsReached,
   error,
 }
 
@@ -132,7 +131,7 @@ class AgentLogItem {
   final StepEvidence? evidence;
 
   AgentLogItem({
-    required this.step,
+    this.step = 0,
     required this.title,
     this.detail,
     this.isError = false,
@@ -183,9 +182,8 @@ class AgentLogItem {
 class AgentState {
   final AgentStatus status;
   final String goal;
-  final int currentStep;
-  final int maxSteps;
   final String currentThought;
+  final String streamingText;
   final dynamic extractedData; // Structured data scraped from the web
   final String? captchaType; // Name of detected CAPTCHA challenge
   final String? errorMessage;
@@ -203,9 +201,8 @@ class AgentState {
   const AgentState({
     this.status = AgentStatus.idle,
     this.goal = '',
-    this.currentStep = 0,
-    this.maxSteps = 15,
     this.currentThought = '',
+    this.streamingText = '',
     this.extractedData,
     this.captchaType,
     this.errorMessage,
@@ -228,9 +225,8 @@ class AgentState {
   AgentState copyWith({
     AgentStatus? status,
     String? goal,
-    int? currentStep,
-    int? maxSteps,
     String? currentThought,
+    String? streamingText,
     dynamic extractedData,
     String? captchaType,
     String? errorMessage,
@@ -249,9 +245,8 @@ class AgentState {
     return AgentState(
       status: status ?? this.status,
       goal: goal ?? this.goal,
-      currentStep: currentStep ?? this.currentStep,
-      maxSteps: maxSteps ?? this.maxSteps,
       currentThought: currentThought ?? this.currentThought,
+      streamingText: streamingText ?? this.streamingText,
       extractedData:
           clearExtractedData ? null : (extractedData ?? this.extractedData),
       captchaType: clearCaptchaType ? null : (captchaType ?? this.captchaType),
@@ -260,8 +255,7 @@ class AgentState {
       confirmationReason: clearConfirmationContext
           ? null
           : (confirmationReason ?? this.confirmationReason),
-      targetUrl:
-          clearConfirmationContext ? null : (targetUrl ?? this.targetUrl),
+      targetUrl: targetUrl ?? this.targetUrl,
       confirmationPayload: clearConfirmationContext
           ? null
           : (confirmationPayload ?? this.confirmationPayload),

@@ -43,6 +43,15 @@ extension _SheetComposer on _AgentBottomSheetState {
     }
   }
 
+  /// Built-in system slash commands matching the current "/" query.
+  List<BuiltinSlashCommand> _builtinMatches() {
+    final text = _goalController.text;
+    if (!text.startsWith('/')) return const [];
+    final query = text.substring(1);
+    if (query.contains(' ')) return const [];
+    return builtinSlashCommands.where((cmd) => cmd.matches(query)).toList();
+  }
+
   /// Saved prompts to offer while the composer starts with "/".
   List<AgentPrompt> _promptMatches() {
     final text = _goalController.text;
@@ -50,6 +59,15 @@ extension _SheetComposer on _AgentBottomSheetState {
     final query = text.substring(1);
     if (query.contains(' ')) return const [];
     return widget.prompts.where((prompt) => prompt.matches(query)).take(4).toList();
+  }
+
+  void _useBuiltinCommand(BuiltinSlashCommand command) {
+    HapticService.selection();
+    final filled = '/${command.name} ';
+    _goalController.text = filled;
+    _goalController.selection = TextSelection.collapsed(offset: filled.length);
+    _goalFocus.requestFocus();
+    setState(() {});
   }
 
   void _usePrompt(AgentPrompt prompt) {
@@ -145,7 +163,18 @@ extension _SheetComposer on _AgentBottomSheetState {
       _resultExpanded = false;
       _attachments.clear();
     });
-    widget.onStart(text, attachments);
+    // A message always belongs to a conversation. Without one, this is the
+    // first: create it now so the panel has somewhere to write the answer.
+    // A missing store is not a missing conversation: the sheet still has to
+    // send, and the parent can still keep the id.
+    final store = widget.store;
+    var id = _activeId;
+    if (store != null && (id == null || store.byId(id) == null)) {
+      id = store.create().id;
+      _activeId = id;
+      widget.onConversationChanged?.call(id);
+    }
+    widget.onStart(id ?? '', text, attachments);
   }
 
   void _clearGoal() {
@@ -162,6 +191,78 @@ extension _SheetComposer on _AgentBottomSheetState {
     _goalController.selection =
         TextSelection.collapsed(offset: example.goal.length);
     _goalFocus.requestFocus();
+  }
+
+  /// Suggestions only while the conversation is still empty: once it has a
+  /// turn, the history is the suggestion.
+  bool get _showsExamples =>
+      !_isTaskActive &&
+      widget.state.status == AgentStatus.idle &&
+      widget.state.logs.isEmpty &&
+      !_hasDraft &&
+      (_conversation?.turns.isEmpty ?? true);
+
+  List<_ExampleGoal> get _exampleGoals => _pageHost == null
+      ? const [
+          _ExampleGoal('GitHub 热榜', '打开 GitHub 热榜并总结前 5 个项目'),
+          _ExampleGoal('今日 AI 新闻', '搜索今天的 AI 新闻并总结要点'),
+          _ExampleGoal('Hacker News', '打开 Hacker News 看看热门内容'),
+        ]
+      : const [
+          _ExampleGoal('总结这一页', '总结当前页面的主要内容'),
+          _ExampleGoal('提取列表', '提取当前页面列表中的条目'),
+          _ExampleGoal('找出链接', '找出当前页面可以继续点进去的链接'),
+        ];
+
+  /// The bottom of the chat: suggestions while it is empty, attachments,
+  /// saved prompts, the field itself.
+  Widget _buildComposer({required AgentState state}) {
+    final isDark = _isDarkTheme;
+    final surface = AppInk.sunken(isDark);
+    final hairline = AppInk.hairline(isDark);
+    final subtle = AppInk.tertiary(isDark);
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // Collapsing must not make the composer jump while the user is typing.
+        AnimatedSize(
+          duration: MediaQuery.maybeDisableAnimationsOf(context) == true
+              ? Duration.zero
+              : const Duration(milliseconds: 160),
+          curve: Curves.easeOut,
+          alignment: Alignment.bottomCenter,
+          child: _showsExamples
+              ? Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: _buildExamples(
+                    surface: surface,
+                    hairline: hairline,
+                    subtle: subtle,
+                  ),
+                )
+              : const SizedBox(width: double.infinity, height: 0),
+        ),
+        if (_attachments.isNotEmpty) _buildAttachmentStrip(subtle: subtle),
+        // Rebuilt on every keystroke: the strip appears the moment the field
+        // starts with "/".
+        ValueListenableBuilder<TextEditingValue>(
+          valueListenable: _goalController,
+          builder: (context, _, __) => _buildPromptStrip(subtle: subtle),
+        ),
+        _buildGoalField(isRunning: state.isRunning, subtle: subtle),
+        if (_pageHost == null) ...[
+          const SizedBox(height: 4),
+          Text(
+            '当前是起始页；可直接在指令里写要打开的网址或搜索目标',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppType.caption.copyWith(color: subtle),
+          ),
+        ],
+      ],
+    );
   }
 
   Widget _buildExamples({
@@ -204,17 +305,54 @@ extension _SheetComposer on _AgentBottomSheetState {
   }
 
   Widget _buildPromptStrip({required Color subtle}) {
+    final builtins = _builtinMatches();
     final matches = _promptMatches();
-    if (matches.isEmpty) return const SizedBox.shrink();
+    if (builtins.isEmpty && matches.isEmpty) return const SizedBox.shrink();
+    final isDark = _isDarkTheme;
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          for (final command in builtins)
+            InkWell(
+              onTap: () => _useBuiltinCommand(command),
+              borderRadius: BorderRadius.circular(AppRadius.chip),
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.compress_rounded,
+                      size: 14,
+                      color: AppTheme.primaryOf(isDark),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      command.label,
+                      style: AppType.caption.copyWith(
+                        fontWeight: FontWeight.w600,
+                        color: AppInk.primary(isDark),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        command.description,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppType.caption.copyWith(color: subtle),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           for (final prompt in matches)
             InkWell(
               onTap: () => _usePrompt(prompt),
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(AppRadius.chip),
               child: Padding(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
@@ -227,7 +365,7 @@ extension _SheetComposer on _AgentBottomSheetState {
                         prompt.displayTitle,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 12),
+                        style: AppType.caption,
                       ),
                     ),
                   ],
@@ -245,36 +383,64 @@ extension _SheetComposer on _AgentBottomSheetState {
   }) {
     final finished = !isRunning &&
         (widget.state.status == AgentStatus.completed ||
-            widget.state.status == AgentStatus.error ||
-            widget.state.status == AgentStatus.maxStepsReached);
+            widget.state.status == AgentStatus.error);
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    return TextField(
-      controller: _goalController,
-      focusNode: _goalFocus,
-      enabled: !isRunning,
-      maxLines: 3,
-      minLines: 1,
-      textInputAction: TextInputAction.send,
-      onSubmitted: (_) => _startGoal(),
-      style: const TextStyle(fontSize: 14),
-      decoration: InputDecoration(
-        hintText: finished ? '继续追问，或开始新任务…' : '描述你想让 AI 做的事…',
-        hintStyle: TextStyle(fontSize: 12, color: subtle),
-        suffixIconConstraints: const BoxConstraints(
-          minWidth: 48,
-          minHeight: 44,
+    final surface = AppInk.sunken(isDark);
+    final hairline = AppInk.hairline(isDark);
+    final primary = AppTheme.primaryOf(isDark);
+
+    return ListenableBuilder(
+      listenable: _goalFocus,
+      builder: (context, child) => AnimatedContainer(
+        duration: const Duration(milliseconds: 140),
+        decoration: BoxDecoration(
+          color: surface,
+          borderRadius: BorderRadius.circular(AppRadius.card + 2),
+          border: Border.all(
+            color: _goalFocus.hasFocus
+                ? primary.withValues(alpha: 0.55)
+                : hairline,
+          ),
         ),
-        suffixIcon: isRunning
-            ? null
-            : ValueListenableBuilder<TextEditingValue>(
-                valueListenable: _goalController,
-                builder: (context, value, _) {
-                  final canSend = value.text.trim().isNotEmpty;
-                  return Row(
-                    mainAxisSize: MainAxisSize.min,
+        child: child,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(
+            controller: _goalController,
+            focusNode: _goalFocus,
+            enabled: !isRunning,
+            maxLines: 4,
+            minLines: 1,
+            textInputAction: TextInputAction.send,
+            onSubmitted: (_) => _startGoal(),
+            style: AppType.body.copyWith(color: AppInk.primary(isDark)),
+            decoration: InputDecoration(
+              filled: false,
+              isDense: true,
+              border: InputBorder.none,
+              enabledBorder: InputBorder.none,
+              focusedBorder: InputBorder.none,
+              disabledBorder: InputBorder.none,
+              contentPadding: const EdgeInsets.fromLTRB(14, 12, 14, 4),
+              hintText: finished ? '继续追问，或开始新任务…' : '描述你想让 AI 做的事…',
+              hintStyle: AppType.label.copyWith(color: subtle),
+            ),
+          ),
+          if (!isRunning)
+            ValueListenableBuilder<TextEditingValue>(
+              valueListenable: _goalController,
+              builder: (context, value, _) {
+                final hasText = value.text.isNotEmpty;
+                final canSend = value.text.trim().isNotEmpty;
+                return Padding(
+                  padding: const EdgeInsets.fromLTRB(6, 0, 8, 6),
+                  child: Row(
                     children: [
                       IconButton(
-                        tooltip: widget.imageAttachmentsEnabled ? '添加附件' : '添加文本附件',
+                        tooltip:
+                            widget.imageAttachmentsEnabled ? '添加附件' : '添加文本附件',
                         icon: _isPickingAttachment
                             ? const SizedBox(
                                 width: 16,
@@ -282,31 +448,95 @@ extension _SheetComposer on _AgentBottomSheetState {
                                 child:
                                     CircularProgressIndicator(strokeWidth: 1.6),
                               )
-                            : Icon(Icons.attach_file_rounded, size: 19, color: subtle),
+                            : Icon(
+                                Icons.attach_file_rounded,
+                                size: 19,
+                                color: subtle,
+                              ),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(
+                          minWidth: 38,
+                          minHeight: 36,
+                        ),
                         onPressed: _isPickingAttachment ? null : _attachFile,
                       ),
-                      if (value.text.isNotEmpty)
+                      if (!hasText)
+                        InkWell(
+                          borderRadius: BorderRadius.circular(AppRadius.chip),
+                          onTap: () {
+                            HapticService.selection();
+                            _goalController.text = '/';
+                            _goalController.selection =
+                                const TextSelection.collapsed(offset: 1);
+                            _goalFocus.requestFocus();
+                          },
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 6,
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.bolt_rounded, size: 14, color: subtle),
+                                const SizedBox(width: 2),
+                                Text(
+                                  '指令',
+                                  style: AppType.caption.copyWith(color: subtle),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      const Spacer(),
+                      if (hasText)
                         IconButton(
                           tooltip: '清空输入',
                           icon: Icon(
                             Icons.close_rounded,
-                            size: 19,
+                            size: 18,
                             color: subtle,
+                          ),
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(
+                            minWidth: 36,
+                            minHeight: 36,
                           ),
                           onPressed: _clearGoal,
                         ),
-                      IconButton(
-                        tooltip: canSend ? '开始任务' : '请输入指令',
-                        icon: Icon(
-                          Icons.arrow_upward,
-                          color: canSend ? AppTheme.primaryOf(isDark) : subtle,
+                      const SizedBox(width: 4),
+                      Tooltip(
+                        message: canSend ? '开始任务' : '请输入指令',
+                        child: Material(
+                          color: canSend
+                              ? primary
+                              : (isDark
+                                  ? Colors.white.withValues(alpha: 0.08)
+                                  : Colors.black.withValues(alpha: 0.06)),
+                          borderRadius: BorderRadius.circular(AppRadius.pill),
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(AppRadius.pill),
+                            onTap: canSend ? _startGoal : null,
+                            child: SizedBox(
+                              width: 34,
+                              height: 34,
+                              child: Icon(
+                                Icons.arrow_upward,
+                                size: 18,
+                                color: canSend
+                                    ? (isDark ? Colors.black : Colors.white)
+                                    : subtle,
+                              ),
+                            ),
+                          ),
                         ),
-                        onPressed: canSend ? _startGoal : null,
                       ),
                     ],
-                  );
-                },
-              ),
+                  ),
+                );
+              },
+            ),
+        ],
       ),
     );
   }

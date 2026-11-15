@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<style>
+  :root{
+    --bg:#1b1b1b; --card:#262626; --card2:#2e2e2e; --line:rgba(255,255,255,.09);
+    --ink:#f3f2f1; --ink2:rgba(243,242,241,.70); --ink3:rgba(243,242,241,.55);
+    --accent:#4ca0e0; --accent-tint:rgba(76,160,224,.14);
+    --ok:#6ccb5f; --warn:#f0b429; --bad:#f1707b;
+    --font:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:var(--font);color:var(--ink)}
+  .grid{display:flex;flex-wrap:wrap;gap:20px;justify-content:center;align-items:flex-start}
+  .col{display:flex;flex-direction:column;gap:8px}
+  .cap{font-size:12px;color:var(--ink3);letter-spacing:.3px;padding-left:4px}
+  .phone{
+    width:320px;height:640px;background:var(--bg);border:1px solid var(--line);
+    border-radius:26px;overflow:hidden;position:relative;display:flex;flex-direction:column;
+  }
+  .safe-top{height:10px;flex:0 0 auto}
+
+  /* ---------- screen A: start page ---------- */
+  .start{flex:1;display:flex;flex-direction:column;justify-content:center;padding:0 24px 40px}
+  .brand{display:flex;align-items:center;gap:10px;justify-content:center;margin-bottom:26px}
+  .mark{width:30px;height:30px;border-radius:9px;background:var(--accent-tint);
+        display:flex;align-items:center;justify-content:center;
+        color:var(--accent);font-size:15px;font-weight:600}
+  .wordmark{font-size:17px;font-weight:600;letter-spacing:.6px}
+  .search{height:48px;border-radius:999px;background:var(--card);border:1px solid var(--line);
+          display:flex;align-items:center;gap:10px;padding:0 16px}
+  .search .ph{font-size:15px;color:var(--ink3)}
+  .dots{display:flex;align-items:center;gap:6px;color:var(--ink3)}
+  .dot{width:3px;height:3px;border-radius:50%;background:currentColor}
+  .sect{margin:28px 0 12px;font-size:13px;font-weight:600;color:var(--ink2)}
+  .grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:14px 8px}
+  .sc{display:flex;flex-direction:column;align-items:center;gap:7px}
+  .fi{width:46px;height:46px;border-radius:13px;background:var(--card2);
+      display:flex;align-items:center;justify-content:center;font-size:17px;font-weight:600;color:var(--ink2)}
+  .sc .lb{font-size:11px;color:var(--ink2);max-width:62px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+  /* ---------- screen B: browser shell ---------- */
+  .row{display:flex;align-items:center}
+  .addr{padding:8px 10px 8px 8px;gap:6px}
+  .entry{width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+         background:var(--accent-tint);color:var(--accent);font-size:16px}
+  .pill{flex:1;height:44px;border-radius:999px;background:var(--card);border:1px solid var(--line);
+        display:flex;align-items:center;padding:0 14px;gap:8px;position:relative;overflow:hidden}
+  .url{font-size:15px;letter-spacing:.1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .host{font-weight:600}
+  .path{color:var(--ink3);font-weight:400}
+  .prog{position:absolute;left:0;bottom:0;height:2px;width:38%;background:var(--accent);border-radius:0 2px 2px 0}
+  .page{flex:1;margin:0 0 0 0;background:#202020;display:flex;align-items:center;justify-content:center;
+        color:var(--ink3);font-size:12px;letter-spacing:.4px}
+  .strip{display:flex;align-items:center;gap:9px;padding:10px 14px;background:var(--card);
+         border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+  .pulse{width:7px;height:7px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 3px var(--accent-tint);flex:0 0 auto}
+  .strip .txt{font-size:13px;color:var(--ink);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .strip .act{font-size:13px;color:var(--accent);font-weight:600}
+  .strip .stop{font-size:13px;color:var(--ink2)}
+  .bar{display:flex;align-items:center;justify-content:space-around;padding:6px 8px 14px;background:var(--bg)}
+  .ic{width:44px;height:44px;display:flex;align-items:center;justify-content:center;color:var(--ink2);font-size:19px}
+  .ic.on{color:var(--ink)}
+  .badge{position:relative}
+  .badge span{position:absolute;top:4px;right:2px;font-size:10px;color:var(--ink2)}
+
+  /* ---------- screen C: agent panel ---------- */
+  .panel{flex:1;display:flex;flex-direction:column;background:var(--card);border-radius:20px 20px 0 0;overflow:hidden}
+  .ph{padding:14px 16px 10px;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--line)}
+  .ph .t{font-size:17px;font-weight:600;flex:1}
+  .ph .x{color:var(--ink3);font-size:16px}
+  .state{font-size:12px;color:var(--accent);display:flex;align-items:center;gap:5px}
+  .body{flex:1;padding:14px 16px;display:flex;flex-direction:column;gap:14px;overflow:hidden}
+  .goal{align-self:flex-end;max-width:88%;background:var(--accent-tint);color:var(--ink);
+        padding:10px 13px;border-radius:14px 14px 4px 14px;font-size:14px;line-height:1.5}
+  .step{display:flex;gap:11px}
+  .rail{width:9px;display:flex;flex-direction:column;align-items:center;padding-top:5px}
+  .node{width:7px;height:7px;border-radius:50%;border:1.5px solid var(--accent);flex:0 0 auto}
+  .node.solid{background:var(--accent)}
+  .node.ok{border-color:var(--ok);background:var(--ok)}
+  .line{width:1px;flex:1;background:var(--line);margin-top:3px}
+  .sbody{flex:1;padding-bottom:2px}
+  .k{font-size:11px;letter-spacing:.6px;color:var(--ink3);text-transform:uppercase;margin-bottom:3px}
+  .v{font-size:14px;line-height:1.55;color:var(--ink)}
+  .v.mute{color:var(--ink2)}
+  .chip{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 9px;border-radius:8px;
+        background:var(--card2);font-size:12px;color:var(--ink2);font-family:ui-monospace,Menlo,monospace}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+  .acts{display:flex;align-items:center;gap:16px;padding:0 4px 2px;font-size:13px;color:var(--accent)}
+  .acts .meta{margin-left:auto;font-size:11px;color:var(--ink3)}
+  .comp{display:flex;align-items:center;gap:8px;padding:10px 12px 14px;border-top:1px solid var(--line)}
+  .cfield{flex:1;height:44px;border-radius:999px;background:var(--card2);display:flex;align-items:center;
+          padding:0 15px;font-size:15px;color:var(--ink3)}
+  .send{width:40px;height:40px;border-radius:50%;background:var(--accent);color:#0b1a24;
+        display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700}
+  .note{font-size:12px;color:var(--ink3);line-height:1.6;padding:2px 4px;max-width:660px;margin:14px auto 0}
+</style>
+</head>
+<body>
+<div class="grid">
+
+  <div class="col">
+    <div class="cap">起始页 · 品牌让位给输入框</div>
+    <div class="phone">
+      <div class="safe-top"></div>
+      <div class="start">
+        <div class="brand"><div class="mark">O</div><div class="wordmark">Operon</div></div>
+        <div class="search">
+          <span style="font-size:14px;color:var(--ink3)">&#9906;</span>
+          <span class="ph" style="flex:1">搜索或输入网址</span>
+          <div class="dots"><i class="dot"></i><i class="dot"></i><i class="dot"></i></div>
+        </div>
+        <div class="sect">常用</div>
+        <div class="grid4">
+          <div class="sc"><div class="fi">G</div><div class="lb">GitHub</div></div>
+          <div class="sc"><div class="fi">B</div><div class="lb">Bilibili</div></div>
+          <div class="sc"><div class="fi">Z</div><div class="lb">知乎</div></div>
+          <div class="sc"><div class="fi">+</div><div class="lb">添加</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="cap">浏览时 · 地址是一条信息，不是一行文字</div>
+    <div class="phone">
+      <div class="safe-top"></div>
+      <div class="row addr">
+        <div class="entry">&#10022;</div>
+        <div class="pill">
+          <span style="font-size:12px;color:var(--ink3)">&#128274;</span>
+          <div class="url"><span class="host">github.com</span><span class="path">/trending/dart</span></div>
+          <div class="prog"></div>
+        </div>
+      </div>
+      <div class="page">页面内容</div>
+      <div class="strip">
+        <div class="pulse"></div>
+        <div class="txt">第 3 步 · 正在点击「Star」</div>
+        <div class="act">审阅</div>
+        <div class="stop">停止</div>
+      </div>
+      <div class="bar">
+        <div class="ic">&larr;</div>
+        <div class="ic on">&rarr;</div>
+        <div class="ic badge">&#9713;<span>3</span></div>
+        <div class="ic">&#9776;</div>
+        <div class="ic">&#8943;</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="phone" style="width:320px;height:640px;margin:20px auto 0">
+  <div class="panel">
+    <div class="ph">
+      <div class="t">智能体</div>
+      <div class="state"><i class="pulse"></i>运行中</div>
+      <div class="x">&#10005;</div>
+    </div>
+    <div class="body">
+      <div class="goal">把 github.com/trending 里前三个仓库都 star 一下</div>
+
+      <div class="step">
+        <div class="rail"><div class="node solid"></div><div class="line"></div></div>
+        <div class="sbody">
+          <div class="k">思考</div>
+          <div class="v mute">需要先确认当前页与三个仓库的名字，再逐个点击。</div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="rail"><div class="node"></div><div class="line"></div></div>
+        <div class="sbody">
+          <div class="k">动作</div>
+          <div class="v">open_page</div>
+          <div class="chips"><span class="chip">url: /trending</span></div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="rail"><div class="node ok"></div><div class="line"></div></div>
+        <div class="sbody">
+          <div class="k">结果</div>
+          <div class="v">已打开，列表里有 25 个仓库</div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="rail"><div class="node solid"></div></div>
+        <div class="sbody">
+          <div class="k">动作</div>
+          <div class="v">click</div>
+          <div class="chips"><span class="chip">ref: e41</span><span class="chip">已信任输入</span></div>
+        </div>
+      </div>
+
+      <div class="acts">
+        <span>复制</span><span>分享</span><span>再跑一次</span>
+        <span class="meta">12 步 · 8.4k / 1.2k token</span>
+      </div>
+    </div>
+    <div class="comp">
+      <div class="cfield">继续问点什么</div>
+      <div class="send">&#8593;</div>
+    </div>
+  </div>
+</div>
+
+<div class="note">
+  三屏共用一套令牌：字号 28/20/17/15/13/12/11，行高 1.5 起；圆角只有 8（chip）/13（图标）/16（卡）/20（面板）/999（药丸）；
+  正文墨水 100%，次要 70%，元信息 55%；描边一律 1px rgba(255,255,255,.09)；
+  阴影只出现在浮层，页面内容不投影。蓝色是唯一的强调色，语义色只用于状态。
+</div>
+</body>
+</html>

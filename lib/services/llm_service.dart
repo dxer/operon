@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../models/llm_config.dart';
 import '../utils/cancellation.dart';
+import 'llm_stream_parser.dart';
 
 /// Thrown when the user stops a task while its model request is in flight.
 class LlmCancelledException implements Exception {
@@ -82,7 +83,9 @@ class LlmService {
     required Map<String, String> headers,
   }) async {
     try {
-      return await http.get(uri, headers: headers).timeout(const Duration(seconds: 20));
+      return await _client
+          .get(uri, headers: headers)
+          .timeout(const Duration(seconds: 20));
     } on TimeoutException {
       throw Exception('请求模型列表超时，检查网络或 Base URL');
     } catch (error) {
@@ -201,14 +204,84 @@ class LlmService {
   /// so the doomed round trip is paid once per endpoint, not every turn.
   static final Set<String> _effortUnsupported = <String>{};
 
+  /// Endpoints that rejected `temperature`.
+  static final Set<String> _temperatureUnsupported = <String>{};
+
+  /// Endpoints that rejected `stream_options`.
+  static final Set<String> _streamOptionsUnsupported = <String>{};
+
   static bool effortUnsupported(LlmConfig config) =>
       _effortUnsupported.contains(_providerKey(config));
 
   static void markEffortUnsupported(LlmConfig config) =>
       _effortUnsupported.add(_providerKey(config));
 
+  static bool temperatureUnsupported(LlmConfig config) =>
+      LlmConfig.omitsTemperature(config.model) ||
+      _temperatureUnsupported.contains(_providerKey(config));
+
+  static void markTemperatureUnsupported(LlmConfig config) =>
+      _temperatureUnsupported.add(_providerKey(config));
+
+  static bool streamOptionsUnsupported(LlmConfig config) =>
+      _streamOptionsUnsupported.contains(_providerKey(config));
+
+  static void markStreamOptionsUnsupported(LlmConfig config) =>
+      _streamOptionsUnsupported.add(_providerKey(config));
+
   /// Test seam: without it one test poisons the next.
-  static void forgetUnsupportedEffort() => _effortUnsupported.clear();
+  static void forgetUnsupportedEffort() {
+    _effortUnsupported.clear();
+    _temperatureUnsupported.clear();
+    _streamOptionsUnsupported.clear();
+  }
+
+  static Map<String, String> authHeaders(LlmConfig config) => {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Authorization': 'Bearer ${config.apiKey.trim()}',
+      };
+
+  static String extractErrorDetail(String body) {
+    try {
+      final decoded = jsonDecode(body);
+      if (decoded is Map) {
+        final error = decoded['error'];
+        final message = error is Map ? error['message'] : null;
+        if (message != null) return '$message';
+      }
+    } catch (_) {
+      // Keep the raw body: it is more informative than nothing.
+    }
+    return body;
+  }
+
+  static Map<String, dynamic> buildRequestBody({
+    required LlmConfig config,
+    required List<Map<String, Object?>> messages,
+    double? temperature,
+    required bool withEffort,
+    required bool withTemperature,
+    List<Map<String, Object?>>? tools,
+    bool withJsonMode = false,
+    bool stream = false,
+    bool includeUsage = false,
+  }) {
+    return {
+      'model': config.model.trim(),
+      'messages': messages,
+      if (tools != null) 'tools': tools,
+      if (tools != null) 'tool_choice': 'auto',
+      if (withTemperature) 'temperature': temperature ?? config.temperature,
+      if (withEffort) 'reasoning_effort': config.thinking.effort,
+      if (config.maxOutputTokens != null)
+        (LlmConfig.usesMaxCompletionTokens(config.model)
+            ? 'max_completion_tokens'
+            : 'max_tokens'): config.maxOutputTokens,
+      if (withJsonMode) 'response_format': {'type': 'json_object'},
+      if (stream) 'stream': true,
+      if (stream && includeUsage) 'stream_options': {'include_usage': true},
+    };
+  }
 
   /// The list of models the endpoint offers, for the picker in settings.
   ///
@@ -222,23 +295,12 @@ class LlmService {
     }
     final response = await _getJson(
       uri: Uri.parse(_modelsEndpointOf(config)),
-      headers: {
-        'Authorization': 'Bearer ${config.apiKey.trim()}',
-        'Content-Type': 'application/json; charset=utf-8',
-      },
+      headers: authHeaders(config),
     );
     if (response.statusCode != 200) {
-      var detail = response.body;
-      try {
-        final decoded = jsonDecode(response.body);
-        if (decoded is Map && decoded['error'] is Map) {
-          final message = (decoded['error'] as Map)['message'];
-          if (message != null) detail = '$message';
-        }
-      } catch (_) {
-        // The raw body is more use than nothing.
-      }
-      throw LlmRequestException('获取模型列表失败（${response.statusCode}）：$detail');
+      throw LlmRequestException(
+        '获取模型列表失败（${response.statusCode}）：${extractErrorDetail(response.body)}',
+      );
     }
 
     Object? decoded;
@@ -279,14 +341,71 @@ class LlmService {
     return '$base/chat/completions';
   }
 
-  /// General chat completion helper returning raw String content
+  /// General chat completion helper returning raw String content.
+  /// When [onDelta] is supplied, streams tokens via SSE when supported.
   Future<String> chatCompletion({
     required LlmConfig config,
     required List<Map<String, String>> messages,
     double? temperature,
     bool jsonMode = false,
     CancellationToken? cancelToken,
+    void Function(String delta)? onDelta,
   }) async {
+    if (onDelta != null) {
+      if (!config.isValid) {
+        throw Exception('请先在设置中配置有效的 API Key 与大模型服务地址。');
+      }
+      if (cancelToken?.isCancelled == true) {
+        throw const LlmCancelledException();
+      }
+      var wantEffort = config.thinking.sendsEffort && !effortUnsupported(config);
+      var wantTemperature = !temperatureUnsupported(config);
+      var wantJsonMode =
+          jsonMode && !_jsonModeUnsupported.contains(_providerKey(config));
+      while (true) {
+        final body = buildRequestBody(
+          config: config,
+          messages: messages,
+          temperature: temperature,
+          withEffort: wantEffort,
+          withTemperature: wantTemperature,
+          withJsonMode: wantJsonMode,
+          stream: true,
+        );
+        try {
+          final result = await sendStreamedTurn(
+            config: config,
+            body: body,
+            cancelToken: cancelToken,
+            onTextDelta: onDelta,
+          );
+          final content = result.message['content']?.toString() ?? '';
+          if (content.isNotEmpty) return content;
+          throw Exception('模型返回了空响应');
+        } on LlmRequestException catch (error) {
+          final bad = error.statusCode == 400 || error.statusCode == 422;
+          if (!bad) rethrow;
+          final lower = error.message.toLowerCase();
+          if (wantEffort && lower.contains('reasoning')) {
+            markEffortUnsupported(config);
+            wantEffort = false;
+            continue;
+          }
+          if (wantTemperature && lower.contains('temperature')) {
+            markTemperatureUnsupported(config);
+            wantTemperature = false;
+            continue;
+          }
+          if (wantJsonMode) {
+            _jsonModeUnsupported.add(_providerKey(config));
+            wantJsonMode = false;
+            continue;
+          }
+          rethrow;
+        }
+      }
+    }
+
     final completion = await _complete(
       config: config,
       messages: messages,
@@ -295,6 +414,148 @@ class LlmService {
       cancelToken: cancelToken,
     );
     return completion.content;
+  }
+
+  /// Sends one already-built request body with SSE streaming, falling back to
+  /// regular JSON parsing if the server responds without `text/event-stream`.
+  Future<LlmStreamResult> sendStreamedTurn({
+    required LlmConfig config,
+    required Map<String, dynamic> body,
+    CancellationToken? cancelToken,
+    void Function(String delta)? onTextDelta,
+    void Function(String delta)? onReasoningDelta,
+  }) async {
+    final uri = Uri.parse(_endpointOf(config));
+    final headers = {
+      ...authHeaders(config),
+      'Accept': 'text/event-stream',
+    };
+    final payload = jsonEncode(body);
+    Object? lastError;
+    const maxAttempts = _maxRetries + 1;
+    var timeoutRetries = 0;
+
+    for (var attempt = 0; attempt < maxAttempts; attempt++) {
+      if (cancelToken?.isCancelled == true) {
+        throw const LlmCancelledException();
+      }
+      final isLastAttempt = attempt >= maxAttempts - 1;
+      final abort = Completer<void>();
+      void abortNow() {
+        if (!abort.isCompleted) abort.complete();
+      }
+
+      cancelToken?.whenCancelled.then((_) => abortNow());
+      final timer = Timer(_requestTimeout, abortNow);
+
+      try {
+        final request = http.AbortableRequest(
+          'POST',
+          uri,
+          abortTrigger: abort.future,
+        )
+          ..headers.addAll(headers)
+          ..body = payload;
+
+        final streamed = await _client.send(request);
+        if (streamed.statusCode != 200) {
+          final errResp = await http.Response.fromStream(streamed);
+          timer.cancel();
+          if (!isLastAttempt && _isRetryableStatus(errResp.statusCode)) {
+            await Future.delayed(_retryDelay(errResp, attempt));
+            continue;
+          }
+          throw LlmRequestException(
+            '模型服务返回 ${errResp.statusCode}：${extractErrorDetail(errResp.body)}',
+            statusCode: errResp.statusCode,
+          );
+        }
+
+        final contentType =
+            (streamed.headers['content-type'] ?? '').toLowerCase();
+        if (contentType.contains('text/event-stream')) {
+          final acc = OpenAiSseAccumulator(
+            onTextDelta: onTextDelta,
+            onReasoningDelta: onReasoningDelta,
+          );
+          final result = await acc.consume(streamed.stream);
+          timer.cancel();
+          return result;
+        }
+
+        // Some OpenAI-compatible proxies ignore `stream: true` and reply JSON.
+        final full = await http.Response.fromStream(streamed);
+        timer.cancel();
+        final decoded = jsonDecode(utf8.decode(full.bodyBytes));
+        final choices = decoded is Map ? decoded['choices'] : null;
+        if (choices is! List || choices.isEmpty) {
+          throw Exception('模型返回了空响应');
+        }
+        final first = choices.first;
+        if (first is! Map || first['message'] is! Map) {
+          throw Exception('模型返回了无法识别的响应');
+        }
+        final message = Map<String, Object?>.from(first['message'] as Map);
+        final reasoning = message['reasoning_content']?.toString();
+        if (reasoning != null && reasoning.isNotEmpty) {
+          onReasoningDelta?.call(reasoning);
+        }
+        final content = message['content'];
+        if (content is String && content.isNotEmpty) {
+          onTextDelta?.call(content);
+        }
+        final usage = decoded is Map ? decoded['usage'] : null;
+        return LlmStreamResult(
+          message: message,
+          finishReason: first['finish_reason'] as String?,
+          promptTokens:
+              usage is Map ? (usage['prompt_tokens'] as num?)?.toInt() : null,
+          completionTokens:
+              usage is Map ? (usage['completion_tokens'] as num?)?.toInt() : null,
+        );
+      } on LlmCancelledException {
+        timer.cancel();
+        rethrow;
+      } on LlmRequestException {
+        timer.cancel();
+        rethrow;
+      } on http.RequestAbortedException {
+        timer.cancel();
+        if (cancelToken?.isCancelled == true) {
+          throw const LlmCancelledException();
+        }
+        if (isLastAttempt || timeoutRetries >= _maxTimeoutRetries) {
+          throw LlmRequestException(_timeoutMessage);
+        }
+        timeoutRetries++;
+        lastError = 'timeout';
+        await Future.delayed(_retryBackoff * (attempt + 1));
+      } catch (e) {
+        timer.cancel();
+        if (cancelToken?.isCancelled == true) {
+          throw const LlmCancelledException();
+        }
+        if (e is TimeoutException) {
+          if (isLastAttempt || timeoutRetries >= _maxTimeoutRetries) {
+            throw LlmRequestException(_timeoutMessage);
+          }
+          timeoutRetries++;
+          lastError = 'timeout';
+          await Future.delayed(_retryBackoff * (attempt + 1));
+          continue;
+        }
+        if (e is http.ClientException) {
+          lastError = e;
+          if (!isLastAttempt) {
+            await Future.delayed(_retryBackoff * (attempt + 1));
+          }
+        } else {
+          rethrow;
+        }
+      }
+    }
+
+    throw LlmRequestException('大模型请求失败（已重试 ${maxAttempts - 1} 次）: $lastError');
   }
 
   /// Sends one already-built request body and returns the raw 200 response.
@@ -308,31 +569,16 @@ class LlmService {
     CancellationToken? cancelToken,
   }) async {
     final uri = Uri.parse(_endpointOf(config));
-    final headers = {
-      'Content-Type': 'application/json; charset=utf-8',
-      'Authorization': 'Bearer ${config.apiKey.trim()}',
-    };
     final response = await _postJson(
       uri: uri,
-      headers: headers,
+      headers: authHeaders(config),
       body: jsonEncode(body),
       cancelToken: cancelToken,
     );
     if (response.statusCode == 200) return response;
 
-    var detail = response.body;
-    try {
-      final decoded = jsonDecode(response.body);
-      if (decoded is Map) {
-        final error = decoded['error'];
-        final message = error is Map ? error['message'] : null;
-        if (message != null) detail = '$message';
-      }
-    } catch (_) {
-      // Keep the raw body: it is more informative than nothing.
-    }
     throw LlmRequestException(
-      '模型服务返回 ${response.statusCode}：$detail',
+      '模型服务返回 ${response.statusCode}：${extractErrorDetail(response.body)}',
       statusCode: response.statusCode,
     );
   }
@@ -353,26 +599,26 @@ class LlmService {
     }
 
     final uri = Uri.parse(_endpointOf(config));
-    final headers = {
-      'Content-Type': 'application/json; charset=utf-8',
-      'Authorization': 'Bearer ${config.apiKey.trim()}',
-    };
+    final headers = authHeaders(config);
     final key = _providerKey(config);
     final wantJsonMode = jsonMode && !_jsonModeUnsupported.contains(key);
 
     final wantEffort = config.thinking.sendsEffort && !effortUnsupported(config);
+    final wantTemperature = !temperatureUnsupported(config);
 
-    Map<String, dynamic> bodyFor(bool withJsonMode, {bool? withEffort}) => {
-          'model': config.model.trim(),
-          'messages': messages,
-          'temperature': temperature ?? config.temperature,
-          if (withEffort ?? wantEffort) 'reasoning_effort': config.thinking.effort,
-          if (config.maxOutputTokens != null)
-            (LlmConfig.usesMaxCompletionTokens(config.model)
-                ? 'max_completion_tokens'
-                : 'max_tokens'): config.maxOutputTokens,
-          if (withJsonMode) 'response_format': {'type': 'json_object'},
-        };
+    Map<String, dynamic> bodyFor(
+      bool withJsonMode, {
+      bool? withEffort,
+      bool? withTemperature,
+    }) =>
+        buildRequestBody(
+          config: config,
+          messages: messages,
+          temperature: temperature,
+          withEffort: withEffort ?? wantEffort,
+          withTemperature: withTemperature ?? wantTemperature,
+          withJsonMode: withJsonMode,
+        );
 
     http.Response response;
     try {
@@ -441,14 +687,9 @@ class LlmService {
     }
 
     if (response.statusCode != 200) {
-      var errDetail = response.body;
-      try {
-        final errJson = jsonDecode(response.body);
-        if (errJson['error']?['message'] != null) {
-          errDetail = errJson['error']['message'];
-        }
-      } catch (_) {}
-      throw Exception('模型服务响应错误 (${response.statusCode}): $errDetail');
+      throw Exception(
+        '模型服务响应错误 (${response.statusCode}): ${extractErrorDetail(response.body)}',
+      );
     }
 
     final decoded = jsonDecode(utf8.decode(response.bodyBytes));
@@ -470,6 +711,7 @@ class LlmService {
     required String title,
     required String url,
     required String content,
+    void Function(String delta)? onDelta,
   }) async {
     const systemPrompt = '''
 你是一个专业的高效信息提炼大师。你的目标是帮助移动端用户在 30 秒内快速抓住网页精髓。
@@ -500,6 +742,7 @@ $content
         {'role': 'user', 'content': userMessage},
       ],
       temperature: 0.3,
+      onDelta: onDelta,
     );
   }
 
@@ -535,83 +778,6 @@ $content
       ],
       temperature: 0.4,
     );
-  }
-
-  /// AI UserScript Generator
-  Future<Map<String, String>> generateUserScript({
-    required LlmConfig config,
-    required String prompt,
-    required String currentUrl,
-    required String pageTitle,
-    String? domSnippet,
-  }) async {
-    const systemPrompt = '''
-你是一个资深前端开发专家与浏览器油猴脚本（UserScript）编写大师。
-用户希望为移动端网页编写一段定制化的自动化/去广告/样式调整 JavaScript 脚本。
-
-请根据用户的需求描述，生成安全、精炼且鲁棒性强的 UserScript 代码。
-
-### 输出格式规范：
-你必须直接返回一个合法的 JSON 字符串（严禁包含 markdown 标记如 ```json，不要输出任何多余寒暄）：
-{
-  "name": "脚本名称（如：知乎去弹窗与自动展开）",
-  "description": "脚本作用的一句话简介（如：自动关闭知乎登录拦截遮罩并展开全文）",
-  "matchPattern": "最佳域名匹配模式（如：*://*.zhihu.com/* 或 *twitter.com* 或 *）",
-  "code": "完整的匿名自执行 JavaScript 脚本。务必使用 (() => { try { ... } catch (e) { console.error('[UserScript]', e); } })(); 包裹；对于动态渲染的内容，使用 MutationObserver 或轮询/延迟处理；绝不引起页面死循环。"
-}
-''';
-
-    final userMessage = '''
-【用户需求】: $prompt
-【当前网页标题】: $pageTitle
-【当前网页链接】: $currentUrl
-${domSnippet != null && domSnippet.isNotEmpty ? '【网页结构参考】:\n$domSnippet' : ''}
-''';
-
-    final raw = await chatCompletion(
-      config: config,
-      messages: [
-        {'role': 'system', 'content': systemPrompt},
-        {'role': 'user', 'content': userMessage},
-      ],
-      temperature: 0.2,
-    );
-
-    try {
-      String cleaned = raw.trim();
-      if (cleaned.startsWith('```json')) {
-        cleaned = cleaned.substring(7);
-      }
-      if (cleaned.startsWith('```')) {
-        cleaned = cleaned.substring(3);
-      }
-      if (cleaned.endsWith('```')) {
-        cleaned = cleaned.substring(0, cleaned.length - 3);
-      }
-      cleaned = cleaned.trim();
-      final decoded = jsonDecode(cleaned) as Map<String, dynamic>;
-      return {
-        'name': decoded['name']?.toString() ?? '自定义 AI 脚本',
-        'description': decoded['description']?.toString() ?? prompt,
-        'matchPattern': decoded['matchPattern']?.toString() ??
-            (currentUrl.isNotEmpty
-                ? '*${Uri.tryParse(currentUrl)?.host ?? ""}*'
-                : '*'),
-        'code': decoded['code']?.toString() ?? '// 脚本生成异常',
-      };
-    } catch (e) {
-      // Fallback if model returned plain code or non-JSON
-      return {
-        'name': '自定义 AI 脚本',
-        'description': prompt,
-        'matchPattern': currentUrl.isNotEmpty
-            ? '*${Uri.tryParse(currentUrl)?.host ?? ""}*'
-            : '*',
-        'code': raw.startsWith('(')
-            ? raw
-            : '(() => {\n  try {\n    $raw\n  } catch (e) { console.error(e); }\n})();',
-      };
-    }
   }
 
   void dispose() {

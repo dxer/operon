@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../config/app_theme.dart';
+import '../../config/app_tokens.dart';
 import '../../models/agent_state.dart';
 import '../../utils/url_utils.dart';
 
@@ -52,7 +53,7 @@ class AgentConfirmationCard extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(12, 11, 12, 6),
         decoration: BoxDecoration(
           color: AppTheme.dangerOf(isDark).withValues(alpha: isDark ? 0.12 : 0.06),
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(AppRadius.icon),
           border: Border.all(
             color: AppTheme.dangerOf(isDark).withValues(alpha: 0.34),
           ),
@@ -80,7 +81,7 @@ class AgentConfirmationCard extends StatelessWidget {
               Text(
                 '将发送',
                 style: TextStyle(
-                  fontSize: 10,
+                  fontSize: 11,
                   fontWeight: FontWeight.w600,
                   letterSpacing: 0.2,
                   color: muted,
@@ -93,7 +94,7 @@ class AgentConfirmationCard extends StatelessWidget {
                   color: isDark
                       ? Colors.white.withValues(alpha: 0.06)
                       : Colors.black.withValues(alpha: 0.04),
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(AppRadius.chip),
                 ),
                 child: Text(
                   payload,
@@ -113,7 +114,7 @@ class AgentConfirmationCard extends StatelessWidget {
                 meta,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(fontSize: 10.5, color: muted),
+                style: TextStyle(fontSize: 11, color: muted),
               ),
             ],
             const SizedBox(height: 6),
@@ -127,22 +128,22 @@ class AgentConfirmationCard extends StatelessWidget {
                     side: BorderSide(color: hairline),
                     minimumSize: const Size(0, 44),
                     padding: const EdgeInsets.symmetric(horizontal: 12),
-                    textStyle: const TextStyle(fontSize: 11.5),
+                    textStyle: const TextStyle(fontSize: 12),
                     visualDensity: VisualDensity.compact,
                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ),
                   child: Text(handoff ? '跳过这一步' : '取消任务'),
                 ),
                 const SizedBox(width: 8),
-                ElevatedButton(
+                FilledButton(
                   onPressed: onConfirm,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppTheme.accent,
-                    foregroundColor: Colors.black,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppTheme.accentOf(isDark),
+                    foregroundColor: isDark ? Colors.black : Colors.white,
                     minimumSize: const Size(0, 44),
                     padding: const EdgeInsets.symmetric(horizontal: 14),
                     textStyle: const TextStyle(
-                      fontSize: 11.5,
+                      fontSize: 12,
                       fontWeight: FontWeight.w600,
                     ),
                     visualDensity: VisualDensity.compact,
@@ -229,16 +230,13 @@ class AgentConfirmationSheet extends StatelessWidget {
             decoration: BoxDecoration(
               color: bg,
               borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(20),
-                bottom: Radius.circular(20),
+                top: Radius.circular(AppRadius.sheet),
+                bottom: Radius.circular(AppRadius.sheet),
               ),
-              boxShadow: const [
-                BoxShadow(
-                  color: Colors.black26,
-                  blurRadius: 18,
-                  offset: Offset(0, -4),
-                ),
-              ],
+              border: Border.all(
+                color: AppInk.hairline(isDark),
+                width: AppStroke.hairline,
+              ),
             ),
             padding: const EdgeInsets.fromLTRB(14, 8, 14, 10),
             child: Column(
@@ -250,7 +248,7 @@ class AgentConfirmationSheet extends StatelessWidget {
                     width: 36,
                     height: 4,
                     decoration: BoxDecoration(
-                      color: isDark ? Colors.white24 : Colors.black12,
+                      color: AppInk.hairline(isDark),
                       borderRadius: BorderRadius.circular(2),
                     ),
                   ),

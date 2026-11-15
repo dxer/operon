@@ -3,16 +3,21 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 
 import '../../config/app_theme.dart';
+import '../../config/app_tokens.dart';
 import '../../models/agent_state.dart';
 
-/// One timeline for a run: what the model was thinking, what it did, and what
-/// the page did back.
+/// The run, as a timeline: what the model thought, what it did, and what the
+/// page did back.
 ///
-/// The old panel kept the reasoning in a card at the top and the actions in a
-/// log sheet below, so following a run meant reading two places and pairing
-/// them by eye. Here they are the same list, and an action is a card holding its
-/// own receipt: the three outcomes stay separate lines because "点到了",
-/// "页面动了" and "做成了" are three different answers.
+/// This used to be a stack of self-contained cards, one per call. A card is a
+/// good shape for a thing you read once; a run is a sequence, and a stack of
+/// cards hides the only question the user actually has while it runs — *where
+/// are we now*. A rail with nodes answers it: one glance down the left edge
+/// shows how far the line goes and which node is still breathing.
+///
+/// It renders inline rather than as its own scroll view, because the panel is
+/// the scroll view. A list inside a list is how a panel ends up with two
+/// thumbs' worth of scrollable regions.
 class StepLogView extends StatelessWidget {
   const StepLogView({super.key, required this.logs});
 
@@ -20,65 +25,231 @@ class StepLogView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final subtle = theme.colorScheme.onSurface.withValues(alpha: 0.38);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     if (logs.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: Text(
-            '尚未开始执行，输入任务指令后点击开始',
-            style: TextStyle(color: subtle, fontSize: 13),
-          ),
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: AppSpace.x5),
+        child: Text(
+          '还没有开始。发出指令后，每一步都会出现在这里。',
+          textAlign: TextAlign.center,
+          style: AppType.caption.copyWith(color: AppInk.tertiary(isDark)),
         ),
       );
     }
 
-    return ListView.builder(
-      reverse: true,
-      shrinkWrap: true,
-      physics: const ClampingScrollPhysics(),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      itemCount: logs.length,
-      itemBuilder: (context, index) {
-        final log = logs[logs.length - 1 - index];
-        final isNewest = index == 0;
-        return Padding(
-          padding: const EdgeInsets.symmetric(vertical: 3),
-          child: log.kind == LogKind.thought
-              ? _ThoughtRow(log: log)
-              : _LogRow(key: ObjectKey(log), log: log, isNewest: isNewest),
-        );
-      },
+    // Newest at the bottom: a timeline reads downwards, and appending is what
+    // a run does.
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (var i = 0; i < logs.length; i++)
+          _TimelineRow(
+            key: ObjectKey(logs[i]),
+            log: logs[i],
+            isLast: i == logs.length - 1,
+            isDark: isDark,
+          ),
+      ],
     );
   }
 }
 
-/// What the model was thinking: same timeline, less furniture.
-class _ThoughtRow extends StatelessWidget {
-  const _ThoughtRow({required this.log});
+class _TimelineRow extends StatefulWidget {
+  const _TimelineRow({
+    super.key,
+    required this.log,
+    required this.isLast,
+    required this.isDark,
+  });
 
   final AgentLogItem log;
 
+  /// The last known step: its rail stops instead of leading nowhere.
+  final bool isLast;
+  final bool isDark;
+
+  @override
+  State<_TimelineRow> createState() => _TimelineRowState();
+}
+
+class _TimelineRowState extends State<_TimelineRow>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _pulse;
+  bool _open = false;
+
+  AgentLogItem get _log => widget.log;
+
+  /// An action with no receipt yet is still out there.
+  bool get _running => _log.kind == LogKind.action && _log.evidence == null;
+
+  @override
+  void initState() {
+    super.initState();
+    // Eager: a lazily created controller would be born inside dispose() for
+    // rows that never animated.
+    _pulse = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    );
+    _syncPulse();
+  }
+
+  @override
+  void didUpdateWidget(covariant _TimelineRow oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _syncPulse();
+  }
+
+  void _syncPulse() {
+    if (_running && !_pulse.isAnimating) {
+      _pulse.repeat(reverse: true);
+    } else if (!_running && _pulse.isAnimating) {
+      _pulse.stop();
+      _pulse.value = 0;
+    }
+  }
+
+  @override
+  void dispose() {
+    _pulse.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final muted = theme.colorScheme.onSurface.withValues(alpha: 0.62);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(30, 4, 8, 4),
+    final isDark = widget.isDark;
+    final evidence = _log.evidence;
+    // `isError` is what the loop sets; `kind` is what a caller may set. Either
+    // one means the row is a failure.
+    final kind = _log.isError ? LogKind.error : _log.kind;
+    final (color, label) = switch (kind) {
+      LogKind.thought => (AppInk.tertiary(isDark), '思考'),
+      LogKind.action => (AppTheme.primaryOf(isDark), '动作'),
+      LogKind.result => (AppTheme.accentOf(isDark), '结果'),
+      LogKind.error => (AppTheme.dangerOf(isDark), '错误'),
+      LogKind.note => (AppInk.tertiary(isDark), '备注'),
+    };
+
+    final summary = evidence?.summary ?? '';
+    final hasDetail = summary.isNotEmpty ||
+        (evidence?.changes.isNotEmpty ?? false) ||
+        (evidence?.note?.isNotEmpty ?? false) ||
+        (evidence?.image?.isNotEmpty ?? false) ||
+        evidence?.urlChanged == true ||
+        (_log.detail?.isNotEmpty ?? false);
+
+    // Thinking is context, not an event: it gets less furniture and no node
+    // weight, so the eye lands on actions and results first.
+    final quiet = kind == LogKind.thought;
+
+    return IntrinsicHeight(
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Padding(
-            padding: const EdgeInsets.only(top: 5),
-            child: Icon(Icons.auto_awesome_rounded, size: 13, color: muted),
+          SizedBox(
+            width: 18,
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: _Node(
+                    kind: kind,
+                    color: color,
+                    running: _running,
+                    pulse: _pulse,
+                  ),
+                ),
+                // The rail: one hairline, drawn by the row that knows whether
+                // anything follows it.
+                Expanded(
+                  child: Container(
+                    width: AppStroke.hairline,
+                    margin: const EdgeInsets.symmetric(vertical: 2),
+                    color: widget.isLast
+                        ? Colors.transparent
+                        : AppInk.hairline(isDark),
+                  ),
+                ),
+              ],
+            ),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: AppSpace.x3),
           Expanded(
-            child: Text(
-              log.title,
-              style: TextStyle(fontSize: 12.5, height: 1.45, color: muted),
+            child: Padding(
+              padding: EdgeInsets.only(bottom: widget.isLast ? 0 : AppSpace.x4),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  InkWell(
+                    onTap: hasDetail ? () => setState(() => _open = !_open) : null,
+                    borderRadius: BorderRadius.circular(AppRadius.chip),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Text(
+                              label,
+                              style: AppType.micro.copyWith(
+                                color: color,
+                                letterSpacing: 0.6,
+                              ),
+                            ),
+                            const Spacer(),
+                            if (hasDetail)
+                              Icon(
+                                _open
+                                    ? Icons.keyboard_arrow_up_rounded
+                                    : Icons.keyboard_arrow_down_rounded,
+                                size: 16,
+                                color: AppInk.tertiary(isDark),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          _log.title,
+                          style: AppType.body.copyWith(
+                            color: quiet
+                                ? AppInk.secondary(isDark)
+                                : (_log.isError
+                                    ? AppTheme.dangerOf(isDark)
+                                    : AppInk.primary(isDark)),
+                            fontWeight: quiet ? FontWeight.w400 : FontWeight.w500,
+                          ),
+                        ),
+                        if (summary.isNotEmpty) ...[
+                          const SizedBox(height: AppSpace.x2 - 2),
+                          _OutcomeLine(evidence: evidence!, isDark: isDark),
+                        ] else if (_running) ...[
+                          const SizedBox(height: AppSpace.x2),
+                          _Skeleton(pulse: _pulse, isDark: isDark),
+                        ] else if (_log.detail != null) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            _log.detail!,
+                            maxLines: _open ? null : 2,
+                            overflow: _open ? null : TextOverflow.ellipsis,
+                            style: AppType.caption.copyWith(
+                              color: AppInk.secondary(isDark),
+                              height: 1.5,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  if (_open && hasDetail) ...[
+                    const SizedBox(height: AppSpace.x2),
+                    _Detail(
+                      evidence: evidence,
+                      detail: _log.detail,
+                      isDark: isDark,
+                    ),
+                  ],
+                ],
+              ),
             ),
           ),
         ],
@@ -87,179 +258,97 @@ class _ThoughtRow extends StatelessWidget {
   }
 }
 
-class _LogRow extends StatefulWidget {
-  const _LogRow({super.key, required this.log, required this.isNewest});
+/// The node on the rail. Its shape is its kind, so the timeline can be scanned
+/// without reading a word.
+class _Node extends StatelessWidget {
+  const _Node({
+    required this.kind,
+    required this.color,
+    required this.running,
+    required this.pulse,
+  });
 
-  final AgentLogItem log;
-
-  /// The row still running: it says so instead of pretending to be finished.
-  final bool isNewest;
-
-  @override
-  State<_LogRow> createState() => _LogRowState();
-}
-
-class _LogRowState extends State<_LogRow> {
-  bool _open = false;
+  final LogKind kind;
+  final Color color;
+  final bool running;
+  final Animation<double> pulse;
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final theme = Theme.of(context);
-    final log = widget.log;
-    final evidence = log.evidence;
-
-    final (color, icon) = switch (log.kind) {
-      LogKind.error => (AppTheme.dangerOf(isDark), Icons.error_outline_rounded),
-      LogKind.result => (AppTheme.primaryOf(isDark), Icons.check_circle_outline_rounded),
-      LogKind.action =>
-        (AppTheme.primaryOf(isDark), Icons.ads_click_rounded),
-      _ => (AppTheme.neutralOf(isDark), Icons.info_outline_rounded),
-    };
-
-    final running = log.kind == LogKind.action && evidence == null && widget.isNewest;
-    final summary = evidence?.summary ?? '';
-    final hasDetail = summary.isNotEmpty ||
-        (evidence?.changes.isNotEmpty ?? false) ||
-        (evidence?.note?.isNotEmpty ?? false) ||
-        (evidence?.image?.isNotEmpty ?? false) ||
-        evidence?.urlChanged == true ||
-        (log.detail?.isNotEmpty ?? false);
-    final shownDetail = _open;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        InkWell(
-          onTap: hasDetail ? () => setState(() => _open = !_open) : null,
-          borderRadius: BorderRadius.circular(10),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(0, 6, 6, 6),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _Badge(log: log, color: color, icon: icon, running: running),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(
-                            child: Text(
-                              log.title,
-                              style: TextStyle(
-                                fontSize: 13,
-                                height: 1.35,
-                                fontWeight: FontWeight.w600,
-                                color: log.isError
-                                    ? AppTheme.dangerOf(isDark)
-                                    : theme.colorScheme.onSurface,
-                              ),
-                            ),
-                          ),
-                          if (hasDetail)
-                            Icon(
-                              shownDetail
-                                  ? Icons.keyboard_arrow_up_rounded
-                                  : Icons.keyboard_arrow_down_rounded,
-                              size: 16,
-                              color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
-                            ),
-                        ],
-                      ),
-                      if (summary.isNotEmpty) ...[
-                        const SizedBox(height: 3),
-                        _OutcomeLine(evidence: evidence!, isDark: isDark),
-                      ] else if (running) ...[
-                        const SizedBox(height: 3),
-                        Text(
-                          '执行中…',
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: theme.colorScheme.onSurface.withValues(alpha: 0.45),
-                          ),
-                        ),
-                      ] else if (log.detail != null && !shownDetail) ...[
-                        const SizedBox(height: 2),
-                        Text(
-                          log.detail!,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 11,
-                            height: 1.4,
-                            color: theme.colorScheme.onSurface.withValues(alpha: 0.55),
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-              ],
-            ),
+    if (running) {
+      return AnimatedBuilder(
+        animation: pulse,
+        builder: (context, _) => Container(
+          width: 9,
+          height: 9,
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.35 + 0.45 * pulse.value),
+            shape: BoxShape.circle,
           ),
         ),
-        if (shownDetail)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(32, 0, 8, 6),
-            child: _Detail(evidence: evidence, detail: log.detail, isDark: isDark),
+      );
+    }
+
+    switch (kind) {
+      case LogKind.result:
+        return Icon(Icons.check_rounded, size: 11, color: color);
+      case LogKind.error:
+        return Icon(Icons.priority_high_rounded, size: 11, color: color);
+      case LogKind.action:
+        return Container(
+          width: 9,
+          height: 9,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        );
+      case LogKind.thought:
+      case LogKind.note:
+        return Container(
+          width: 9,
+          height: 9,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(color: color, width: 1.5),
           ),
-        if (log.kind != LogKind.result)
-          Divider(
-            height: 1,
-            indent: 32,
-            color: theme.colorScheme.onSurface.withValues(alpha: 0.06),
-          ),
-      ],
-    );
+        );
+    }
   }
 }
 
-class _Badge extends StatelessWidget {
-  const _Badge({
-    required this.log,
-    required this.color,
-    required this.icon,
-    required this.running,
-  });
+/// What a running step looks like: enough shape to read as "busy", not enough
+/// to look like content.
+class _Skeleton extends StatelessWidget {
+  const _Skeleton({required this.pulse, required this.isDark});
 
-  final AgentLogItem log;
-  final Color color;
-  final IconData icon;
-  final bool running;
+  final Animation<double> pulse;
+  final bool isDark;
 
   @override
   Widget build(BuildContext context) {
-    final label = log.kind == LogKind.action && log.step > 0 ? '${log.step}' : null;
-    return SizedBox(
-      width: 22,
-      height: 22,
-      child: running
-          ? Padding(
-              padding: const EdgeInsets.all(4),
-              child: CircularProgressIndicator(strokeWidth: 1.8, color: color),
-            )
-          : Container(
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.14),
-                shape: BoxShape.circle,
-              ),
-              alignment: Alignment.center,
-              child: label == null
-                  ? Icon(icon, size: 12, color: color)
-                  : Text(
-                      label,
-                      style: TextStyle(
-                        fontSize: 10.5,
-                        height: 1,
-                        fontWeight: FontWeight.w700,
-                        color: color,
-                      ),
+    return AnimatedBuilder(
+      animation: pulse,
+      builder: (context, _) {
+        final tone = AppInk.tertiary(isDark)
+            .withValues(alpha: 0.10 + 0.10 * pulse.value);
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            for (final width in [0.7, 0.4])
+              Padding(
+                padding: const EdgeInsets.only(bottom: AppSpace.x1 + 2),
+                child: FractionallySizedBox(
+                  widthFactor: width,
+                  child: Container(
+                    height: 9,
+                    decoration: BoxDecoration(
+                      color: tone,
+                      borderRadius: BorderRadius.circular(AppRadius.chip - 4),
                     ),
-            ),
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
     );
   }
 }
@@ -273,7 +362,6 @@ class _OutcomeLine extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final chips = <Widget>[
       if (evidence.deliveryLabel != null)
         _Chip(
@@ -287,7 +375,7 @@ class _OutcomeLine extends StatelessWidget {
           text: evidence.reactionLabel!,
           color: evidence.pageReacted == true
               ? AppTheme.primaryOf(isDark)
-              : AppTheme.neutralOf(isDark),
+              : AppInk.tertiary(isDark),
         ),
       if (evidence.expectationLabel != null)
         _Chip(
@@ -298,22 +386,27 @@ class _OutcomeLine extends StatelessWidget {
         ),
       if (evidence.changes.isNotEmpty)
         _Chip(
-          text: '页面变化 ${evidence.changes.length} 行',
-          color: AppTheme.accentOf(isDark),
+          text: '变化 ${evidence.changes.length} 行',
+          color: AppInk.secondary(isDark),
         ),
       if (evidence.image != null)
-        _Chip(text: '截图', color: AppTheme.accentOf(isDark)),
+        _Chip(text: '截图', color: AppInk.secondary(isDark)),
       if (evidence.elapsedMs != null)
         Text(
           '${evidence.elapsedMs}ms',
-          style: TextStyle(
-            fontSize: 10.5,
-            color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
+          style: AppType.micro.copyWith(
+            color: AppInk.tertiary(isDark),
+            fontWeight: FontWeight.w400,
           ),
         ),
     ];
     if (chips.isEmpty) return const SizedBox.shrink();
-    return Wrap(spacing: 6, runSpacing: 4, crossAxisAlignment: WrapCrossAlignment.center, children: chips);
+    return Wrap(
+      spacing: AppSpace.x1 + 2,
+      runSpacing: AppSpace.x1,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: chips,
+    );
   }
 }
 
@@ -329,11 +422,11 @@ class _Chip extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(5),
+        borderRadius: BorderRadius.circular(AppRadius.chip - 3),
       ),
       child: Text(
         text,
-        style: TextStyle(fontSize: 10.5, height: 1.3, fontWeight: FontWeight.w600, color: color),
+        style: AppType.micro.copyWith(color: color, fontWeight: FontWeight.w500),
       ),
     );
   }
@@ -341,7 +434,11 @@ class _Chip extends StatelessWidget {
 
 /// Everything behind the arrow: what changed, what the layer noted, the shot.
 class _Detail extends StatelessWidget {
-  const _Detail({required this.evidence, required this.detail, required this.isDark});
+  const _Detail({
+    required this.evidence,
+    required this.detail,
+    required this.isDark,
+  });
 
   final StepEvidence? evidence;
   final String? detail;
@@ -349,22 +446,28 @@ class _Detail extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final muted = theme.colorScheme.onSurface.withValues(alpha: 0.6);
+    final muted = AppInk.secondary(isDark);
     final changes = evidence?.changes ?? const <String>[];
     final parts = <Widget>[];
 
     if (evidence?.urlChanged == true) {
-      parts.add(_Line(label: '地址', value: '${evidence!.urlBefore} → ${evidence!.urlAfter}', muted: muted));
+      parts.add(_Line(
+        label: '地址',
+        value: '${evidence!.urlBefore} → ${evidence!.urlAfter}',
+        muted: muted,
+      ));
     }
     if (changes.isNotEmpty) {
       parts.add(
         Container(
           width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpace.x2,
+            vertical: AppSpace.x1 + 2,
+          ),
           decoration: BoxDecoration(
-            color: theme.colorScheme.onSurface.withValues(alpha: 0.04),
-            borderRadius: BorderRadius.circular(7),
+            color: AppInk.sunken(isDark),
+            borderRadius: BorderRadius.circular(AppRadius.chip),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -372,8 +475,7 @@ class _Detail extends StatelessWidget {
               for (final line in changes.take(12))
                 Text(
                   line,
-                  style: TextStyle(
-                    fontSize: 11,
+                  style: AppType.caption.copyWith(
                     height: 1.5,
                     fontFamily: 'monospace',
                     color: line.startsWith('+')
@@ -384,7 +486,10 @@ class _Detail extends StatelessWidget {
                   ),
                 ),
               if (changes.length > 12)
-                Text('…还有 ${changes.length - 12} 行', style: TextStyle(fontSize: 10.5, color: muted)),
+                Text(
+                  '…还有 ${changes.length - 12} 行',
+                  style: AppType.caption.copyWith(color: AppInk.tertiary(isDark)),
+                ),
             ],
           ),
         ),
@@ -399,13 +504,15 @@ class _Detail extends StatelessWidget {
     final image = evidence?.image;
     if (image != null && image.isNotEmpty) {
       parts.add(ClipRRect(
-        borderRadius: BorderRadius.circular(7),
+        borderRadius: BorderRadius.circular(AppRadius.chip),
         child: Image.memory(
           base64Decode(image),
           fit: BoxFit.fitWidth,
           gaplessPlayback: true,
-          errorBuilder: (context, error, stack) =>
-              Text('截图无法显示', style: TextStyle(fontSize: 11, color: muted)),
+          errorBuilder: (context, error, stack) => Text(
+            '截图无法显示',
+            style: AppType.caption.copyWith(color: muted),
+          ),
         ),
       ));
     }
@@ -414,7 +521,7 @@ class _Detail extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         for (var i = 0; i < parts.length; i++) ...[
-          if (i > 0) const SizedBox(height: 6),
+          if (i > 0) const SizedBox(height: AppSpace.x1 + 2),
           parts[i],
         ],
       ],
@@ -434,12 +541,12 @@ class _Line extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: TextStyle(fontSize: 10.5, color: muted)),
-        const SizedBox(width: 6),
+        Text(label, style: AppType.caption.copyWith(color: muted)),
+        const SizedBox(width: AppSpace.x1 + 2),
         Expanded(
           child: Text(
             value,
-            style: TextStyle(fontSize: 11, height: 1.4, color: muted),
+            style: AppType.caption.copyWith(color: muted, height: 1.5),
           ),
         ),
       ],

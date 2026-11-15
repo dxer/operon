@@ -73,6 +73,10 @@ class FakeDevTools {
 
   FakePage get page => pages.first;
 
+  /// Opens another tab, the way the app's tab strip would. Used by the tests
+  /// that check the layer follows a tab it created.
+  void addPage(FakePage page) => pages.add(page);
+
   /// Which page a socket is driving: each target has its own WebSocket path.
   final Map<Socket, FakePage> _socketPage = {};
 

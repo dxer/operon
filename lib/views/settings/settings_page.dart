@@ -1,20 +1,17 @@
 import 'package:flutter/material.dart';
 import '../../config/app_theme.dart';
-import '../../services/storage_service.dart';
-import '../../services/theme_service.dart';
+import '../../config/app_tokens.dart';
 import '../../services/app_version_service.dart';
-import 'general_settings_page.dart';
-import 'appearance_settings_page.dart';
-import 'browsing_settings_page.dart';
+import '../widgets/operon_list_row.dart';
+import 'about_settings_page.dart';
+import 'agent_prompts_page.dart';
 import 'ai_engine_settings_page.dart';
 import 'ai_policy_settings_page.dart';
-import 'agent_history_page.dart';
-import 'agent_prompts_page.dart';
-import 'user_scripts_page.dart';
-import 'about_settings_page.dart';
+import 'appearance_settings_page.dart';
+import 'browsing_settings_page.dart';
+import 'general_settings_page.dart';
 
 class SettingsPage extends StatefulWidget {
-
   /// Keeps a running agent in sync when the policy switch changes here.
   final ValueChanged<bool>? onSafeModeChanged;
 
@@ -25,66 +22,38 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
-  late StorageService _storage;
-  late ThemeService _themeService;
-  bool _isLoading = true;
-
   @override
   void initState() {
     super.initState();
-    _loadSettings();
+    _loadVersion();
   }
 
-  Future<void> _loadSettings() async {
-    _storage = await StorageService.getInstance();
-    _themeService = await ThemeService.getInstance();
+  Future<void> _loadVersion() async {
     await AppVersionService.load();
-    if (!mounted) return;
-    setState(() {
-      _isLoading = false;
-    });
-  }
-
-
-
-  Future<void> _openHistory() async {
-    await Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => const AgentHistoryPage()),
-    );
-    if (!mounted) return;
-    setState(() {});
-  }
-
-  Future<void> _openPrompts() async {
-    await Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => const AgentPromptsPage()),
-    );
-    if (!mounted) return;
-    setState(() {});
+    if (mounted) setState(() {});
   }
 
   Widget _buildSection(String title, List<Widget> rows) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final cardColor = isDark ? AppTheme.darkCard : AppTheme.lightCard;
-    final borderColor = isDark ? AppTheme.darkBorder : AppTheme.lightBorder;
-    final onSurface = Theme.of(context).colorScheme.onSurface;
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: 18),
+      padding: const EdgeInsets.only(bottom: AppSpace.x4),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(6, 2, 6, 8),
+            padding: const EdgeInsets.fromLTRB(
+              AppSpace.x3,
+              0,
+              AppSpace.x3,
+              AppSpace.x1 + 2,
+            ),
             child: Text(
               title,
-              style: TextStyle(
-                fontSize: 11.5,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 0.4,
-                color: onSurface.withValues(alpha: 0.52),
+              style: AppType.caption.copyWith(
+                color: AppInk.tertiary(isDark),
+                fontWeight: FontWeight.w500,
               ),
             ),
           ),
@@ -92,18 +61,21 @@ class _SettingsPageState extends State<SettingsPage> {
             color: cardColor,
             clipBehavior: Clip.antiAlias,
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-              side: BorderSide(color: borderColor, width: 0.8),
+              borderRadius: BorderRadius.circular(AppRadius.icon),
+              side: BorderSide(
+                color: AppInk.hairline(isDark),
+                width: AppStroke.hairline,
+              ),
             ),
             child: Column(
               children: [
                 for (var index = 0; index < rows.length; index++) ...[
                   if (index > 0)
                     Divider(
-                      height: 0.8,
-                      thickness: 0.8,
-                      indent: 60,
-                      color: borderColor,
+                      height: AppStroke.hairline,
+                      thickness: AppStroke.hairline,
+                      indent: 52,
+                      color: AppInk.hairline(isDark),
                     ),
                   rows[index],
                 ],
@@ -119,74 +91,46 @@ class _SettingsPageState extends State<SettingsPage> {
     required IconData icon,
     required Color iconColor,
     required String title,
-    required String subtitle,
-    required VoidCallback onTap,
+    required Future<void> Function() onTap,
     Widget? trailing,
   }) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final onSurface = Theme.of(context).colorScheme.onSurface;
-    final muted = onSurface.withValues(alpha: isDark ? 0.68 : 0.58);
+    return OperonListRow(
+      title: title,
+      titleStyle: AppType.label.copyWith(fontWeight: FontWeight.w500),
+      minHeight: AppSpace.tap + 2,
+      padding: const EdgeInsets.symmetric(horizontal: AppSpace.x3 + 2),
+      leadingSize: 28,
+      leadingGap: AppSpace.x2 + 2,
+      trailing: trailing,
+      leading: _iconTile(icon: icon, color: iconColor),
+      onTap: () => onTap(),
+    );
+  }
 
-    return ListTile(
-      contentPadding: const EdgeInsets.fromLTRB(12, 2, 10, 2),
-      minVerticalPadding: 6,
-      leading: Container(
-        width: 36,
-        height: 36,
-        decoration: BoxDecoration(
-          color: iconColor.withValues(alpha: 0.12),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        alignment: Alignment.center,
-        child: Icon(icon, color: iconColor, size: 20),
+  Widget _iconTile({required IconData icon, required Color color}) {
+    return Container(
+      width: 26,
+      height: 26,
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(AppRadius.chip),
       ),
-      title: Text(
-        title,
-        style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600),
-      ),
-      subtitle: Padding(
-        padding: const EdgeInsets.only(top: 1),
-        child: Text(
-          subtitle,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(fontSize: 11.5, height: 1.2, color: muted),
-        ),
-      ),
-      trailing: trailing ??
-          Icon(
-            Icons.chevron_right_rounded,
-            color: muted.withValues(alpha: 0.7),
-            size: 20,
-          ),
-      onTap: () {
-        onTap();
-        if (mounted) setState(() {});
-      },
+      alignment: Alignment.center,
+      child: Icon(icon, color: color, size: 15),
+    );
+  }
+
+  Future<void> _push(Widget page) {
+    return Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => page),
     );
   }
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    if (_isLoading) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
-    }
-
-    final searchEngine = _storage.getSearchEngine().split(' ').first;
-    final themeStr = _themeService.themeMode == ThemeMode.system
-        ? '跟随系统'
-        : (_themeService.themeMode == ThemeMode.light ? '浅色模式' : '暗色模式');
-    final blockImages = _storage.getBlockImages();
-    final jsEnabled = _storage.getJavaScriptEnabled();
-    final llmConfig = _storage.getLlmConfig();
-    final maxSteps = _storage.getMaxSteps();
-    final safeMode = _storage.getSafeMode();
-    final historyCount = _storage.getAgentTaskHistory().length;
-    final promptCount = _storage.getAgentPrompts().length;
-    final modelName = llmConfig.model.split('/').last;
+    final versionLabel = AppVersionService.shortLabel;
 
     return Scaffold(
       appBar: AppBar(
@@ -194,10 +138,10 @@ class _SettingsPageState extends State<SettingsPage> {
       ),
       body: ListView(
         padding: EdgeInsets.fromLTRB(
-          16,
-          8,
-          16,
-          16 + MediaQuery.of(context).viewPadding.bottom,
+          AppSpace.page,
+          AppSpace.x2,
+          AppSpace.page,
+          AppSpace.page + MediaQuery.of(context).viewPadding.bottom,
         ),
         children: [
           _buildSection('AI 与自动化', [
@@ -205,47 +149,23 @@ class _SettingsPageState extends State<SettingsPage> {
               icon: Icons.auto_awesome_rounded,
               iconColor: AppTheme.primaryOf(isDark),
               title: 'AI 智能体引擎',
-              subtitle:
-                  modelName.isEmpty ? '配置模型与 API 密钥' : '$modelName · 快速预设与连通测试',
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => const AiEngineSettingsPage(),
-                ),
-              ),
+              onTap: () => _push(const AiEngineSettingsPage()),
             ),
             _buildSettingRow(
               icon: Icons.policy_rounded,
               iconColor: AppTheme.accentOf(isDark),
               title: 'AI 策略与自主权限',
-              subtitle: '单次 $maxSteps 步 · '
-                  '${safeMode ? "人工授权已开启" : "完全自主模式"}',
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => AiPolicySettingsPage(
-                    onSafeModeChanged: widget.onSafeModeChanged,
-                  ),
+              onTap: () => _push(
+                AiPolicySettingsPage(
+                  onSafeModeChanged: widget.onSafeModeChanged,
                 ),
               ),
             ),
             _buildSettingRow(
               icon: Icons.bolt_rounded,
-              iconColor: AppTheme.warningOf(isDark),
+              iconColor: AppTheme.primaryOf(isDark),
               title: '快捷指令',
-              subtitle: promptCount == 0
-                  ? '存下常说的话，输入框里打「/」就能选'
-                  : '已保存 $promptCount 条',
-              onTap: _openPrompts,
-            ),
-            _buildSettingRow(
-              icon: Icons.history_rounded,
-              iconColor: AppTheme.neutralOf(isDark),
-              title: '任务历史与审计',
-              subtitle: historyCount == 0
-                  ? '查看执行记录、授权与风险日志'
-                  : '最近 $historyCount 条任务记录',
-              onTap: _openHistory,
+              onTap: () => _push(const AgentPromptsPage()),
             ),
           ]),
           _buildSection('浏览与外观', [
@@ -253,48 +173,19 @@ class _SettingsPageState extends State<SettingsPage> {
               icon: Icons.tune_rounded,
               iconColor: AppTheme.neutralOf(isDark),
               title: '通用与搜索',
-              subtitle: '搜索引擎：$searchEngine · 主页与缓存',
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => const GeneralSettingsPage(),
-                ),
-              ),
+              onTap: () => _push(const GeneralSettingsPage()),
             ),
             _buildSettingRow(
               icon: Icons.palette_outlined,
               iconColor: AppTheme.primaryOf(isDark),
               title: '外观与个性化',
-              subtitle: '主题：$themeStr · 字号 ${_storage.getTextZoom()}%',
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => const AppearanceSettingsPage(),
-                ),
-              ),
+              onTap: () => _push(const AppearanceSettingsPage()),
             ),
             _buildSettingRow(
               icon: Icons.security_rounded,
               iconColor: AppTheme.accentOf(isDark),
               title: '浏览与隐私保护',
-              subtitle: '${blockImages ? "无图模式" : "加载图片"} · '
-                  '${jsEnabled ? "JS 已启用" : "JS 已禁用"}',
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => const BrowsingSettingsPage(),
-                ),
-              ),
-            ),
-            _buildSettingRow(
-              icon: Icons.extension_rounded,
-              iconColor: AppTheme.neutralOf(isDark),
-              title: '用户脚本',
-              subtitle: '自定义注入脚本与免登录插件',
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const UserScriptsPage()),
-              ),
+              onTap: () => _push(const BrowsingSettingsPage()),
             ),
           ]),
           _buildSection('其他', [
@@ -302,11 +193,15 @@ class _SettingsPageState extends State<SettingsPage> {
               icon: Icons.info_outline_rounded,
               iconColor: AppTheme.neutralOf(isDark),
               title: '关于 Operon',
-              subtitle: '${AppVersionService.shortLabel} · 开源 · 极简轻量',
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const AboutSettingsPage()),
-              ),
+              trailing: versionLabel.isEmpty
+                  ? null
+                  : Text(
+                      versionLabel,
+                      style: AppType.caption.copyWith(
+                        color: AppInk.tertiary(isDark),
+                      ),
+                    ),
+              onTap: () => _push(const AboutSettingsPage()),
             ),
           ]),
         ],

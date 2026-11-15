@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import '../../config/app_theme.dart';
+import '../../config/app_tokens.dart';
 import '../../services/storage_service.dart';
 
 class AiPolicySettingsPage extends StatefulWidget {
@@ -22,7 +23,6 @@ class _AiPolicySettingsPageState extends State<AiPolicySettingsPage> {
   late StorageService _storage;
   bool _isLoading = true;
 
-  int _maxSteps = 15;
   bool _safeMode = true;
   List<String> _allowedSites = [];
   final TextEditingController _memoryController = TextEditingController();
@@ -37,7 +37,6 @@ class _AiPolicySettingsPageState extends State<AiPolicySettingsPage> {
 
   Future<void> _loadSettings() async {
     _storage = await StorageService.getInstance();
-    _maxSteps = _storage.getMaxSteps();
     _safeMode = _storage.getSafeMode();
     _allowedSites = _storage.getAgentAllowedSites();
     _blockedSites = _storage.getAgentBlockedSites();
@@ -92,30 +91,35 @@ class _AiPolicySettingsPageState extends State<AiPolicySettingsPage> {
   /// Lets a host be added without waiting for the agent to meet it first.
   Future<void> _addBlocked() async {
     final controller = TextEditingController();
-    final host = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('禁止一个站点'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: const InputDecoration(
-            hintText: 'example.com',
-            isDense: true,
+    final String? host;
+    try {
+      host = await showDialog<String>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('禁止一个站点'),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            decoration: const InputDecoration(
+              hintText: 'example.com',
+              isDense: true,
+            ),
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
+              child: const Text('禁止'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
-            child: const Text('禁止'),
-          ),
-        ],
-      ),
-    );
+      );
+    } finally {
+      controller.dispose();
+    }
     if (host == null || host.isEmpty) return;
     await _storage.addAgentBlockedSite(host);
     await _storage.removeAgentAllowedSite(host);
@@ -143,32 +147,31 @@ class _AiPolicySettingsPageState extends State<AiPolicySettingsPage> {
       ),
       body: ListView(
         padding: EdgeInsets.fromLTRB(
-            16, 16, 16, 16 + MediaQuery.of(context).viewPadding.bottom),
+            16, 12, 16, 16 + MediaQuery.of(context).viewPadding.bottom),
         children: [
           Container(
             decoration: BoxDecoration(
               color: cardColor,
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(AppRadius.icon),
               border: Border.all(
-                color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-                width: 0.8,
+                color: AppInk.hairline(isDark),
+                width: AppStroke.hairline,
               ),
             ),
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(14),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text('长期记忆',
                     style:
-                        TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                        TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
                 const SizedBox(height: 4),
                 Text(
-                  '每次任务都会告诉模型的事：你是谁、你要什么样的回答、你的时区或单位。'
-                  '留空则完全不发送。',
+                  '每次任务附加的个人偏好与要求（留空则不发送）',
                   style: TextStyle(
-                      fontSize: 12,
-                      color: AppTheme.neutralOf(isDark),
-                      height: 1.4),
+                      fontSize: 11.5,
+                      color: AppInk.tertiary(isDark),
+                      height: 1.35),
                 ),
                 const SizedBox(height: 8),
                 TextField(
@@ -180,81 +183,32 @@ class _AiPolicySettingsPageState extends State<AiPolicySettingsPage> {
                   decoration: const InputDecoration(
                     hintText: '例如：我在北京，回答用简体中文，先给结论再给细节。',
                     isDense: true,
-                    border: OutlineInputBorder(),
                   ),
                   onChanged: (_) => _scheduleMemorySave(),
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           Container(
             decoration: BoxDecoration(
               color: cardColor,
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(AppRadius.icon),
               border: Border.all(
-                color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-                width: 0.8,
-              ),
-            ),
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text('单次任务最大执行步数',
-                        style: TextStyle(
-                            fontSize: 14, fontWeight: FontWeight.w600)),
-                    Text('$_maxSteps 步',
-                        style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                            color: AppTheme.primaryOf(isDark))),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  '防止模型在复杂页面寻路陷入死循环，步数耗尽将自动挂起',
-                  style: TextStyle(fontSize: 12, color: AppTheme.neutralOf(isDark)),
-                ),
-                const SizedBox(height: 8),
-                Slider(
-                  value: _maxSteps.toDouble(),
-                  min: 5,
-                  max: 30,
-                  divisions: 25,
-                  label: '$_maxSteps',
-                  activeColor: AppTheme.primaryOf(isDark),
-                  onChanged: (val) {
-                    setState(() => _maxSteps = val.round());
-                  },
-                  onChangeEnd: (val) async {
-                    await _storage.saveMaxSteps(val.round());
-                  },
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
-          Container(
-            decoration: BoxDecoration(
-              color: cardColor,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-                width: 0.8,
+                color: AppInk.hairline(isDark),
+                width: AppStroke.hairline,
               ),
             ),
             child: SwitchListTile(
+              dense: true,
               contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                  const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
               title: const Text('敏感操作人工授权 (Safe Mode)',
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
               subtitle: Text(
-                  '开启：支付、发布、删除等高危操作会暂停并等待你确认。关闭：AI 将自动执行全部操作，不再询问。',
-                  style: TextStyle(fontSize: 12, color: AppTheme.neutralOf(isDark))),
+                  '支付、发布、删除等高危动作前等待人工确认',
+                  style: TextStyle(
+                      fontSize: 11.5, color: AppInk.tertiary(isDark))),
               value: _safeMode,
               activeThumbColor: AppTheme.primaryOf(isDark),
               onChanged: (val) async {
@@ -264,17 +218,17 @@ class _AiPolicySettingsPageState extends State<AiPolicySettingsPage> {
               },
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           Container(
             decoration: BoxDecoration(
               color: cardColor,
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(AppRadius.icon),
               border: Border.all(
-                color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-                width: 0.8,
+                color: AppInk.hairline(isDark),
+                width: AppStroke.hairline,
               ),
             ),
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(14),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -284,7 +238,7 @@ class _AiPolicySettingsPageState extends State<AiPolicySettingsPage> {
                     const Text(
                       '已允许自动执行的站点',
                       style:
-                          TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                          TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
                     ),
                     if (_allowedSites.isNotEmpty)
                       TextButton(
@@ -300,9 +254,11 @@ class _AiPolicySettingsPageState extends State<AiPolicySettingsPage> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  '这些站点上的敏感操作会直接执行，不再弹出授权确认。仅在你完全信任的网站上添加。',
+                  '仅限完全信任的网站，跳过敏感操作确认',
                   style: TextStyle(
-                      fontSize: 12, color: AppTheme.neutralOf(isDark), height: 1.4),
+                      fontSize: 11.5,
+                      color: AppInk.tertiary(isDark),
+                      height: 1.35),
                 ),
                 const SizedBox(height: 8),
                 if (_allowedSites.isEmpty)
@@ -344,17 +300,17 @@ class _AiPolicySettingsPageState extends State<AiPolicySettingsPage> {
               ],
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           Container(
             decoration: BoxDecoration(
               color: cardColor,
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(AppRadius.icon),
               border: Border.all(
-                color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-                width: 0.8,
+                color: AppInk.hairline(isDark),
+                width: AppStroke.hairline,
               ),
             ),
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(14),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -364,7 +320,7 @@ class _AiPolicySettingsPageState extends State<AiPolicySettingsPage> {
                     const Text(
                       '禁止智能体使用的站点',
                       style:
-                          TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                          TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
                     ),
                     Row(
                       children: [
@@ -396,12 +352,11 @@ class _AiPolicySettingsPageState extends State<AiPolicySettingsPage> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  '智能体在这些站点上一律不动手：不点击、不输入、不读页面。'
-                  '这一条不弹授权，也不会被任何一次同意改变。',
+                  '禁止在此类站点读页、点击或输入',
                   style: TextStyle(
-                      fontSize: 12,
-                      color: AppTheme.neutralOf(isDark),
-                      height: 1.4),
+                      fontSize: 11.5,
+                      color: AppInk.tertiary(isDark),
+                      height: 1.35),
                 ),
                 const SizedBox(height: 8),
                 if (_blockedSites.isEmpty)
@@ -441,29 +396,31 @@ class _AiPolicySettingsPageState extends State<AiPolicySettingsPage> {
               ],
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           Container(
             decoration: BoxDecoration(
               color: cardColor,
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(AppRadius.icon),
               border: Border.all(
-                color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-                width: 0.8,
+                color: AppInk.hairline(isDark),
+                width: AppStroke.hairline,
               ),
             ),
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(14),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
                   '手动暂停与接管',
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
                 ),
-                const SizedBox(height: 6),
+                const SizedBox(height: 4),
                 Text(
-                  'AI 执行时，触摸或滚动网页不会自动暂停任务，你可以正常浏览页面。需要接管时，点击底部 AI 状态条上的暂停按钮；任务会在当前动作完成后停住，恢复后从下一步继续。',
+                  '执行期间可正常滚动页面；需要接管时点底部状态条「暂停」，完成后可继续。',
                   style: TextStyle(
-                      fontSize: 12, color: AppTheme.neutralOf(isDark), height: 1.5),
+                      fontSize: 11.5,
+                      color: AppInk.tertiary(isDark),
+                      height: 1.4),
                 ),
               ],
             ),

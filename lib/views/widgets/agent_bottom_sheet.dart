@@ -1,21 +1,27 @@
 import 'dart:async';
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../config/app_theme.dart';
+import '../../config/app_tokens.dart';
+import '../../agent/compactor.dart';
 import '../../models/agent_attachment.dart';
+import '../../models/agent_conversation.dart';
 import '../../models/agent_prompt.dart';
 import '../../models/agent_state.dart';
 import '../../services/attachment_reader.dart';
+import '../../services/conversation_store.dart';
 import '../../services/haptic_service.dart';
 import '../../services/share_service.dart';
+import '../../utils/result_export.dart';
 import '../../utils/url_utils.dart';
 import 'agent_confirmation_card.dart';
 import 'elapsed_label.dart';
+import 'markdown_answer.dart';
 import 'step_log_view.dart';
 import 'extracted_data_sheet.dart';
 
 part 'sheet/body.dart';
+part 'sheet/conversations.dart';
 
 part 'sheet/header.dart';
 part 'sheet/result.dart';
@@ -24,13 +30,14 @@ part 'sheet/composer.dart';
 part 'sheet/run_bar.dart';
 
 typedef AgentStartHandler = void Function(
+  String conversationId,
   String goal,
   List<AgentAttachment> attachments,
 );
 
-enum _SheetAction { logs, close }
+enum _SheetAction { rename, delete, close }
 
-/// A one-tap prompt suggestion shown in the empty panel.
+/// A one-tap prompt suggestion shown in the empty conversation.
 class _ExampleGoal {
   final String label;
   final String goal;
@@ -38,6 +45,12 @@ class _ExampleGoal {
   const _ExampleGoal(this.label, this.goal);
 }
 
+/// The agent panel: a chat.
+///
+/// The first screen is the list of conversations, because that is the question
+/// a returning user has — "what was I doing". Tapping one opens it, and the
+/// panel stops being a form that runs a command and becomes a conversation that
+/// continues: the agent already knows what it did two messages ago.
 class AgentBottomSheet extends StatefulWidget {
   final AgentState state;
   final AgentStartHandler onStart;
@@ -68,6 +81,23 @@ class AgentBottomSheet extends StatefulWidget {
   /// Saved prompts, offered when the composer starts with "/".
   final List<AgentPrompt> prompts;
 
+  /// Where conversations live. The panel owns the list screen, so it owns the
+  /// store too: reopening the panel must show the conversation that was open,
+  /// and a modal route cannot be rebuilt by its parent.
+  final ConversationStore? store;
+
+  /// Which conversation was open last time. Null shows the list.
+  final String? conversationId;
+
+  /// Told when the open conversation changes, so it survives a reopen.
+  final ValueChanged<String?>? onConversationChanged;
+
+  /// A link inside an answer: the browser the user is already in.
+  final ValueChanged<String>? onOpenLink;
+
+  /// The sheet's own scrollable, so dragging the body also drags the sheet.
+  final ScrollController? scrollController;
+
   const AgentBottomSheet({
     super.key,
     required this.state,
@@ -85,6 +115,11 @@ class AgentBottomSheet extends StatefulWidget {
     this.initialGoal,
     this.imageAttachmentsEnabled = true,
     this.prompts = const [],
+    this.store,
+    this.conversationId,
+    this.onConversationChanged,
+    this.onOpenLink,
+    this.scrollController,
   });
 
   @override
@@ -97,8 +132,11 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
 
   late TextEditingController _goalController;
   late bool _safeMode;
-  bool _showLogs = false;
   bool _resultExpanded = false;
+
+  /// Whether the running turn's steps are open. Closed by default: the point of
+  /// the row above them is that a run is one line until asked otherwise.
+  bool _liveDetailsOpen = false;
   bool _hasDraft = false;
   bool _isPickingAttachment = false;
   final List<AgentAttachment> _attachments = [];
@@ -106,86 +144,69 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
   final ScrollController _scrollController = ScrollController();
   final FocusNode _goalFocus = FocusNode();
 
+  /// Which conversation is open. Null is the list screen.
+  late String? _activeId;
+
+  /// In the chat view the sheet scrolls the conversation, not the run.
+  ScrollController get _bodyScroll => widget.scrollController ?? _scrollController;
+
   bool get _isTaskActive =>
       widget.state.isRunning || widget.state.status == AgentStatus.paused;
+
+  List<AgentConversation> get _conversations =>
+      widget.store?.conversations ?? const [];
+
+  /// The conversation on screen, if any.
+  AgentConversation? get _conversation => widget.store?.byId(_activeId);
+
+  bool get _showsChat => _activeId != null;
 
   @override
   void initState() {
     super.initState();
-    final restoreGoal =
-        widget.state.isRunning || widget.state.status == AgentStatus.paused;
+    // The field is only ever for the *next* message. It used to be refilled
+    // with the running goal, which in a chat means the message you just sent
+    // sits in the input box until the answer arrives.
     _goalController = TextEditingController(
-      text: restoreGoal
-          ? widget.state.goal
-          : (widget.initialGoal ?? '').trim(),
+      text: (widget.initialGoal ?? '').trim(),
     );
     _hasDraft = _goalController.text.trim().isNotEmpty;
     _goalController.addListener(_syncDraftState);
     _safeMode = widget.safeMode;
+    _activeId = widget.conversationId;
   }
-
-
 
   @override
   void didUpdateWidget(covariant AgentBottomSheet oldWidget) {
     super.didUpdateWidget(oldWidget);
-    final restoreGoal =
-        widget.state.isRunning || widget.state.status == AgentStatus.paused;
-    if (restoreGoal &&
-        widget.state.goal.isNotEmpty &&
-        _goalController.text.isEmpty) {
-      _goalController.text = widget.state.goal;
-    }
-    final finished = widget.state.status == AgentStatus.completed ||
-        widget.state.status == AgentStatus.error ||
-        widget.state.status == AgentStatus.maxStepsReached ||
-        widget.state.status == AgentStatus.idle;
-    if (finished && widget.state.goal.isNotEmpty) {
-      final previousGoal = widget.state.goal.trim();
-      if (_goalController.text.trim() == previousGoal) {
-        // The last task is over; start the next composer cleanly.
-        _goalController.clear();
-      }
-    }
     if (widget.safeMode != oldWidget.safeMode) {
       _safeMode = widget.safeMode;
     }
-    // A confirmation or CAPTCHA card is inserted at the top of the scroll
-    // area. If the user was reading logs further down they would never see
-    // it, so snap back to the top as soon as the task blocks.
+    if (widget.conversationId != oldWidget.conversationId &&
+        widget.conversationId != _activeId) {
+      _activeId = widget.conversationId;
+    }
+    // A confirmation or CAPTCHA card is pinned above the bottom bar while the
+    // transcript sits above it; scroll to the bottom so the latest step stays
+    // visible right next to the approval request.
     final becameWaiting = widget.state.status != oldWidget.state.status &&
         (widget.state.status == AgentStatus.waitingConfirmation ||
             widget.state.status == AgentStatus.waitingCaptcha);
-    if (becameWaiting) {
+    // A run that just ended is worth reading from its conclusion upwards, so
+    // follow the newest line the way a chat does.
+    final justFinished = oldWidget.state.isRunning && !widget.state.isRunning;
+    if (becameWaiting || justFinished) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted || !_scrollController.hasClients) return;
-        final reduceMotion =
-            MediaQuery.maybeDisableAnimationsOf(context) ?? false;
-        if (reduceMotion) {
-          _scrollController.jumpTo(0);
-        } else {
-          _scrollController.animateTo(
-            0,
-            duration: const Duration(milliseconds: 220),
-            curve: Curves.easeOutCubic,
-          );
-        }
+        if (!mounted || !_bodyScroll.hasClients) return;
+        _scrollTo(_bodyScroll.position.maxScrollExtent);
       });
-    }
-    // A failure is the moment logs matter most, so surface them immediately.
-    if (oldWidget.state.status != AgentStatus.error &&
-        widget.state.status == AgentStatus.error) {
-      _showLogs = true;
     }
   }
 
-
-
-
-
-
   @override
   void dispose() {
+    // A conversation that never got a message is not worth a row in the list.
+    unawaited(widget.store?.pruneEmpty() ?? Future<void>.value());
     _goalController.removeListener(_syncDraftState);
     _goalController.dispose();
     _scrollController.dispose();
@@ -193,13 +214,19 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
     super.dispose();
   }
 
+  void _scrollTo(double target) {
+    final reduceMotion = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+    if (reduceMotion) {
+      _bodyScroll.jumpTo(target);
+    } else {
+      _bodyScroll.animateTo(
+        target,
+        duration: const Duration(milliseconds: 240),
+        curve: Curves.easeOutCubic,
+      );
+    }
+  }
 
-
-  /// Saves the finished task as a skill. The goal becomes the prompt; a
-  /// recorded flow is offered only when the task actually performed a write,
-  /// because replaying navigation alone does not accomplish anything.
-
-  /// Never show typed text (passwords, drafts) in the authorization banner.
   /// Host of the tab the sheet was opened from; null means start page.
   String? get _pageHost {
     final url = widget.currentUrl;
@@ -264,11 +291,6 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
           label: '已完成',
           icon: Icons.check_circle_outline,
         ),
-      AgentStatus.maxStepsReached => (
-          color: ochre,
-          label: '步数上限',
-          icon: Icons.timer_outlined,
-        ),
       AgentStatus.error => (
           color: brick,
           label: '执行异常',
@@ -276,14 +298,6 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
         ),
     };
   }
-
-
-
-
-
-
-
-
 
   /// Fields of the first record; lists of primitives have no field names.
   List<MapEntry<String, dynamic>> _dataEntries(dynamic data) {
@@ -300,41 +314,17 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
     return const [];
   }
 
-
-
-
-
-
-
-
-
-
-
   @override
   Widget build(BuildContext context) {
     final state = widget.state;
     final isRunning = state.isRunning;
-    final hasExtractedData = state.extractedData != null;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final cardBg = isDark ? AppTheme.darkCard : AppTheme.lightCard;
-    final onSurface = Theme.of(context).colorScheme.onSurface;
-    final muted = onSurface.withValues(alpha: isDark ? 0.72 : 0.6);
-    final subtle = onSurface.withValues(alpha: 0.38);
-    final hairline = isDark ? AppTheme.darkBorder : AppTheme.lightBorder;
-    final surface = isDark ? AppTheme.darkInput : AppTheme.lightInput;
-    // Warning ink sits on the card, so it has to follow the brightness; the
-    // solid `AppTheme.warning` chip fill stays dark-on-light in both themes.
-    final warnInk = AppTheme.warningOf(isDark);
-
     final media = MediaQuery.of(context);
     final keyboardInset = media.viewInsets.bottom;
-    final maxSheetHeight =
-        (media.size.height - keyboardInset - media.viewPadding.top - 24)
-            .clamp(280.0, media.size.height)
-            .toDouble();
+    final horizontal =
+        _showsChat ? 0.0 : AppSpace.page; // the list is full-bleed rows
 
-    // Lift the sheet above the IME and let the body scroll, so the composer and
-    // the focused field are never hidden behind the keyboard.
     return PopScope(
       // Tapping the scrim dismisses the sheet. Keep typed instructions unless
       // the user explicitly discards them.
@@ -346,106 +336,91 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
         duration: const Duration(milliseconds: 160),
         curve: Curves.easeOut,
         padding: EdgeInsets.only(bottom: keyboardInset),
-        child: Container(
-          constraints: BoxConstraints(maxHeight: maxSheetHeight),
-          decoration: BoxDecoration(
-            color: cardBg,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-            boxShadow: const [
-              BoxShadow(
-                color: Colors.black26,
-                blurRadius: 16,
-                offset: Offset(0, -4),
-              ),
-            ],
+        child: Material(
+          color: cardBg,
+          borderRadius: const BorderRadius.vertical(
+            top: Radius.circular(AppRadius.sheet),
           ),
+          clipBehavior: Clip.antiAlias,
           child: Column(
-            mainAxisSize: MainAxisSize.min,
             children: [
-              _buildScrollBody(
-                state: state,
-                isRunning: isRunning,
-                hasExtractedData: hasExtractedData,
-                isDark: isDark,
-                cardBg: cardBg,
-                onSurface: onSurface,
-                muted: muted,
-                subtle: subtle,
-                hairline: hairline,
-                surface: surface,
-                warnInk: warnInk,
-              ),
+              // Handle and header are part of the frame, not the content: the
+              // way out and the safety state must not scroll away mid-run.
               Padding(
                 padding: EdgeInsets.fromLTRB(
-                  16,
-                  8,
-                  16,
-                  media.viewPadding.bottom + 12,
+                  AppSpace.page + horizontal,
+                  AppSpace.x2,
+                  AppSpace.page - AppSpace.x1,
+                  0,
                 ),
-                // While a task runs the prime thumb area belongs to the run
-                // controls, not to a disabled text field. The composer comes
-                // back as soon as the task is idle or finished.
-                child: _isTaskActive
-                    ? _buildRunBar(
-                        state: state,
-                        surface: surface,
-                        hairline: hairline,
-                        onSurface: onSurface,
-                        muted: muted,
-                      )
-                    : Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          // Collapsing must not make the composer jump while
-                          // the user is typing.
-                          AnimatedSize(
-                            duration:
-                                MediaQuery.maybeDisableAnimationsOf(context) ==
-                                        true
-                                    ? Duration.zero
-                                    : const Duration(milliseconds: 160),
-                            curve: Curves.easeOut,
-                            alignment: Alignment.bottomCenter,
-                            child: _showsExamples
-                                ? Padding(
-                                    padding: const EdgeInsets.only(bottom: 8),
-                                    child: _buildExamples(
-                                      surface: surface,
-                                      hairline: hairline,
-                                      subtle: subtle,
-                                    ),
-                                  )
-                                : const SizedBox(
-                                    width: double.infinity,
-                                    height: 0,
-                                  ),
-                          ),
-                          if (_attachments.isNotEmpty)
-                            _buildAttachmentStrip(subtle: subtle),
-                          // Rebuilt on every keystroke: the strip appears
-                          // the moment the field starts with "/".
-                          ValueListenableBuilder<TextEditingValue>(
-                            valueListenable: _goalController,
-                            builder: (context, _, __) =>
-                                _buildPromptStrip(subtle: subtle),
-                          ),
-                          _buildGoalField(
-                            isRunning: isRunning,
-                            subtle: subtle,
-                          ),
-                          if (_pageHost == null) ...[
-                            const SizedBox(height: 4),
-                            Text(
-                              '当前是起始页；可直接在指令里写要打开的网址或搜索目标',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(fontSize: 10.5, color: subtle),
-                            ),
-                          ],
-                        ],
-                      ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _buildHandle(isDark),
+                    const SizedBox(height: AppSpace.x2 + 2),
+                    _showsChat
+                        ? _buildChatHeader(state: state, isRunning: isRunning)
+                        : _buildListHeader(),
+                    const SizedBox(height: AppSpace.x2),
+                  ],
+                ),
               ),
+              if (_showsChat)
+                Expanded(
+                  child: _buildChatBody(
+                    state: state,
+                    isRunning: isRunning,
+                  ),
+                )
+              else
+                Expanded(child: _buildConversationList()),
+              if (_showsChat &&
+                  (state.status == AgentStatus.waitingCaptcha ||
+                      state.status == AgentStatus.waitingConfirmation))
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    AppSpace.page,
+                    AppSpace.x1,
+                    AppSpace.page,
+                    0,
+                  ),
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxHeight: media.size.height * 0.42,
+                    ),
+                    child: SingleChildScrollView(
+                      child: state.status == AgentStatus.waitingCaptcha
+                          ? _buildCaptchaBanner(
+                              state: state,
+                              isDark: isDark,
+                              muted: AppInk.secondary(isDark),
+                            )
+                          : AgentConfirmationCard(
+                              state: state,
+                              compact: true,
+                              onConfirm: () => widget.onConfirmAction(true),
+                              onCancel: () => widget.onConfirmAction(false),
+                              onAllowSite: widget.onAllowSite,
+                            ),
+                    ),
+                  ),
+                ),
+              if (_showsChat)
+                Padding(
+                  padding: EdgeInsets.fromLTRB(
+                    16,
+                    8,
+                    16,
+                    media.viewPadding.bottom + 12,
+                  ),
+                  // While a task runs the prime thumb area belongs to the run
+                  // controls, not to a disabled text field.
+                  child: _isTaskActive
+                      ? _buildRunBar(state: state)
+                      : _buildComposer(state: state),
+                )
+              else
+                SizedBox(height: media.viewPadding.bottom + AppSpace.x2),
             ],
           ),
         ),
@@ -453,26 +428,16 @@ class _AgentBottomSheetState extends State<AgentBottomSheet> {
     );
   }
 
-  /// Empty panel: show what the agent can do instead of a bare input box.
-  bool get _showsExamples =>
-      !_isTaskActive &&
-      widget.state.status == AgentStatus.idle &&
-      widget.state.logs.isEmpty &&
-      !_hasDraft;
-
-  List<_ExampleGoal> get _exampleGoals => _pageHost == null
-      ? const [
-          _ExampleGoal('GitHub 热榜', '打开 GitHub 热榜并总结前 5 个项目'),
-          _ExampleGoal('今日 AI 新闻', '搜索今天的 AI 新闻并总结要点'),
-          _ExampleGoal('Hacker News', '打开 Hacker News 看看热门内容'),
-        ]
-      : const [
-          _ExampleGoal('总结这一页', '总结当前页面的主要内容'),
-          _ExampleGoal('提取列表', '提取当前页面列表中的条目'),
-          _ExampleGoal('找出链接', '找出当前页面可以继续点进去的链接'),
-        ];
-
-
-
-
+  Widget _buildHandle(bool isDark) {
+    return Center(
+      child: Container(
+        width: 36,
+        height: 4,
+        decoration: BoxDecoration(
+          color: AppInk.tertiary(isDark).withValues(alpha: 0.5),
+          borderRadius: BorderRadius.circular(2),
+        ),
+      ),
+    );
+  }
 }

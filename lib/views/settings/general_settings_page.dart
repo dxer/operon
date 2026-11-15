@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import '../../config/app_constants.dart';
 import '../../config/app_theme.dart';
+import '../../config/app_tokens.dart';
 import '../../services/storage_service.dart';
+import '../widgets/operon_list_row.dart';
 
 class GeneralSettingsPage extends StatefulWidget {
   const GeneralSettingsPage({super.key});
@@ -15,6 +17,7 @@ class _GeneralSettingsPageState extends State<GeneralSettingsPage> {
   late StorageService _storage;
   bool _isLoading = true;
   String _selectedSearchEngine = AppConstants.defaultSearchEngine;
+  bool _restoreTabs = true;
   final TextEditingController _homepageController = TextEditingController();
 
   @override
@@ -32,6 +35,7 @@ class _GeneralSettingsPageState extends State<GeneralSettingsPage> {
   Future<void> _loadSettings() async {
     _storage = await StorageService.getInstance();
     _selectedSearchEngine = _storage.getSearchEngine();
+    _restoreTabs = _storage.getRestoreTabsEnabled();
     _homepageController.text = _storage.getHomepage();
     if (!mounted) return;
     setState(() => _isLoading = false);
@@ -48,34 +52,44 @@ class _GeneralSettingsPageState extends State<GeneralSettingsPage> {
         builder: (context, setDialogState) {
           final isDark = Theme.of(context).brightness == Brightness.dark;
           return AlertDialog(
-            shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            title: const Text('清除浏览数据与缓存',
-                style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(AppRadius.card),
+            ),
+            title: const Text(
+              '清除浏览数据与缓存',
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+            ),
             content: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 CheckboxListTile(
-                  title: const Text('Cookie 与网站登录状态',
-                      style: TextStyle(fontSize: 14)),
+                  dense: true,
+                  title: const Text(
+                    'Cookie 与网站登录状态',
+                    style: TextStyle(fontSize: 13),
+                  ),
                   value: clearCookies,
                   activeColor: AppTheme.primaryOf(isDark),
                   onChanged: (val) =>
                       setDialogState(() => clearCookies = val ?? false),
                 ),
                 CheckboxListTile(
-                  title: const Text('网页缓存文件 (Cache)',
-                      style: TextStyle(fontSize: 14)),
-                  subtitle: const Text('释放应用占用的图片与静态脚本存储',
-                      style: TextStyle(fontSize: 12)),
+                  dense: true,
+                  title: const Text(
+                    '网页缓存文件 (Cache)',
+                    style: TextStyle(fontSize: 13),
+                  ),
                   value: clearCache,
                   activeColor: AppTheme.primaryOf(isDark),
                   onChanged: (val) =>
                       setDialogState(() => clearCache = val ?? false),
                 ),
                 CheckboxListTile(
-                  title: const Text('本地存储 (LocalStorage / IndexedDB)',
-                      style: TextStyle(fontSize: 14)),
+                  dense: true,
+                  title: const Text(
+                    '本地存储 (LocalStorage / IndexedDB)',
+                    style: TextStyle(fontSize: 13),
+                  ),
                   value: clearStorage,
                   activeColor: AppTheme.primaryOf(isDark),
                   onChanged: (val) =>
@@ -88,14 +102,15 @@ class _GeneralSettingsPageState extends State<GeneralSettingsPage> {
                 onPressed: () => Navigator.of(ctx).pop(false),
                 child: const Text('取消'),
               ),
-              ElevatedButton(
+              FilledButton(
                 onPressed: (clearCookies || clearCache || clearStorage)
                     ? () => Navigator.of(ctx).pop(true)
                     : null,
-                style:
-                    ElevatedButton.styleFrom(backgroundColor: AppTheme.danger),
-                child:
-                    const Text('确认清除', style: TextStyle(color: Colors.white)),
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppTheme.dangerOf(isDark),
+                  foregroundColor: Colors.white,
+                ),
+                child: const Text('确认清除'),
               ),
             ],
           );
@@ -138,86 +153,60 @@ class _GeneralSettingsPageState extends State<GeneralSettingsPage> {
       ),
       body: ListView(
         padding: EdgeInsets.fromLTRB(
-            16, 16, 16, 16 + MediaQuery.of(context).viewPadding.bottom),
+            16, 12, 16, 16 + MediaQuery.of(context).viewPadding.bottom),
         children: [
           Container(
             decoration: BoxDecoration(
               color: cardColor,
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(AppRadius.icon),
               border: Border.all(
-                color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-                width: 0.8,
+                color: AppInk.hairline(isDark),
+                width: AppStroke.hairline,
               ),
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Padding(
-                  padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
-                  child: Text(
-                    '默认搜索引擎',
-                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
-                  ),
-                ),
-                RadioGroup<String>(
-                  groupValue: _selectedSearchEngine,
-                  onChanged: (val) async {
-                    if (val != null) {
-                      setState(() => _selectedSearchEngine = val);
-                      await _storage.saveSearchEngine(val);
-                    }
-                  },
-                  child: Column(
-                    children: AppConstants.searchEngines.keys.map((engine) {
-                      return RadioListTile<String>(
-                        title:
-                            Text(engine, style: const TextStyle(fontSize: 14)),
-                        value: engine,
-                        activeColor: AppTheme.primaryOf(isDark),
-                        dense: true,
-                      );
-                    }).toList(),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
-          Container(
-            decoration: BoxDecoration(
-              color: cardColor,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-                width: 0.8,
-              ),
-            ),
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(14),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  '主页网址',
-                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  '新建标签页或点击底栏主页图标时打开的地址',
-                  style: TextStyle(
-                      fontSize: 12, color: AppTheme.neutralOf(isDark)),
+                  '搜索与主页',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
                 ),
                 const SizedBox(height: 12),
+                OperonOptionRow<String>(
+                  title: '默认搜索引擎',
+                  padding: EdgeInsets.zero,
+                  value: AppConstants.searchEngines
+                          .containsKey(_selectedSearchEngine)
+                      ? _selectedSearchEngine
+                      : AppConstants.defaultSearchEngine,
+                  options: [
+                    for (final engine in AppConstants.searchEngines.keys)
+                      OperonOptionItem<String>(
+                        value: engine,
+                        label: engine,
+                        subtitle: AppConstants.searchEngines[engine],
+                      ),
+                  ],
+                  onChanged: (val) async {
+                    setState(() => _selectedSearchEngine = val);
+                    await _storage.saveSearchEngine(val);
+                  },
+                ),
+                Divider(
+                  height: 12,
+                  thickness: AppStroke.hairline,
+                  color: AppInk.hairline(isDark),
+                ),
+                const SizedBox(height: 6),
                 TextField(
                   controller: _homepageController,
-                  style: const TextStyle(fontSize: 14),
+                  style: const TextStyle(fontSize: 13),
                   decoration: InputDecoration(
-                    hintText: '默认: operon://newtab (内置极简主页)',
-                    border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10)),
-                    contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 12),
+                    labelText: '主页网址',
+                    hintText: AppConstants.defaultHomepage,
                     suffixIcon: IconButton(
-                      icon: const Icon(Icons.restore_rounded, size: 20),
+                      icon: const Icon(Icons.restore_rounded, size: 18),
                       tooltip: '恢复默认主页',
                       onPressed: () {
                         _homepageController.text = AppConstants.defaultHomepage;
@@ -228,31 +217,51 @@ class _GeneralSettingsPageState extends State<GeneralSettingsPage> {
                   ),
                   onChanged: (val) => _storage.saveHomepage(val.trim()),
                 ),
+                const SizedBox(height: 6),
+                SwitchListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text(
+                    '启动时恢复上次打开的标签页',
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+                  ),
+                  subtitle: Text(
+                    '仅保留普通标签页，不含无痕标签',
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      color: AppInk.tertiary(isDark),
+                    ),
+                  ),
+                  value: _restoreTabs,
+                  activeThumbColor: AppTheme.primaryOf(isDark),
+                  onChanged: (val) async {
+                    setState(() => _restoreTabs = val);
+                    await _storage.saveRestoreTabsEnabled(val);
+                  },
+                ),
               ],
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           Container(
             decoration: BoxDecoration(
               color: cardColor,
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(AppRadius.icon),
               border: Border.all(
-                color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-                width: 0.8,
+                color: AppInk.hairline(isDark),
+                width: AppStroke.hairline,
               ),
             ),
             child: ListTile(
+              dense: true,
               contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                  const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
               leading: Icon(Icons.delete_sweep_rounded,
-                  color: AppTheme.dangerOf(isDark)),
+                  size: 20, color: AppTheme.dangerOf(isDark)),
               title: const Text('清除浏览数据与缓存',
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-              subtitle: Text('清理 Cookie、LocalStorage 及离线静态资源',
-                  style: TextStyle(
-                      fontSize: 12, color: AppTheme.neutralOf(isDark))),
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
               trailing: Icon(Icons.chevron_right_rounded,
-                  color: AppTheme.neutralOf(isDark)),
+                  size: 18, color: AppInk.tertiary(isDark)),
               onTap: _showClearBrowsingDataDialog,
             ),
           ),

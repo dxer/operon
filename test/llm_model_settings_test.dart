@@ -84,9 +84,10 @@ void main() {
       return fake.requests.single;
     }
 
-    test('自动 sends no reasoning field at all', () async {
+    test('自动 sends no reasoning or temperature field at all', () async {
       final body = await bodyFor('gpt-4o');
       expect(body.containsKey('reasoning_effort'), isFalse);
+      expect(body.containsKey('temperature'), isFalse);
       expect(body.containsKey('max_tokens'), isFalse);
     });
 
@@ -217,8 +218,41 @@ void main() {
       expect(LlmConfig.usesMaxCompletionTokens('deepseek-chat'), isFalse);
     });
 
+    test('reasoning series omit temperature', () async {
+      final fake = await FakeOpenAi.start([say('ok')]);
+      addTearDown(fake.close);
+      await LlmService().chatWithTools(
+        config: LlmConfig(
+          baseUrl: fake.baseUrl,
+          apiKey: 'sk-test-token',
+          model: 'o3-mini',
+        ),
+        messages: const [
+          {'role': 'user', 'content': 'hi'},
+        ],
+        tools: const [],
+      );
+      expect(fake.requests.single.containsKey('temperature'), isFalse);
+    });
+
     test('an empty default is not valid, so the app asks instead of guessing', () {
       expect(LlmConfig.defaultConfig().isValid, isFalse);
+    });
+
+    test('preset round trips through json', () {
+      const preset = LlmPreset(
+        id: 'p1',
+        name: 'DeepSeek',
+        config: LlmConfig(
+          baseUrl: 'https://api.deepseek.com/v1',
+          apiKey: 'sk-ds',
+          model: 'deepseek-chat',
+        ),
+      );
+      final back = LlmPreset.fromJson(Map<String, dynamic>.from(preset.toJson()));
+      expect(back.id, 'p1');
+      expect(back.name, 'DeepSeek');
+      expect(back.config.model, 'deepseek-chat');
     });
   });
 }

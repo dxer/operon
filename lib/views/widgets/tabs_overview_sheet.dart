@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import '../../config/app_theme.dart';
+import '../../config/app_tokens.dart';
 import '../../models/web_tab.dart';
 import '../../services/haptic_service.dart';
+import '../../utils/url_utils.dart';
+import 'site_icon.dart';
 
 class TabsOverviewSheet extends StatelessWidget {
   final List<WebTab> tabs;
@@ -9,6 +12,7 @@ class TabsOverviewSheet extends StatelessWidget {
   final Function(int index) onSelectTab;
   final Function(int index) onCloseTab;
   final VoidCallback onNewTab;
+  final VoidCallback? onNewIncognitoTab;
   final VoidCallback onCloseAll;
 
   const TabsOverviewSheet({
@@ -18,6 +22,7 @@ class TabsOverviewSheet extends StatelessWidget {
     required this.onSelectTab,
     required this.onCloseTab,
     required this.onNewTab,
+    this.onNewIncognitoTab,
     required this.onCloseAll,
   });
 
@@ -31,13 +36,19 @@ class TabsOverviewSheet extends StatelessWidget {
       constraints: BoxConstraints(
         maxHeight: MediaQuery.of(context).size.height * 0.78,
       ),
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      padding: const EdgeInsets.fromLTRB(
+        AppSpace.page,
+        AppSpace.x3,
+        AppSpace.page,
+        AppSpace.x3,
+      ),
       decoration: BoxDecoration(
         color: cardBg,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        borderRadius:
+            const BorderRadius.vertical(top: Radius.circular(AppRadius.sheet)),
         boxShadow: const [
           BoxShadow(
-            color: Colors.black26,
+            color: Color(0x44000000),
             blurRadius: 18,
             offset: Offset(0, -6),
           ),
@@ -55,7 +66,7 @@ class TabsOverviewSheet extends StatelessWidget {
                 width: 36,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: isDark ? Colors.white24 : Colors.black12,
+                  color: AppInk.tertiary(isDark).withValues(alpha: 0.5),
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -66,54 +77,104 @@ class TabsOverviewSheet extends StatelessWidget {
             Row(
               children: [
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpace.x2,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
-                    color: AppTheme.primaryOf(isDark).withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(6),
+                    color: AppInk.accentTint(isDark),
+                    borderRadius: BorderRadius.circular(AppRadius.chip),
                   ),
                   child: Text(
                     '${tabs.length} 个标签页',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.bold,
+                    style: AppType.label.copyWith(
                       color: AppTheme.primaryOf(isDark),
+                      fontWeight: FontWeight.w600,
+                      fontFeatures: const [FontFeature.tabularFigures()],
                     ),
                   ),
                 ),
                 const Spacer(),
                 if (tabs.length > 1)
-                  TextButton.icon(
-                    icon: const Icon(Icons.clear_all, size: 16),
-                    label: const Text('全部关闭', style: TextStyle(fontSize: 12)),
-                    style:
-                        TextButton.styleFrom(foregroundColor: AppTheme.dangerOf(isDark)),
-                    onPressed: () {
+                  TextButton(
+                    style: TextButton.styleFrom(
+                      foregroundColor: AppTheme.dangerOf(isDark),
+                      textStyle: AppType.label,
+                      minimumSize: const Size(0, AppSpace.tap),
+                    ),
+                    onPressed: () async {
                       HapticService.medium();
-                      onCloseAll();
+                      final confirm = await showDialog<bool>(
+                        context: context,
+                        builder: (ctx) => AlertDialog(
+                          title: const Text('关闭全部标签页？'),
+                          content: Text(
+                            '将关闭当前 ${tabs.length} 个标签页并返回起始页。',
+                          ),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.of(ctx).pop(false),
+                              child: const Text('取消'),
+                            ),
+                            FilledButton(
+                              onPressed: () => Navigator.of(ctx).pop(true),
+                              style: FilledButton.styleFrom(
+                                backgroundColor: AppTheme.danger,
+                                foregroundColor: Colors.white,
+                              ),
+                              child: const Text('全部关闭'),
+                            ),
+                          ],
+                        ),
+                      );
+                      if (confirm == true) {
+                        onCloseAll();
+                      }
                     },
+                    child: const Text('全部关闭'),
                   ),
-                ElevatedButton.icon(
-                  icon: const Icon(Icons.add, size: 16),
-                  label: const Text('新建', style: TextStyle(fontSize: 12)),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppTheme.primary,
-                    foregroundColor: Colors.white,
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8)),
+                const SizedBox(width: AppSpace.x1),
+                if (onNewIncognitoTab != null) ...[
+                  OutlinedButton(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppInk.primary(isDark),
+                      side: BorderSide(color: AppInk.hairline(isDark)),
+                      textStyle: AppType.label,
+                      minimumSize: const Size(0, AppSpace.tap),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: AppSpace.x3,
+                      ),
+                    ),
+                    onPressed: () {
+                      HapticService.light();
+                      Navigator.pop(context);
+                      onNewIncognitoTab!();
+                    },
+                    child: const Text('无痕'),
+                  ),
+                  const SizedBox(width: AppSpace.x2),
+                ],
+                FilledButton(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppTheme.primaryOf(isDark),
+                    foregroundColor: isDark ? Colors.black : Colors.white,
+                    textStyle: AppType.label,
+                    minimumSize: const Size(0, AppSpace.tap),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpace.x3,
+                    ),
                   ),
                   onPressed: () {
                     HapticService.light();
                     Navigator.pop(context);
                     onNewTab();
                   },
+                  child: const Text('新建'),
                 ),
               ],
             ),
 
-            const Divider(height: 20),
+            const Divider(height: AppSpace.x5),
 
             // Tabs Grid
             Expanded(
@@ -129,122 +190,141 @@ class TabsOverviewSheet extends StatelessWidget {
                 itemBuilder: (context, index) {
                   final tab = tabs[index];
                   final isActive = index == activeIndex;
+                  final host = hostOf(tab.url);
 
-                  return InkWell(
-                    onTap: () {
-                      HapticService.selection();
-                      Navigator.pop(context);
-                      onSelectTab(index);
+                  return Dismissible(
+                    key: ValueKey('tab_${tab.id}_$index'),
+                    direction: DismissDirection.horizontal,
+                    onDismissed: (_) {
+                      HapticService.light();
+                      onCloseTab(index);
                     },
-                    borderRadius: BorderRadius.circular(12),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color:
-                            isDark ? AppTheme.darkInput : AppTheme.lightInput,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: isActive
-                              ? AppTheme.primaryOf(isDark)
-                              : (isDark
-                                  ? AppTheme.darkBorder
-                                  : AppTheme.lightBorder),
-                          width: isActive ? 2.0 : 1.0,
+                    child: InkWell(
+                      onTap: () {
+                        HapticService.selection();
+                        Navigator.pop(context);
+                        onSelectTab(index);
+                      },
+                      borderRadius: BorderRadius.circular(AppRadius.card),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: AppInk.sunken(isDark),
+                          borderRadius: BorderRadius.circular(AppRadius.card),
+                          border: Border.all(
+                            color: isActive
+                                ? AppTheme.primaryOf(isDark)
+                                : AppInk.hairline(isDark),
+                            width: isActive ? 1.4 : AppStroke.hairline,
+                          ),
                         ),
-                        boxShadow: isActive
-                            ? [
-                                BoxShadow(
-                                  color:
-                                      AppTheme.primaryOf(isDark)
-                                          .withValues(alpha: 0.25),
-                                  blurRadius: 8,
-                                  offset: const Offset(0, 2),
+                        padding: const EdgeInsets.all(AppSpace.x3 - 2),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                SiteIcon(
+                                  host: host,
+                                  size: 18,
+                                  label: tab.title.isNotEmpty ? tab.title : host,
                                 ),
-                              ]
-                            : null,
-                      ),
-                      padding: const EdgeInsets.all(10),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // Card Header: Globe icon & Close 'X' button
-                          Row(
-                            children: [
-                              Icon(
-                                tab.url.startsWith('https://')
-                                    ? Icons.lock
-                                    : Icons.public,
-                                size: 14,
-                                color: isActive
-                                    ? AppTheme.primaryOf(isDark)
-                                    : (isDark
-                                        ? Colors.white54
-                                        : Colors.black45),
-                              ),
-                              const Spacer(),
-                              if (isActive)
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 5, vertical: 1),
-                                  margin: const EdgeInsets.only(right: 4),
-                                  decoration: BoxDecoration(
-                                    color: AppTheme.primaryOf(isDark),
-                                    borderRadius: BorderRadius.circular(4),
+                                const Spacer(),
+                                if (tab.isIncognito)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 5,
+                                      vertical: 2,
+                                    ),
+                                    margin: const EdgeInsets.only(right: 4),
+                                    decoration: BoxDecoration(
+                                      color: AppInk.sunken(isDark),
+                                      borderRadius: BorderRadius.circular(
+                                        AppRadius.chip - 4,
+                                      ),
+                                      border: Border.all(
+                                        color: AppInk.hairline(isDark),
+                                        width: AppStroke.hairline,
+                                      ),
+                                    ),
+                                    child: Text(
+                                      '无痕',
+                                      style: AppType.micro.copyWith(
+                                        color: AppInk.secondary(isDark),
+                                      ),
+                                    ),
                                   ),
-                                  child: const Text(
-                                    '当前',
-                                    style: TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 9,
-                                        fontWeight: FontWeight.bold),
+                                if (isActive)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 5,
+                                      vertical: 2,
+                                    ),
+                                    margin: const EdgeInsets.only(right: 2),
+                                    decoration: BoxDecoration(
+                                      color: AppInk.accentTint(isDark),
+                                      borderRadius: BorderRadius.circular(
+                                        AppRadius.chip - 4,
+                                      ),
+                                    ),
+                                    child: Text(
+                                      '当前',
+                                      style: AppType.micro.copyWith(
+                                        color: AppTheme.primaryOf(isDark),
+                                      ),
+                                    ),
+                                  ),
+                                Semantics(
+                                  button: true,
+                                  label: '关闭标签页',
+                                  child: InkResponse(
+                                    onTap: () {
+                                      HapticService.selection();
+                                      onCloseTab(index);
+                                    },
+                                    radius: 14,
+                                    containedInkWell: true,
+                                    highlightShape: BoxShape.circle,
+                                    child: SizedBox(
+                                      width: 28,
+                                      height: 28,
+                                      child: Center(
+                                        child: Icon(
+                                          Icons.close_rounded,
+                                          size: 15,
+                                          color: AppInk.tertiary(isDark),
+                                        ),
+                                      ),
+                                    ),
                                   ),
                                 ),
-                              GestureDetector(
-                                onTap: () {
-                                  HapticService.selection();
-                                  onCloseTab(index);
-                                },
-                                child: Container(
-                                  padding: const EdgeInsets.all(2),
-                                  decoration: BoxDecoration(
-                                    color: isDark
-                                        ? Colors.white10
-                                        : Colors.black12,
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: const Icon(Icons.close, size: 14),
-                                ),
-                              ),
-                            ],
-                          ),
-
-                          const Spacer(),
-
-                          // Page Title
-                          Text(
-                            tab.title.isNotEmpty ? tab.title : '新标签页',
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 13,
-                              fontWeight:
-                                  isActive ? FontWeight.bold : FontWeight.w500,
-                              color: isDark ? Colors.white : Colors.black87,
+                              ],
                             ),
-                          ),
-                          const SizedBox(height: 4),
 
-                          // Page URL
-                          Text(
-                            tab.url.isNotEmpty ? tab.url : 'about:blank',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontFamily: 'monospace',
-                              color: isDark ? Colors.white38 : Colors.black38,
+                            const Spacer(),
+
+                            Text(
+                              tab.title.isNotEmpty ? tab.title : '新标签页',
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppType.body.copyWith(
+                                color: AppInk.primary(isDark),
+                                fontWeight: isActive
+                                    ? FontWeight.w600
+                                    : FontWeight.w400,
+                                height: 1.35,
+                              ),
                             ),
-                          ),
-                        ],
+                            const SizedBox(height: 2),
+                            Text(
+                              host.isNotEmpty ? host : 'about:blank',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppType.caption.copyWith(
+                                color: AppInk.tertiary(isDark),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   );

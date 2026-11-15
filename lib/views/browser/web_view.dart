@@ -9,9 +9,30 @@ part of '../browser_page.dart';
 // The WebView itself and the overlay that stands in when it fails.
 
 extension _WebViewBuilders on _BrowserPageState {
+  /// Hands the page's icon to the icon cache, so the tab strip, history and
+  /// start page can draw a real mark instead of a letter.
+  Future<void> _cacheFavicon(
+    InAppWebViewController controller,
+    String url,
+  ) async {
+    final host = hostOf(url);
+    if (host.isEmpty || FaviconService.cached(host) != null) return;
+    try {
+      final icons = await controller.getFavicons();
+      if (icons.isEmpty) return;
+      // The largest declaration wins; a 16px .ico upscaled looks like dirt.
+      final best = icons.reduce(
+        (a, b) => ((b.width ?? 0) > (a.width ?? 0)) ? b : a,
+      );
+      await FaviconService.loadFromUrl(host, best.url.toString());
+    } catch (_) {
+      // A missing icon is normal; the letter stands in.
+    }
+  }
+
   Widget _buildErrorOverlay(WebTab tab) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bg = isDark ? AppTheme.darkBg : AppTheme.lightCard;
+    final bg = isDark ? AppTheme.darkBg : AppTheme.lightBg;
 
     return Container(
       color: bg,
@@ -21,50 +42,81 @@ extension _WebViewBuilders on _BrowserPageState {
           mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              padding: const EdgeInsets.all(20),
+              width: 72,
+              height: 72,
               decoration: BoxDecoration(
-                color: isDark ? AppTheme.darkInput : AppTheme.lightInput,
+                color: AppInk.sunken(isDark),
                 shape: BoxShape.circle,
+                border: Border.all(color: AppInk.hairline(isDark)),
               ),
               child: Icon(
                 Icons.wifi_off_rounded,
-                size: 48,
+                size: 34,
                 color: AppTheme.dangerOf(isDark),
               ),
             ),
             const SizedBox(height: 20),
-            const Text(
+            Text(
               '无法访问此页面',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              style: TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w600,
+                color: AppInk.primary(isDark),
+              ),
             ),
             const SizedBox(height: 8),
             Text(
               tab.errorMessage ?? '网络连接失败，请检查网络连接或网址',
               textAlign: TextAlign.center,
               style: TextStyle(
-                fontSize: 12,
-                color: isDark ? Colors.white54 : Colors.black54,
+                fontSize: 13,
+                height: 1.5,
+                color: AppInk.secondary(isDark),
               ),
             ),
             const SizedBox(height: 24),
-            ElevatedButton.icon(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppTheme.primary,
-                foregroundColor: Colors.white,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10)),
-              ),
-              icon: const Icon(Icons.refresh, size: 18),
-              label: const Text('重新加载'),
-              onPressed: () {
-                setState(() {
-                  tab.errorMessage = null;
-                  tab.isLoading = true;
-                });
-                tab.controller?.reload();
-              },
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                OutlinedButton(
+                  onPressed: _goHome,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppInk.secondary(isDark),
+                    side: BorderSide(color: AppInk.hairline(isDark)),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 18,
+                      vertical: 12,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: const Text('返回首页'),
+                ),
+                const SizedBox(width: 12),
+                FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppTheme.primaryOf(isDark),
+                    foregroundColor: isDark ? Colors.black : Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 12,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  icon: const Icon(Icons.refresh_rounded, size: 18),
+                  label: const Text('重新加载'),
+                  onPressed: () {
+                    setState(() {
+                      tab.errorMessage = null;
+                      tab.isLoading = true;
+                    });
+                    tab.controller?.reload();
+                  },
+                ),
+              ],
             ),
           ],
         ),
@@ -72,7 +124,7 @@ extension _WebViewBuilders on _BrowserPageState {
     );
   }
 
-  Widget _buildTabWebView(WebTab tab, int tabIndex) {
+  Widget _buildTabWebView(WebTab tab) {
     final isStartPage = tab.url == 'operon://newtab' ||
         tab.url == 'about:blank' ||
         tab.url.isEmpty;
@@ -97,17 +149,41 @@ extension _WebViewBuilders on _BrowserPageState {
       },
     );
 
+    tab.findController ??= FindInteractionController(
+      onFindResultReceived: (
+        controller,
+        activeMatchOrdinal,
+        numberOfMatches,
+        isDoneCounting,
+      ) {
+        if (!mounted || tab.id != _currentTab.id || !_isFindingInPage) {
+          return;
+        }
+        setState(() {
+          _findActiveMatch = activeMatchOrdinal;
+          _findTotalMatches = numberOfMatches;
+        });
+      },
+    );
+
     return Stack(
       children: [
         InAppWebView(
           key: ValueKey(tab.id),
-          initialUrlRequest: URLRequest(
-            url: WebUri(tab.url.startsWith('http') ? tab.url : 'about:blank'),
-          ),
+          windowId: tab.windowId,
+          initialUrlRequest: tab.windowId != null
+              ? null
+              : URLRequest(
+                  url: WebUri(
+                    tab.url.startsWith('http') ? tab.url : 'about:blank',
+                  ),
+                ),
           pullToRefreshController: tab.pullToRefresh,
+          findInteractionController: tab.findController,
           initialSettings: InAppWebViewSettings(
             userAgent: userAgent,
             javaScriptEnabled: jsEnabled,
+            incognito: tab.isIncognito,
             domStorageEnabled: true,
             databaseEnabled: true,
             cacheEnabled: true,
@@ -128,48 +204,107 @@ extension _WebViewBuilders on _BrowserPageState {
             useOnDownloadStart: true,
           ),
           onScrollChanged: (controller, x, y) {
-            if (tabIndex == _currentTabIndex) _onPageScroll(y);
+            if (mounted && tab.id == _currentTab.id) _onPageScroll(y);
           },
           onWebViewCreated: (controller) {
             tab.controller = controller;
             tab.wrapper = WebViewControllerWrapper(controller);
-            if (tabIndex == _currentTabIndex && mounted) {
+            if (mounted && tab.id == _currentTab.id) {
               setState(() {});
             }
           },
           onCreateWindow: (controller, createWindowAction) async {
             final url = createWindowAction.request.url?.toString();
             if (url != null && url.isNotEmpty) {
-              _createNewTab(url: url, switchToTab: true);
+              _createNewTab(
+                url: url,
+                switchToTab: true,
+                isIncognito: tab.isIncognito,
+              );
+              return true;
+            }
+            if (createWindowAction.windowId > 0) {
+              _createNewTab(
+                url: 'about:blank',
+                switchToTab: true,
+                isIncognito: tab.isIncognito,
+                windowId: createWindowAction.windowId,
+              );
               return true;
             }
             return false;
           },
           onDownloadStartRequest: (controller, downloadStartRequest) async {
-            final filename =
-                downloadStartRequest.suggestedFilename ?? 'download';
+            final filename = DownloadService.sanitizeFilename(
+              downloadStartRequest.suggestedFilename,
+              downloadStartRequest.url.toString(),
+            );
             final url = downloadStartRequest.url.toString();
             final len = downloadStartRequest.contentLength;
             final sizeMb = len > 0
                 ? ' (${(len / (1024 * 1024)).toStringAsFixed(1)} MB)'
                 : '';
 
+            String? cookieHeader;
+            try {
+              final cookies = await CookieManager.instance()
+                  .getCookies(url: downloadStartRequest.url);
+              if (cookies.isNotEmpty) {
+                cookieHeader = cookies
+                    .map((c) => '${c.name}=${c.value}')
+                    .join('; ');
+              }
+            } catch (_) {}
+
+            final ua = _storage?.getUserAgent();
+            unawaited(DownloadService.instance.enqueue(
+              url: url,
+              suggestedFilename: filename,
+              mimeType: downloadStartRequest.mimeType,
+              userAgent: ua,
+              cookieHeader: cookieHeader,
+              contentLength: len,
+              onFinished: (item) {
+                if (!mounted) return;
+                final msg = item.status == DownloadStatus.completed
+                    ? '下载完成：${item.filename}'
+                    : '下载失败：${item.filename}';
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(msg),
+                    action: SnackBarAction(
+                      label: item.status == DownloadStatus.completed
+                          ? '打开'
+                          : '查看',
+                      onPressed: () {
+                        if (item.status == DownloadStatus.completed) {
+                          DownloadService.instance.openFile(item);
+                        } else {
+                          _openDownloadsSheet();
+                        }
+                      },
+                    ),
+                    duration: const Duration(seconds: 4),
+                  ),
+                );
+              },
+            ));
+
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
-                  content: Text('检测到文件下载: $filename$sizeMb'),
+                  content: Text('开始下载：$filename$sizeMb'),
                   action: SnackBarAction(
-                    label: '复制链接',
-                    onPressed: () {
-                      Clipboard.setData(ClipboardData(text: url));
-                    },
+                    label: '查看下载',
+                    onPressed: _openDownloadsSheet,
                   ),
-                  duration: const Duration(seconds: 4),
+                  duration: const Duration(seconds: 3),
                 ),
               );
             }
           },
           onLoadStart: (controller, url) {
+            if (!mounted) return;
             setState(() {
               tab.isLoading = true;
               tab.progress = 0.1;
@@ -177,7 +312,7 @@ extension _WebViewBuilders on _BrowserPageState {
             });
             // A new document is never something to read with the controls
             // hidden: the user needs to see where they landed.
-            if (tabIndex == _currentTabIndex) {
+            if (tab.id == _currentTab.id) {
               _chrome.reset();
               _revealChrome();
             }
@@ -189,6 +324,7 @@ extension _WebViewBuilders on _BrowserPageState {
             final urlStr = _normalizeUrl(url?.toString() ?? tab.url);
             final canBack = await controller.canGoBack();
             final canFwd = await controller.canGoForward();
+            if (!mounted) return;
 
             setState(() {
               tab.isLoading = false;
@@ -197,20 +333,28 @@ extension _WebViewBuilders on _BrowserPageState {
               tab.url = urlStr;
               tab.canGoBack = canBack;
               tab.canGoForward = canFwd;
-              if (tabIndex == _currentTabIndex) {
+              if (tab.id == _currentTab.id && !_addressFocused) {
                 _urlController.text =
                     urlStr.startsWith('operon://') ? '' : urlStr;
               }
             });
 
-            // Auto-record history for valid web URLs
-            if (urlStr.startsWith('http')) {
+            // The WebView has already downloaded the page's own icon, which is
+            // more accurate than re-requesting /favicon.ico: it is the one the
+            // site declared, and it works for sites behind a login.
+            if (urlStr.startsWith('http')) _cacheFavicon(controller, urlStr);
+
+            // Auto-record history for valid non-incognito web URLs
+            if (!tab.isIncognito && urlStr.startsWith('http')) {
               _storage?.addHistoryItem(HistoryItem(
-                id: '${DateTime.now().millisecondsSinceEpoch}',
+                id: '${DateTime.now().microsecondsSinceEpoch}',
                 url: urlStr,
                 title: title.isNotEmpty ? title : urlStr,
                 visitedAt: DateTime.now(),
               ));
+            }
+            if (!tab.isIncognito) {
+              _persistTabSession();
             }
 
             _applyThemeToWebPage(controller);
@@ -218,19 +362,21 @@ extension _WebViewBuilders on _BrowserPageState {
             // Auto-inject agent script when page finishes loading
             if (tab.wrapper != null) {
               await tab.wrapper!.ensureScriptInjected();
+              if (!mounted) return;
               if (tab.isCleanMode && (_storage?.getReadingModeEnabled() ?? true)) {
                 await tab.wrapper!.cleanPageMode();
               }
-              _injectMatchedUserScripts(urlStr);
             }
           },
           onProgressChanged: (controller, progress) {
+            if (!mounted) return;
             setState(() {
               tab.progress = progress / 100.0;
               tab.isLoading = progress < 100;
             });
           },
           onTitleChanged: (controller, title) {
+            if (!mounted) return;
             if (title != null && title.isNotEmpty) {
               setState(() {
                 tab.title = title;
@@ -249,7 +395,7 @@ extension _WebViewBuilders on _BrowserPageState {
               tab.url = urlStr;
               tab.canGoBack = canBack;
               tab.canGoForward = canFwd;
-              if (tabIndex == _currentTabIndex) {
+              if (tab.id == _currentTab.id && !_addressFocused) {
                 _urlController.text =
                     tab.url.startsWith('operon://') ? '' : tab.url;
               }
@@ -276,12 +422,13 @@ extension _WebViewBuilders on _BrowserPageState {
             }
 
             Future.delayed(const Duration(milliseconds: 300), () {
-              _checkSelectionAndTrigger();
+              if (mounted) _checkSelectionAndTrigger();
             });
           },
           onReceivedError: (controller, request, error) {
             if (request.isForMainFrame == true) {
               tab.pullToRefresh?.endRefreshing();
+              if (!mounted) return;
               setState(() {
                 tab.errorMessage = error.description;
                 tab.isLoading = false;
@@ -315,6 +462,27 @@ extension _WebViewBuilders on _BrowserPageState {
               origin: origin,
               allow: allowed,
               retain: allowed,
+            );
+          },
+          onReceivedServerTrustAuthRequest: (controller, challenge) async {
+            final host = challenge.protectionSpace.host;
+            if (host.isNotEmpty && _trustedSslHosts.contains(host)) {
+              return ServerTrustAuthResponse(
+                action: ServerTrustAuthResponseAction.PROCEED,
+              );
+            }
+            final displayHost = host.isEmpty ? '当前站点' : host;
+            final allowed = await _askWebPermission(
+              '安全证书异常',
+              '「$displayHost」的 HTTPS 安全证书不受信任或已过期，继续访问可能存在信息泄露风险。\n\n除非你明确信任该站点，否则建议取消。',
+            );
+            if (allowed && host.isNotEmpty) {
+              _trustedSslHosts.add(host);
+            }
+            return ServerTrustAuthResponse(
+              action: allowed
+                  ? ServerTrustAuthResponseAction.PROCEED
+                  : ServerTrustAuthResponseAction.CANCEL,
             );
           },
           onConsoleMessage: (controller, consoleMessage) {

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../config/app_theme.dart';
+import '../../config/app_tokens.dart';
 import '../../services/haptic_service.dart';
 
 /// The address bar, with the assistant to the left of the pill.
@@ -21,8 +22,12 @@ class BrowserControls extends StatefulWidget {
     required this.progress,
     required this.onSubmitUrl,
     required this.onSummarize,
+    this.pageTitle,
+    this.onReload,
+    this.onStopLoad,
     this.onOpenAgent,
     this.agentBusy = false,
+    this.isIncognito = false,
     this.onCopyUrl,
     this.onShareUrl,
     this.onFocusChanged,
@@ -33,12 +38,18 @@ class BrowserControls extends StatefulWidget {
   final double progress;
   final Function(String url) onSubmitUrl;
   final VoidCallback onSummarize;
+  final String? pageTitle;
+  final VoidCallback? onReload;
+  final VoidCallback? onStopLoad;
 
   /// Opens the assistant. Null hides the entry.
   final VoidCallback? onOpenAgent;
 
   /// A task is running, so the entry says so instead of looking idle.
   final bool agentBusy;
+
+  /// Marks the active tab as an incognito session.
+  final bool isIncognito;
 
   /// Long-press actions on the address pill. `null` hides the entry.
   final VoidCallback? onCopyUrl;
@@ -156,19 +167,23 @@ class _BrowserControlsState extends State<BrowserControls> {
         color: barBg,
         border: Border(
           bottom: BorderSide(
-            color: isDark
-                ? Colors.white.withValues(alpha: 0.05)
-                : Colors.black.withValues(alpha: 0.05),
-            width: 0.6,
+            color: AppInk.hairline(isDark),
+            width: AppStroke.hairline,
           ),
         ),
       ),
       child: SafeArea(
         bottom: false,
         child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(6, 7, 10, 7),
+              padding: const EdgeInsets.fromLTRB(
+                AppSpace.x1 + 2,
+                AppSpace.x1 + 2,
+                AppSpace.x3,
+                AppSpace.x1 + 2,
+              ),
               child: Row(
                 children: [
                   if (widget.onOpenAgent != null) ...[
@@ -186,8 +201,13 @@ class _BrowserControlsState extends State<BrowserControls> {
                       isDark: isDark,
                       focused: _hasFocus,
                       showClear: _showClear && _hasFocus,
+                      pageTitle: widget.pageTitle,
+                      isLoading: widget.isLoading,
+                      isIncognito: widget.isIncognito,
                       onClear: _clear,
                       onSubmit: _submit,
+                      onReload: widget.onReload,
+                      onStopLoad: widget.onStopLoad,
                       onSummarize: widget.onSummarize,
                       contextMenuBuilder: _buildContextMenu,
                     ),
@@ -195,20 +215,24 @@ class _BrowserControlsState extends State<BrowserControls> {
                 ],
               ),
             ),
-            AnimatedContainer(
-              duration: const Duration(milliseconds: 160),
-              height: widget.isLoading ? 2 : 0,
-              child: widget.isLoading
-                  ? LinearProgressIndicator(
-                      value: widget.progress > 0.03 && widget.progress < 0.97
-                          ? widget.progress
-                          : null,
-                      minHeight: 2,
-                      backgroundColor: Colors.transparent,
-                      valueColor:
-                          AlwaysStoppedAnimation<Color>(AppTheme.primaryOf(isDark)),
-                    )
-                  : null,
+            AnimatedOpacity(
+              duration: const Duration(milliseconds: 180),
+              opacity: widget.isLoading && widget.progress < 1.0 ? 1.0 : 0.0,
+              child: SizedBox(
+                height: 2,
+                child: widget.isLoading
+                    ? LinearProgressIndicator(
+                        value: widget.progress > 0.04 && widget.progress < 0.98
+                            ? widget.progress
+                            : null,
+                        minHeight: 2,
+                        backgroundColor: Colors.transparent,
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          AppTheme.primaryOf(isDark),
+                        ),
+                      )
+                    : const SizedBox.shrink(),
+              ),
             ),
           ],
         ),
@@ -225,10 +249,15 @@ class _AddressPill extends StatelessWidget {
     required this.isDark,
     required this.focused,
     required this.showClear,
+    required this.isLoading,
+    this.isIncognito = false,
     required this.onClear,
     required this.onSubmit,
     required this.onSummarize,
     required this.contextMenuBuilder,
+    this.pageTitle,
+    this.onReload,
+    this.onStopLoad,
   });
 
   final TextEditingController controller;
@@ -236,76 +265,58 @@ class _AddressPill extends StatelessWidget {
   final bool isDark;
   final bool focused;
   final bool showClear;
+  final bool isLoading;
+  final bool isIncognito;
   final VoidCallback onClear;
   final VoidCallback onSubmit;
   final VoidCallback onSummarize;
   final Widget Function(BuildContext, EditableTextState) contextMenuBuilder;
+  final String? pageTitle;
+  final VoidCallback? onReload;
+  final VoidCallback? onStopLoad;
 
   @override
   Widget build(BuildContext context) {
-    final inputBg = isDark ? AppTheme.darkInput : AppTheme.lightInput;
-    final borderColor = focused
-        ? AppTheme.primaryOf(isDark)
-        : (isDark ? AppTheme.darkBorder : AppTheme.lightBorder);
-    final iconColor = isDark ? AppTheme.darkMuted : AppTheme.lightMuted;
-    final textColor = isDark ? AppTheme.darkOnSurface : AppTheme.lightOnSurface;
+    final borderColor =
+        focused ? AppTheme.primaryOf(isDark) : AppInk.hairline(isDark);
+    final iconColor = AppInk.secondary(isDark);
     final url = controller.text;
     final secure = url.startsWith('https://');
+    final hasRefreshControl = onReload != null || onStopLoad != null;
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 180),
       curve: Curves.easeOut,
-      height: 46,
+      height: AppSpace.tap,
       decoration: BoxDecoration(
-        color: inputBg,
-        borderRadius: BorderRadius.circular(21),
-        border: Border.all(color: borderColor, width: 1.0),
+        color: AppInk.sunken(isDark),
+        borderRadius: BorderRadius.circular(AppRadius.pill),
+        border: Border.all(
+          color: borderColor,
+          width: focused ? 1.4 : AppStroke.hairline,
+        ),
       ),
       child: Row(
         children: [
-          const SizedBox(width: 12),
+          const SizedBox(width: AppSpace.x3),
           Icon(
-            secure
-                ? Icons.lock_rounded
-                : (url.isEmpty ? Icons.search_rounded : Icons.public_rounded),
-            size: 15,
-            color: secure ? AppTheme.accentOf(isDark) : iconColor,
+            isIncognito
+                ? Icons.visibility_off_rounded
+                : (secure
+                    ? Icons.lock_rounded
+                    : (url.isEmpty
+                        ? Icons.search_rounded
+                        : Icons.public_rounded)),
+            size: 14,
+            color: isIncognito
+                ? AppTheme.primaryOf(isDark)
+                : (secure ? AppTheme.accentOf(isDark) : iconColor),
           ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: TextField(
-              controller: controller,
-              focusNode: focusNode,
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w400,
-                color: textColor,
-              ),
-              cursorColor: AppTheme.primaryOf(isDark),
-              cursorRadius: const Radius.circular(2),
-              decoration: InputDecoration(
-                isDense: true,
-                filled: false,
-                border: InputBorder.none,
-                enabledBorder: InputBorder.none,
-                focusedBorder: InputBorder.none,
-                contentPadding: EdgeInsets.zero,
-                hintText: '搜索或输入网址',
-                hintStyle: TextStyle(
-                  fontSize: 13.5,
-                  color: isDark ? Colors.white30 : Colors.black38,
-                ),
-              ),
-              keyboardType: TextInputType.url,
-              textInputAction: TextInputAction.go,
-              onSubmitted: (_) => onSubmit(),
-              onTapOutside: (_) => focusNode.unfocus(),
-              contextMenuBuilder: contextMenuBuilder,
-            ),
-          ),
-          // The clear button only shows while the user is typing: when they are
-          // just reading a page it costs 44dp of address for a control nobody
-          // needs yet.
+          const SizedBox(width: AppSpace.x2),
+          Expanded(child: _buildAddress()),
+          // The clear button only shows while the user is typing: when
+          // they are just reading a page it costs 44dp of address for a
+          // control nobody needs yet.
           if (showClear)
             Semantics(
               button: true,
@@ -314,24 +325,173 @@ class _AddressPill extends StatelessWidget {
                 behavior: HitTestBehavior.opaque,
                 onTap: onClear,
                 child: SizedBox(
-                  width: 44,
-                  height: 44,
+                  width: AppSpace.tap,
+                  height: AppSpace.tap,
                   child: Center(
                     child: Icon(
                       Icons.cancel_rounded,
-                      size: 16,
-                      color: isDark ? Colors.white30 : Colors.black26,
+                      size: 15,
+                      color: AppInk.tertiary(isDark),
                     ),
                   ),
                 ),
               ),
-            ),
-          _SummarizeAction(isDark: isDark, onTap: onSummarize),
-          const SizedBox(width: 6),
+            )
+          else if (hasRefreshControl)
+            _RefreshStopAction(
+              isDark: isDark,
+              isLoading: isLoading,
+              onTap: isLoading ? onStopLoad : onReload,
+            )
+          else
+            _SummarizeAction(isDark: isDark, onTap: onSummarize),
+          const SizedBox(width: AppSpace.x1),
         ],
       ),
     );
   }
+
+  /// The address, in two states.
+  ///
+  /// While reading, the address is information: the host carries the weight,
+  /// because that is the part that answers "where am I", and the path sits back
+  /// in grey. While typing, it has to be an ordinary text field again.
+  ///
+  /// The field stays mounted underneath at zero opacity in the reading state, so
+  /// every keystroke, selection, controller listener and accessibility node
+  /// keeps working exactly as before — and a tap anywhere on the address focuses
+  /// it, the way tapping an address bar always has.
+  Widget _buildAddress() {
+    final editing = focused;
+    final text = controller.text;
+
+    return SizedBox(
+      height: AppSpace.tap,
+      child: Stack(
+        alignment: Alignment.centerLeft,
+        children: [
+          Positioned.fill(
+            child: Opacity(
+              opacity: editing ? 1 : 0,
+              child: Center(
+                child: TextField(
+                  controller: controller,
+                  focusNode: focusNode,
+                  style: AppType.body.copyWith(color: AppInk.primary(isDark)),
+                  cursorColor: AppTheme.primaryOf(isDark),
+                  cursorRadius: const Radius.circular(2),
+                  decoration: InputDecoration(
+                    isDense: true,
+                    filled: false,
+                    border: InputBorder.none,
+                    enabledBorder: InputBorder.none,
+                    focusedBorder: InputBorder.none,
+                    contentPadding: EdgeInsets.zero,
+                    hintText: '搜索或输入网址',
+                    hintStyle:
+                        AppType.body.copyWith(color: AppInk.tertiary(isDark)),
+                  ),
+                  keyboardType: TextInputType.url,
+                  textInputAction: TextInputAction.go,
+                  onSubmitted: (_) => onSubmit(),
+                  onTapOutside: (_) => focusNode.unfocus(),
+                  contextMenuBuilder: contextMenuBuilder,
+                ),
+              ),
+            ),
+          ),
+          if (!editing)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: _buildReadingLabel(text),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReadingLabel(String urlText) {
+    final cleanTitle = (pageTitle ?? '').trim();
+    final hasPageTitle = cleanTitle.isNotEmpty &&
+        cleanTitle != '新标签页' &&
+        cleanTitle != '加载中...' &&
+        urlText.isNotEmpty;
+    if (hasPageTitle) {
+      return Text(
+        cleanTitle,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: AppType.body.copyWith(
+          color: AppInk.primary(isDark),
+          fontWeight: FontWeight.w500,
+        ),
+      );
+    }
+    if (urlText.isEmpty) {
+      return Text(
+        '搜索或输入网址',
+        style: AppType.body.copyWith(color: AppInk.tertiary(isDark)),
+        maxLines: 1,
+      );
+    }
+    return _AddressDisplay(text: urlText, isDark: isDark);
+  }
+}
+
+/// Host at full strength, everything after it in grey.
+class _AddressDisplay extends StatelessWidget {
+  const _AddressDisplay({required this.text, required this.isDark});
+
+  final String text;
+  final bool isDark;
+
+  @override
+  Widget build(BuildContext context) {
+    final parts = _splitAuthority(text);
+    final base = AppType.body.copyWith(
+      color: AppInk.primary(isDark),
+      fontWeight: FontWeight.w500,
+    );
+    final mute = AppType.body.copyWith(color: AppInk.tertiary(isDark));
+
+    return Text.rich(
+      TextSpan(
+        style: mute,
+        children: [
+          if (parts.prefix.isNotEmpty) TextSpan(text: parts.prefix),
+          TextSpan(text: parts.host, style: base),
+          if (parts.rest.isNotEmpty) TextSpan(text: parts.rest),
+        ],
+      ),
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+    );
+  }
+}
+
+/// Splits a URL into the part worth emphasising and the rest.
+///
+/// Deliberately string-based rather than `Uri.parse`: this draws on every
+/// keystroke and has to survive half-typed input, which a parser rejects.
+({String prefix, String host, String rest}) _splitAuthority(String url) {
+  if (!url.contains('/') && !url.contains('.')) {
+    // A search term, not an address. Nothing to emphasise.
+    return (prefix: '', host: url, rest: '');
+  }
+  final schemeEnd = url.indexOf('://');
+  final prefix = schemeEnd >= 0 ? url.substring(0, schemeEnd + 3) : '';
+  final afterScheme = schemeEnd >= 0 ? url.substring(schemeEnd + 3) : url;
+  final slash = afterScheme.indexOf('/');
+  if (slash < 0) return (prefix: prefix, host: afterScheme, rest: '');
+  return (
+    prefix: prefix,
+    host: afterScheme.substring(0, slash),
+    rest: afterScheme.substring(slash),
+  );
 }
 
 /// The assistant entry: a small bright mark to the left of the address.
@@ -357,8 +517,6 @@ class AgentEntryButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final primary = AppTheme.primaryOf(isDark);
-    final accent = AppTheme.accentOf(isDark);
-    final warn = AppTheme.warningOf(isDark);
     return Semantics(
       button: true,
       label: busy ? 'AI 正在执行任务，打开面板' : '打开 AI 助手',
@@ -382,21 +540,21 @@ class AgentEntryButton extends StatelessWidget {
                 child: Stack(
                   alignment: Alignment.center,
                   children: [
+                    // A flat accent tint with the accent mark on it. The
+                    // three-colour gradient that used to be here (green into
+                    // blue into orange) read as decoration; a tinted square
+                    // reads as a control, and it is the same tint the rest of
+                    // the app uses for "selected".
                     Container(
                       decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: [accent, primary, warn.withValues(alpha: 0.9)],
-                          stops: const [0.0, 0.55, 1.0],
-                        ),
-                        borderRadius: BorderRadius.circular(9),
+                        color: AppInk.accentTint(isDark),
+                        borderRadius: BorderRadius.circular(AppRadius.icon),
                       ),
                       child: Center(
                         child: Icon(
                           Icons.auto_awesome_rounded,
                           size: 16,
-                          color: Colors.white.withValues(alpha: 0.96),
+                          color: primary,
                         ),
                       ),
                     ),
@@ -411,6 +569,52 @@ class AgentEntryButton extends StatelessWidget {
                       ),
                   ],
                 ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _RefreshStopAction extends StatelessWidget {
+  const _RefreshStopAction({
+    required this.isDark,
+    required this.isLoading,
+    this.onTap,
+  });
+
+  final bool isDark;
+  final bool isLoading;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final label = isLoading ? '停止加载' : '刷新页面';
+    return Semantics(
+      button: true,
+      label: label,
+      child: Tooltip(
+        message: label,
+        child: SizedBox(
+          width: AppSpace.tap,
+          height: AppSpace.tap,
+          child: InkResponse(
+            onTap: onTap == null
+                ? null
+                : () {
+                    HapticService.selection();
+                    onTap!();
+                  },
+            radius: 22,
+            containedInkWell: true,
+            highlightShape: BoxShape.circle,
+            child: Center(
+              child: Icon(
+                isLoading ? Icons.close_rounded : Icons.refresh_rounded,
+                size: 18,
+                color: AppInk.secondary(isDark),
               ),
             ),
           ),
@@ -442,18 +646,13 @@ class _SummarizeAction extends StatelessWidget {
             containedInkWell: true,
             highlightShape: BoxShape.circle,
             child: Center(
-              child: Container(
-                width: 28,
-                height: 28,
-                decoration: BoxDecoration(
-                  color: AppTheme.accentOf(isDark).withValues(alpha: isDark ? 0.16 : 0.12),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(
-                  Icons.auto_awesome_rounded,
-                  size: 15,
-                  color: AppTheme.accentOf(isDark),
-                ),
+              // Two sparkles side by side (the AI entry and this) read as the
+              // same button twice. Summarising a page is a reading action, so
+              // it gets a document mark instead.
+              child: Icon(
+                Icons.subject_rounded,
+                size: 17,
+                color: AppInk.secondary(isDark),
               ),
             ),
           ),

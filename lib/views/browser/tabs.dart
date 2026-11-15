@@ -9,16 +9,25 @@ part of '../browser_page.dart';
 // The tab list and what happens when one opens, switches or closes.
 
 extension _TabActions on _BrowserPageState {
-  void _createNewTab({String? url, bool switchToTab = true}) {
+  void _createNewTab({
+    String? url,
+    bool switchToTab = true,
+    bool isIncognito = false,
+    int? windowId,
+  }) {
     final homepage = _storage?.getHomepage() ?? AppConstants.defaultHomepage;
-    final targetUrl = url ?? homepage;
+    final targetUrl = isIncognito && url == null
+        ? AppConstants.defaultHomepage
+        : (url ?? homepage);
     final isDesktop = _storage?.getDesktopMode() ?? false;
 
     final newTab = WebTab(
       id: 'tab_${DateTime.now().millisecondsSinceEpoch}_${_tabs.length}',
       url: targetUrl,
-      title: '新标签页',
+      title: isIncognito ? '无痕标签页' : '新标签页',
       isDesktopMode: isDesktop,
+      isIncognito: isIncognito,
+      windowId: windowId,
     );
 
     setState(() {
@@ -26,13 +35,17 @@ extension _TabActions on _BrowserPageState {
       if (switchToTab) {
         _currentTabIndex = _tabs.length - 1;
         _urlController.text =
-            targetUrl.startsWith('operon://') ? '' : targetUrl;
+            targetUrl.startsWith('operon://') || targetUrl == 'about:blank'
+                ? ''
+                : targetUrl;
       }
     });
+    _persistTabSession();
   }
 
   void _switchTab(int index) {
     if (index < 0 || index >= _tabs.length) return;
+    _closeFindInPage();
     _chrome.reset();
     _revealChrome();
     final agentActive =
@@ -57,6 +70,7 @@ extension _TabActions on _BrowserPageState {
       _urlController.text =
           _currentTab.url.startsWith('operon://') ? '' : _currentTab.url;
     });
+    _persistTabSession();
   }
 
   void _closeTab(int index) {
@@ -68,6 +82,9 @@ extension _TabActions on _BrowserPageState {
       );
       return;
     }
+    if (index == _currentTabIndex) {
+      _closeFindInPage();
+    }
     setState(() {
       _tabs.removeAt(index);
       if (_tabs.isEmpty) {
@@ -77,6 +94,7 @@ extension _TabActions on _BrowserPageState {
           id: 'tab_${DateTime.now().millisecondsSinceEpoch}',
           url: homepage,
           title: '新标签页',
+          isDesktopMode: _storage?.getDesktopMode() ?? false,
         ));
         _currentTabIndex = 0;
       } else if (_currentTabIndex >= _tabs.length) {
@@ -85,6 +103,7 @@ extension _TabActions on _BrowserPageState {
       _urlController.text =
           _currentTab.url.startsWith('operon://') ? '' : _currentTab.url;
     });
+    _persistTabSession();
   }
 
   void _closeAllTabs() {
@@ -94,6 +113,7 @@ extension _TabActions on _BrowserPageState {
       );
       return;
     }
+    _closeFindInPage();
     setState(() {
       _tabs.clear();
       final homepage = _storage?.getHomepage() ?? AppConstants.defaultHomepage;
@@ -101,14 +121,24 @@ extension _TabActions on _BrowserPageState {
         id: 'tab_${DateTime.now().millisecondsSinceEpoch}',
         url: homepage,
         title: '新标签页',
+        isDesktopMode: _storage?.getDesktopMode() ?? false,
       ));
       _currentTabIndex = 0;
       _urlController.text = homepage.startsWith('operon://') ? '' : homepage;
     });
+    _persistTabSession();
     Navigator.of(context).pop();
   }
 
-  void _goHome() {
+  void _goHome({bool useConfiguredHomepage = false}) {
+    if (useConfiguredHomepage) {
+      final homepage = _storage?.getHomepage() ?? AppConstants.defaultHomepage;
+      if (homepage.startsWith('http://') || homepage.startsWith('https://')) {
+        _loadUrl(homepage);
+        return;
+      }
+    }
+    _closeFindInPage();
     _chrome.reset();
     _revealChrome();
     _currentTab.controller?.stopLoading();
@@ -117,13 +147,14 @@ extension _TabActions on _BrowserPageState {
     );
     setState(() {
       _currentTab.url = 'operon://newtab';
-      _currentTab.title = '新标签页';
+      _currentTab.title = _currentTab.isIncognito ? '无痕标签页' : '新标签页';
       _currentTab.errorMessage = null;
       _currentTab.canGoBack = false;
       _currentTab.canGoForward = false;
       _currentTab.isLoading = false;
       _urlController.text = '';
     });
+    _persistTabSession();
   }
 
   void _openTabOverview() {
@@ -131,16 +162,19 @@ extension _TabActions on _BrowserPageState {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => TabsOverviewSheet(
-        tabs: _tabs,
-        activeIndex: _currentTabIndex,
-        onSelectTab: _switchTab,
-        onCloseTab: (idx) {
-          _closeTab(idx);
-          if (mounted) setState(() {});
-        },
-        onNewTab: () => _createNewTab(),
-        onCloseAll: _closeAllTabs,
+      builder: (_) => StatefulBuilder(
+        builder: (sheetContext, sheetSetState) => TabsOverviewSheet(
+          tabs: _tabs,
+          activeIndex: _currentTabIndex,
+          onSelectTab: _switchTab,
+          onCloseTab: (idx) {
+            _closeTab(idx);
+            sheetSetState(() {});
+          },
+          onNewTab: () => _createNewTab(),
+          onNewIncognitoTab: () => _createNewTab(isIncognito: true),
+          onCloseAll: _closeAllTabs,
+        ),
       ),
     );
   }

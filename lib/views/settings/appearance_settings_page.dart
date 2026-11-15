@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import '../../config/app_theme.dart';
+import '../../config/app_tokens.dart';
 import '../../services/storage_service.dart';
 import '../../services/theme_service.dart';
+import '../widgets/operon_list_row.dart';
 
 class AppearanceSettingsPage extends StatefulWidget {
   const AppearanceSettingsPage({super.key});
@@ -53,125 +55,114 @@ class _AppearanceSettingsPageState extends State<AppearanceSettingsPage> {
       ),
       body: ListView(
         padding: EdgeInsets.fromLTRB(
-            16, 16, 16, 16 + MediaQuery.of(context).viewPadding.bottom),
+            16, 12, 16, 16 + MediaQuery.of(context).viewPadding.bottom),
         children: [
           Container(
             decoration: BoxDecoration(
               color: cardColor,
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(AppRadius.icon),
               border: Border.all(
-                color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-                width: 0.8,
+                color: AppInk.hairline(isDark),
+                width: AppStroke.hairline,
               ),
             ),
-            padding: const EdgeInsets.all(16),
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Text(
-                  '应用主题模式',
-                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  '控制浏览器外壳、主页及菜单色彩',
-                  style: TextStyle(fontSize: 12, color: AppTheme.neutralOf(isDark)),
-                ),
-                const SizedBox(height: 14),
-                SegmentedButton<ThemeMode>(
-                  segments: const [
-                    ButtonSegment<ThemeMode>(
+                OperonOptionRow<ThemeMode>(
+                  title: '主题切换',
+                  value: _themeMode,
+                  options: const [
+                    OperonOptionItem<ThemeMode>(
                       value: ThemeMode.system,
-                      label: Text('跟随系统'),
-                      icon: Icon(Icons.brightness_auto, size: 16),
+                      label: '跟随系统',
+                      icon: Icons.brightness_auto_rounded,
                     ),
-                    ButtonSegment<ThemeMode>(
+                    OperonOptionItem<ThemeMode>(
                       value: ThemeMode.light,
-                      label: Text('浅色'),
-                      icon: Icon(Icons.light_mode, size: 16),
+                      label: '浅色模式',
+                      icon: Icons.light_mode_rounded,
                     ),
-                    ButtonSegment<ThemeMode>(
+                    OperonOptionItem<ThemeMode>(
                       value: ThemeMode.dark,
-                      label: Text('暗色'),
-                      icon: Icon(Icons.dark_mode, size: 16),
+                      label: '暗色模式',
+                      icon: Icons.dark_mode_rounded,
                     ),
                   ],
-                  selected: {_themeMode},
-                  onSelectionChanged: (Set<ThemeMode> newSelection) async {
-                    final selected = newSelection.first;
+                  onChanged: (selected) async {
                     setState(() => _themeMode = selected);
                     await _themeService.setThemeMode(selected);
                   },
                 ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
-          Container(
-            decoration: BoxDecoration(
-              color: cardColor,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-                width: 0.8,
-              ),
-            ),
-            child: SwitchListTile(
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-              title: const Text('强制网页夜间模式 (Force Dark)',
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-              subtitle: Text('对不支持深色主题的网页进行内核级智能反色渲染',
-                  style: TextStyle(fontSize: 12, color: AppTheme.neutralOf(isDark))),
-              value: _webDarkMode,
-              activeThumbColor: AppTheme.primaryOf(isDark),
-              onChanged: (val) async {
-                setState(() => _webDarkMode = val);
-                await _storage.saveWebDarkMode(val);
-              },
-            ),
-          ),
-          const SizedBox(height: 16),
-          Container(
-            decoration: BoxDecoration(
-              color: cardColor,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-                width: 0.8,
-              ),
-            ),
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text('网页字体大小缩放',
-                        style: TextStyle(
-                            fontSize: 14, fontWeight: FontWeight.w600)),
-                    Text('$_textZoom%',
-                        style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                            color: AppTheme.primaryOf(isDark))),
-                  ],
+                Divider(
+                  height: 1,
+                  thickness: AppStroke.hairline,
+                  indent: 14,
+                  endIndent: 14,
+                  color: AppInk.hairline(isDark),
                 ),
-                const SizedBox(height: 8),
-                Slider(
-                  value: _textZoom.toDouble(),
-                  min: 50,
-                  max: 200,
-                  divisions: 15,
-                  label: '$_textZoom%',
-                  activeColor: AppTheme.primaryOf(isDark),
-                  onChanged: (val) {
-                    setState(() => _textZoom = val.round());
+                SwitchListTile(
+                  dense: true,
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+                  title: const Text('强制网页夜间模式',
+                      style:
+                          TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+                  subtitle: Text('对不支持深色的网页启用内核级反色',
+                      style: TextStyle(
+                          fontSize: 11.5, color: AppInk.tertiary(isDark))),
+                  value: _webDarkMode,
+                  activeThumbColor: AppTheme.primaryOf(isDark),
+                  onChanged: (val) async {
+                    setState(() => _webDarkMode = val);
+                    await _storage.saveWebDarkMode(val);
                   },
-                  onChangeEnd: (val) async {
-                    await _storage.saveTextZoom(val.round());
-                  },
+                ),
+                Divider(
+                  height: 1,
+                  thickness: AppStroke.hairline,
+                  indent: 14,
+                  endIndent: 14,
+                  color: AppInk.hairline(isDark),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text('网页字体大小缩放',
+                              style: TextStyle(
+                                  fontSize: 13, fontWeight: FontWeight.w500)),
+                          Text('$_textZoom%',
+                              style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  fontFeatures: const [
+                                    FontFeature.tabularFigures()
+                                  ],
+                                  color: AppTheme.primaryOf(isDark))),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Slider(
+                        value: _textZoom.toDouble(),
+                        min: 50,
+                        max: 200,
+                        divisions: 15,
+                        label: '$_textZoom%',
+                        activeColor: AppTheme.primaryOf(isDark),
+                        onChanged: (val) {
+                          setState(() => _textZoom = val.round());
+                        },
+                        onChangeEnd: (val) async {
+                          await _storage.saveTextZoom(val.round());
+                        },
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),

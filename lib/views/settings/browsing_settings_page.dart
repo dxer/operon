@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import '../../config/app_constants.dart';
 import '../../config/app_theme.dart';
+import '../../config/app_tokens.dart';
 import '../../services/haptic_service.dart';
 import '../../services/storage_service.dart';
+import '../widgets/operon_list_row.dart';
 
 class BrowsingSettingsPage extends StatefulWidget {
   const BrowsingSettingsPage({super.key});
@@ -67,27 +69,29 @@ class _BrowsingSettingsPageState extends State<BrowsingSettingsPage> {
       ),
       body: ListView(
         padding: EdgeInsets.fromLTRB(
-            16, 16, 16, 16 + MediaQuery.of(context).viewPadding.bottom),
+            16, 12, 16, 16 + MediaQuery.of(context).viewPadding.bottom),
         children: [
           Container(
             decoration: BoxDecoration(
               color: cardColor,
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(AppRadius.icon),
               border: Border.all(
-                color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-                width: 0.8,
+                color: AppInk.hairline(isDark),
+                width: AppStroke.hairline,
               ),
             ),
             child: Column(
               children: [
                 SwitchListTile(
+                  dense: true,
                   contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                  title: const Text('无图模式 (拦截图片加载)',
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+                  title: const Text('无图模式',
                       style:
-                          TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                  subtitle: Text('在弱网环境下大幅缩减流量消耗并加快正文加载',
-                      style: TextStyle(fontSize: 12, color: AppTheme.neutralOf(isDark))),
+                          TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+                  subtitle: Text('拦截网页图片加载以节省流量',
+                      style: TextStyle(
+                          fontSize: 11.5, color: AppInk.tertiary(isDark))),
                   value: _blockImages,
                   activeThumbColor: AppTheme.primaryOf(isDark),
                   onChanged: (val) async {
@@ -95,15 +99,21 @@ class _BrowsingSettingsPageState extends State<BrowsingSettingsPage> {
                     await _storage.saveBlockImages(val);
                   },
                 ),
-                const Divider(height: 1),
+                Divider(
+                  height: AppStroke.hairline,
+                  thickness: AppStroke.hairline,
+                  color: AppInk.hairline(isDark),
+                ),
                 SwitchListTile(
+                  dense: true,
                   contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
                   title: const Text('JavaScript 脚本支持',
                       style:
-                          TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                  subtitle: Text('关闭可彻底防御恶意弹窗，但现代网页功能可能受限',
-                      style: TextStyle(fontSize: 12, color: AppTheme.neutralOf(isDark))),
+                          TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+                  subtitle: Text('关闭可防弹窗，部分现代网页可能无法交互',
+                      style: TextStyle(
+                          fontSize: 11.5, color: AppInk.tertiary(isDark))),
                   value: _javaScriptEnabled,
                   activeThumbColor: AppTheme.primaryOf(isDark),
                   onChanged: (val) async {
@@ -111,15 +121,21 @@ class _BrowsingSettingsPageState extends State<BrowsingSettingsPage> {
                     await _storage.saveJavaScriptEnabled(val);
                   },
                 ),
-                const Divider(height: 1),
+                Divider(
+                  height: AppStroke.hairline,
+                  thickness: AppStroke.hairline,
+                  color: AppInk.hairline(isDark),
+                ),
                 SwitchListTile(
+                  dense: true,
                   contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
                   title: const Text('默认电脑桌面版渲染',
                       style:
-                          TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                  subtitle: Text('新建标签页默认使用 PC 宽屏视口及 Desktop User-Agent',
-                      style: TextStyle(fontSize: 12, color: AppTheme.neutralOf(isDark))),
+                          TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+                  subtitle: Text('新标签默认使用 PC 视口与 UA',
+                      style: TextStyle(
+                          fontSize: 11.5, color: AppInk.tertiary(isDark))),
                   value: _desktopMode,
                   activeThumbColor: AppTheme.primaryOf(isDark),
                   onChanged: (val) async {
@@ -127,15 +143,18 @@ class _BrowsingSettingsPageState extends State<BrowsingSettingsPage> {
                     await _storage.saveDesktopMode(val);
                   },
                 ),
-                const Divider(height: 1),
+                Divider(
+                  height: AppStroke.hairline,
+                  thickness: AppStroke.hairline,
+                  color: AppInk.hairline(isDark),
+                ),
                 SwitchListTile(
+                  dense: true,
                   contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
                   title: const Text('触感反馈',
                       style:
-                          TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                  subtitle: Text('按钮、切换标签和拖动悬浮球时的轻微震动',
-                      style: TextStyle(fontSize: 12, color: AppTheme.neutralOf(isDark))),
+                          TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
                   value: _hapticsEnabled,
                   activeThumbColor: AppTheme.primaryOf(isDark),
                   onChanged: (val) async {
@@ -147,35 +166,40 @@ class _BrowsingSettingsPageState extends State<BrowsingSettingsPage> {
               ],
             ),
           ),
-          const SizedBox(height: 16),
-          Text(
-            '阅读与摘要',
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              color: AppTheme.neutralOf(isDark),
+          const SizedBox(height: 14),
+          Padding(
+            padding: const EdgeInsets.only(left: 4),
+            child: Text(
+              '阅读与摘要',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+                color: AppInk.tertiary(isDark),
+              ),
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           Container(
             decoration: BoxDecoration(
               color: cardColor,
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(AppRadius.icon),
               border: Border.all(
-                color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-                width: 0.8,
+                color: AppInk.hairline(isDark),
+                width: AppStroke.hairline,
               ),
             ),
             child: Column(
               children: [
                 SwitchListTile(
+                  dense: true,
                   contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
                   title: const Text('纯净阅读',
                       style:
-                          TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                  subtitle: Text('清掉 App 跳转横幅与遮罩，展开被折叠的正文。关闭后菜单里不再出现这一项',
-                      style: TextStyle(fontSize: 12, color: AppTheme.neutralOf(isDark))),
+                          TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+                  subtitle: Text('去除跳转横幅与遮罩，展开全文',
+                      style: TextStyle(
+                          fontSize: 11.5, color: AppInk.tertiary(isDark))),
                   value: _readingModeEnabled,
                   activeThumbColor: AppTheme.primaryOf(isDark),
                   onChanged: (val) async {
@@ -183,15 +207,21 @@ class _BrowsingSettingsPageState extends State<BrowsingSettingsPage> {
                     await _storage.saveReadingModeEnabled(val);
                   },
                 ),
-                const Divider(height: 1),
+                Divider(
+                  height: AppStroke.hairline,
+                  thickness: AppStroke.hairline,
+                  color: AppInk.hairline(isDark),
+                ),
                 SwitchListTile(
+                  dense: true,
                   contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
                   title: const Text('划词操作',
                       style:
-                          TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                  subtitle: Text('在页面上选中文字后弹出解释、翻译与追问。关闭后选中文字不再有任何弹层',
-                      style: TextStyle(fontSize: 12, color: AppTheme.neutralOf(isDark))),
+                          TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+                  subtitle: Text('选中文字后弹出解释、翻译与追问',
+                      style: TextStyle(
+                          fontSize: 11.5, color: AppInk.tertiary(isDark))),
                   value: _selectionMenuEnabled,
                   activeThumbColor: AppTheme.primaryOf(isDark),
                   onChanged: (val) async {
@@ -199,15 +229,21 @@ class _BrowsingSettingsPageState extends State<BrowsingSettingsPage> {
                     await _storage.saveSelectionMenuEnabled(val);
                   },
                 ),
-                const Divider(height: 1),
+                Divider(
+                  height: AppStroke.hairline,
+                  thickness: AppStroke.hairline,
+                  color: AppInk.hairline(isDark),
+                ),
                 SwitchListTile(
+                  dense: true,
                   contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
                   title: const Text('页面总结',
                       style:
-                          TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                  subtitle: Text('长文速读：把当前页面正文交给大模型生成摘要。关闭后菜单里不再出现这一项，也不再产生调用费用',
-                      style: TextStyle(fontSize: 12, color: AppTheme.neutralOf(isDark))),
+                          TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+                  subtitle: Text('菜单内显示 AI 速读入口（会产生模型调用）',
+                      style: TextStyle(
+                          fontSize: 11.5, color: AppInk.tertiary(isDark))),
                   value: _pageSummaryEnabled,
                   activeThumbColor: AppTheme.primaryOf(isDark),
                   onChanged: (val) async {
@@ -218,66 +254,75 @@ class _BrowsingSettingsPageState extends State<BrowsingSettingsPage> {
               ],
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           Container(
             decoration: BoxDecoration(
               color: cardColor,
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(AppRadius.icon),
               border: Border.all(
-                color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-                width: 0.8,
+                color: AppInk.hairline(isDark),
+                width: AppStroke.hairline,
               ),
             ),
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(14),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
                   'User-Agent 请求标识',
-                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 10),
+                Builder(builder: (context) {
+                  final uaText = _uaController.text.trim();
+                  String? matchedPreset;
+                  String matchedLabel = '自定义 User-Agent';
+                  for (final entry in AppConstants.userAgentPresets.entries) {
+                    if (entry.value == uaText) {
+                      matchedPreset = entry.value;
+                      matchedLabel = entry.key;
+                      break;
+                    }
+                  }
+                  return OperonOptionRow<String?>(
+                    title: '常用设备预设',
+                    padding: EdgeInsets.zero,
+                    value: matchedPreset,
+                    valueLabel: matchedLabel,
+                    options: [
+                      for (final entry in AppConstants.userAgentPresets.entries)
+                        OperonOptionItem<String?>(
+                          value: entry.value,
+                          label: entry.key,
+                          subtitle: entry.value.isEmpty ? '使用系统默认标识' : entry.value,
+                        ),
+                    ],
+                    onChanged: (val) {
+                      if (val != null) {
+                        _uaController.text = val;
+                        _storage.saveUserAgent(val);
+                        setState(() {});
+                      }
+                    },
+                  );
+                }),
+                Divider(
+                  height: 12,
+                  thickness: AppStroke.hairline,
+                  color: AppInk.hairline(isDark),
                 ),
                 const SizedBox(height: 6),
-                Text(
-                  '向网站声明的客户端设备身份',
-                  style: TextStyle(fontSize: 12, color: AppTheme.neutralOf(isDark)),
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  // Without this the selected preset's long label sets the
-                  // intrinsic width and overflows a 360–412 dp phone.
-                  isExpanded: true,
-                  decoration: InputDecoration(
-                    labelText: '常用设备预设',
-                    border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10)),
-                    contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 10),
-                  ),
-                  items: AppConstants.userAgentPresets.entries.map((e) {
-                    return DropdownMenuItem(
-                      value: e.value,
-                      child: Text(e.key, style: const TextStyle(fontSize: 13)),
-                    );
-                  }).toList(),
-                  onChanged: (val) {
-                    if (val != null) {
-                      _uaController.text = val;
-                      _storage.saveUserAgent(val);
-                      setState(() {});
-                    }
-                  },
-                ),
-                const SizedBox(height: 12),
                 TextField(
                   controller: _uaController,
                   maxLines: 3,
                   style: const TextStyle(fontSize: 12, fontFamily: 'monospace'),
-                  decoration: InputDecoration(
+                  decoration: const InputDecoration(
                     labelText: '自定义 User-Agent 字符串',
-                    border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10)),
                   ),
-                  onChanged: (val) => _storage.saveUserAgent(val.trim()),
+                  onChanged: (val) {
+                    _storage.saveUserAgent(val.trim());
+                    setState(() {});
+                  },
                 ),
               ],
             ),

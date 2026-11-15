@@ -1,11 +1,13 @@
 import '../control/protocol/results.dart';
 import '../models/agent_attachment.dart';
+import '../utils/url_utils.dart';
 import 'context.dart';
 import 'guards.dart';
 import 'permission.dart';
 import 'ports.dart';
 import 'prompt.dart';
 import 'tools.dart';
+import 'transcript.dart';
 
 /// How a run ended, in the terms the panel and the log need.
 enum LoopOutcome { success, partial, failed }
@@ -46,6 +48,14 @@ class LoopEnd {
       };
 }
 
+/// Consecutive turns that only looked at the page and never acted.
+///
+/// Different from the guards' "no effect" counter: there every call succeeded
+/// and the page did not move. Here nothing was even attempted — snapshot,
+/// snapshot, snapshot. A model stuck in that loop costs money and produces
+/// nothing, and no per-call counter can see it.
+const int _readOnlyTurnsStop = 8;
+
 /// Thrown inside the loop when a guard or the user ends the run.
 class _StopRun implements Exception {
   const _StopRun(this.end);
@@ -73,7 +83,6 @@ class AgentLoop {
     required this.host,
     required this.system,
     required this.tools,
-    this.maxTurns = 40,
     this.safeMode = true,
     this.isSiteAllowed,
     this.isSiteBlocked,
@@ -86,9 +95,11 @@ class AgentLoop {
     this.onToolFinished,
     this.onSkipped,
     this.onContextNote,
+    this.onUrlChanged,
     ContextLimits? context,
     GuardState? guardState,
     String? startUrl,
+    this.prior = const [],
   })  : context = context ?? const ContextLimits(),
         _context = ContextManager(limits: context ?? const ContextLimits()),
         guards = Guards(state: guardState),
@@ -99,7 +110,6 @@ class AgentLoop {
   final HostPort host;
   final String system;
   final List<Map<String, Object?>> tools;
-  final int maxTurns;
   final bool safeMode;
 
   /// Sites the user set to Allow, where a write does not ask.
@@ -120,6 +130,7 @@ class AgentLoop {
   final void Function(ToolCallRequest call, ToolResultLike result)? onToolFinished;
   final void Function(ToolCallRequest call, String reason)? onSkipped;
   final void Function(String note)? onContextNote;
+  final void Function(String url)? onUrlChanged;
 
   final ContextLimits context;
   final ContextManager _context;
@@ -129,6 +140,14 @@ class AgentLoop {
   /// with the page. Part of the task, not part of the page.
   final List<AgentAttachment> attachments;
 
+  /// Earlier turns of this conversation, already rendered as messages.
+  ///
+  /// They go in before the first token is spent so the model knows what it did
+  /// for this user a minute ago — that is what makes 「继续」 mean something.
+  /// This turn's own calls still use the real tool protocol; the history is
+  /// text, for the reason spelled out in transcript.dart.
+  final List<Map<String, Object?>> prior;
+
   /// Tokens this run has been billed for. Reported, never enforced: a user
   /// who cannot see the cost cannot decide whether a run was worth it.
   int promptTokens = 0;
@@ -137,6 +156,9 @@ class AgentLoop {
   final List<Map<String, Object?>> _messages = [];
   String? _currentUrl;
   int _toolCalls = 0;
+  int _readOnlyTurns = 0;
+  int? _lastObservedPromptTokens;
+  bool _mutatedThisTurn = false;
 
   /// The conversation as it was sent. Exposed for export and for tests.
   List<Map<String, Object?>> get history => List.unmodifiable(_messages);
@@ -144,13 +166,23 @@ class AgentLoop {
   Future<LoopEnd> run(String goal) async {
     _messages
       ..clear()
-      ..add({'role': 'system', 'content': system})
-      ..add(goalMessage(_goalWithFiles(goal)));
+      ..add({'role': 'system', 'content': system});
+    if (prior.isNotEmpty) {
+      _messages
+        ..add({'role': 'system', 'content': continuationNote})
+        ..addAll(prior);
+    }
+    _messages.add(goalMessage(_goalWithFiles(goal)));
     _addAttachmentImages();
 
     var turns = 0;
     try {
-      for (var turn = 1; turn <= maxTurns; turn++) {
+      // No step ceiling. The panel used to expose one, and the number was
+      // always wrong: too small for a real flow, too large to catch a loop.
+      // What actually stops a stuck run is [Guards]: repeated no-effect
+      // actions and a streak of failures, both of which are evidence from
+      // the page rather than a guess made before the run began.
+      for (var turn = 1;; turn++) {
         turns = turn;
         if (!await _mayGo()) {
           throw _StopRun(_userStop(turns, '任务已停止'));
@@ -158,13 +190,19 @@ class AgentLoop {
         onTurn?.call(turn);
 
         // Hook 2: what to send.
-        final plan = _context.prepare(_messages);
+        final plan = _context.prepare(
+          _messages,
+          observedPromptTokens: _lastObservedPromptTokens,
+        );
         if (plan.changed) {
           _messages
             ..clear()
             ..addAll(plan.messages);
+          _lastObservedPromptTokens = null;
+          final prefix =
+              plan.autoCompacted ? '已触发 Auto-Compact 自动压缩：' : '压缩了对话历史：';
           onContextNote?.call(
-            '压缩了对话历史：省略 ${plan.elided} 条结果'
+            '$prefix省略 ${plan.elided} 条结果'
             '${plan.droppedTurns == 0 ? '' : '，合并 ${plan.droppedTurns} 轮旧交互'}',
           );
         }
@@ -192,6 +230,7 @@ class AgentLoop {
           );
         }
 
+        _lastObservedPromptTokens = reply.promptTokens;
         promptTokens += reply.promptTokens ?? 0;
         completionTokens += reply.completionTokens ?? 0;
 
@@ -210,27 +249,49 @@ class AgentLoop {
         if (thought != null && thought.isNotEmpty) onThought?.call(thought);
 
         if (reply.calls.isEmpty) {
-          // A reply without a call ends the run: nothing else can happen, and
-          // `done` is the only thing that may claim success.
+          // A reply without a call ends the run: nothing else can happen.
+          //
+          // An answer in words is not a failure. The system prompt tells the
+          // model to answer directly when no action is needed — 「你好」 gets
+          // 「你好」, and reporting that as 「模型用文字结束，没有调用 done」
+          // handed the user an internal protocol complaint instead of their
+          // reply. Only an empty reply is a real dead end.
+          final answer = thought ?? '';
+          if (answer.isEmpty) {
+            return LoopEnd(
+              outcome: LoopOutcome.failed,
+              stopReason: reply.reasoningOnly
+                  ? '这个模型只返回了思考过程，没有给出回答（常见于推理模型的'
+                      '输出上限设得太小）。可以调大输出上限，或换一个模型。'
+                  : '模型没有回答，也没有执行任何操作。'
+                      '可以换一个模型，或把任务说得更具体。',
+              turns: turns,
+              toolCalls: _toolCalls,
+            );
+          }
           return LoopEnd(
-            outcome: LoopOutcome.partial,
-            summary: thought == null || thought.isEmpty ? null : thought,
-            stopReason: '模型用文字结束，没有调用 done',
+            outcome: LoopOutcome.success,
+            summary: answer,
             turns: turns,
             toolCalls: _toolCalls,
           );
         }
 
+        _mutatedThisTurn = false;
         final end = await _runBatch(reply.calls, turns);
         if (end != null) return end;
+        if (_mutatedThisTurn) {
+          _readOnlyTurns = 0;
+        } else if (++_readOnlyTurns >= _readOnlyTurnsStop) {
+          throw _StopRun(LoopEnd(
+            outcome: LoopOutcome.partial,
+            stopReason: '连续 $_readOnlyTurns 轮只观察页面、没有做任何操作，已停止。'
+                '可以告诉它具体要做什么，或把任务缩小。',
+            turns: turns,
+            toolCalls: _toolCalls,
+          ));
+        }
       }
-
-      return LoopEnd(
-        outcome: LoopOutcome.partial,
-        stopReason: '已用完 $maxTurns 轮，任务没有结束。可以把目标拆小后重试。',
-        turns: turns,
-        toolCalls: _toolCalls,
-      );
     } on _StopRun catch (stop) {
       return stop.end;
     }
@@ -342,14 +403,14 @@ class AgentLoop {
       ));
     }
 
-    final host_ = _currentHost;
-    if (host_ != null && isSiteBlocked?.call(host_) == true) {
+    final blockedHost = _blockedHostFor(call);
+    if (blockedHost != null) {
       // A site the user forbade is not negotiable and not worth a dialog: the
       // agent is simply not there.
       guards.record(call.name, call.args, ToolResultSummary.of(false, true));
       _messages.add(toolMessage(
         call.id,
-        '用户在设置里禁止了 $host_，智能体不能在这个站点上操作。'
+        '用户在设置里禁止了 $blockedHost，智能体不能在这个站点上操作。'
         '不要换个方式再试；改用 done 说明情况，或让用户自己完成。',
       ));
       onSkipped?.call(call, '站点被禁止');
@@ -362,6 +423,7 @@ class AgentLoop {
       final approved = await host.confirm(ConfirmRequest(
         title: write.destructive ? '这一步需要你来做' : '确认${write.label}',
         reason: _confirmReason(write, call, label),
+        url: _currentUrl,
         payload: _confirmPayload(call),
         destructive: write.destructive,
         handoff: write.handoff,
@@ -378,7 +440,7 @@ class AgentLoop {
               : '用户跳过了这一步，智能体没有执行。'
                   '不要重复同一个动作；如果任务因此无法继续，用 done 说明情况。',
         ));
-        onSkipped?.call(call, write.handoff ? '需要用户自己完成' : '用户拒绝');
+        onSkipped?.call(call, '需要用户自己完成');
         return null;
       }
       if (!approved) {
@@ -391,8 +453,29 @@ class AgentLoop {
       }
     }
 
-    onToolStarted?.call(_toolCalls, call, describeToolCall(call.name, call.args));
-    final result = await control.execute(call.name, call.args);
+    var effectiveArgs = call.args;
+    if (call.name == 'upload') {
+      final rawFiles = (call.args['files'] ?? '').toString().trim();
+      if (rawFiles.isEmpty) {
+        final picked = await host.pickFiles();
+        if (picked == null || picked.isEmpty) {
+          _messages.add(toolMessage(
+            call.id,
+            '用户取消了文件选择，没有上传。如果必须上传文件才能继续，请用 done 说明情况。',
+          ));
+          onSkipped?.call(call, '用户取消选择文件');
+          return null;
+        }
+        effectiveArgs = {
+          ...call.args,
+          'files': picked.join(','),
+        };
+      }
+    }
+
+    onToolStarted?.call(_toolCalls, call, describeToolCall(call.name, effectiveArgs));
+    if (toolMutates(call.name)) _mutatedThisTurn = true;
+    final result = await control.execute(call.name, effectiveArgs);
     _toolCalls++;
     _rememberUrl(result);
 
@@ -497,18 +580,24 @@ class AgentLoop {
     return true;
   }
 
-  /// The host of the page the run is on, or null before it has loaded one.
-  ///
-  /// The allow list stores bare hosts, and the loop used to hand it a whole
-  /// URL — so "always allow this site" never matched anything.
   String? get _currentHost {
     final url = _currentUrl;
     if (url == null || url.isEmpty) return null;
-    final host = Uri.tryParse(url)?.host ?? '';
-    if (host.isEmpty) return null;
-    return host.toLowerCase().startsWith('www.')
-        ? host.substring(4).toLowerCase()
-        : host.toLowerCase();
+    final host = hostOf(url);
+    return host.isEmpty ? null : host;
+  }
+
+  String? _blockedHostFor(ToolCallRequest call) {
+    final check = isSiteBlocked;
+    if (check == null) return null;
+    if (call.name == 'navigate') {
+      final rawUrl = call.args['url']?.toString() ?? '';
+      final targetHost = normalizeHostInput(rawUrl);
+      if (targetHost.isNotEmpty && check(targetHost)) return targetHost;
+    }
+    final current = _currentHost;
+    if (current != null && check(current)) return current;
+    return null;
   }
 
   String _confirmReason(WriteAssessment write, ToolCallRequest call, String? label) {
@@ -527,10 +616,11 @@ class AgentLoop {
   }
 
   void _rememberUrl(ToolResult result) {
-    final data = result.data;
-    if (data == null) return;
-    final url = data['url'];
-    if (url is String && url.isNotEmpty) _currentUrl = url;
+    final raw = result.data?['url'] ?? result.receipt?.urlAfter;
+    if (raw is String && raw.isNotEmpty && raw != _currentUrl) {
+      _currentUrl = raw;
+      onUrlChanged?.call(raw);
+    }
   }
 
   Future<bool> _mayGo() async {

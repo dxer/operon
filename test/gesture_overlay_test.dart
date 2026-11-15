@@ -46,6 +46,48 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('outlines the box the layer measured', (tester) async {
+    final pulse = ValueNotifier<GesturePulse?>(null);
+    addTearDown(pulse.dispose);
+
+    await tester.pumpWidget(host(pulse));
+    pulse.value = const GesturePulse(
+      at: Offset(190, 240),
+      bounds: Rect.fromLTWH(100, 220, 180, 40),
+      label: 'button "发送"',
+      seq: 1,
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 120));
+
+    final ring = find.byKey(const ValueKey('gesture-target-ring'));
+    expect(ring, findsOneWidget);
+    // The outline sits exactly on the measured box: it is a promise about
+    // where the event lands, so being "near" is not good enough.
+    expect(tester.getSize(ring), const Size(180, 40));
+
+    await tester.pump(const Duration(milliseconds: 800));
+    expect(ring, findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('draws no ring when the node reported no box', (tester) async {
+    final pulse = ValueNotifier<GesturePulse?>(null);
+    addTearDown(pulse.dispose);
+
+    await tester.pumpWidget(host(pulse));
+    pulse.value = const GesturePulse(
+      at: Offset(60, 60),
+      label: 'link "下一条"',
+      seq: 1,
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 120));
+
+    expect(find.byKey(const ValueKey('gesture-target-ring')), findsNothing);
+    expect(find.text('link "下一条"'), findsOneWidget);
+  });
+
   testWidgets('a second pulse on the same point still animates', (tester) async {
     final pulse = ValueNotifier<GesturePulse?>(null);
     addTearDown(pulse.dispose);

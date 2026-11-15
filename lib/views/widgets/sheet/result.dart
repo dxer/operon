@@ -6,25 +6,20 @@ part of '../agent_bottom_sheet.dart';
 // about a misuse.
 // ignore_for_file: invalid_use_of_protected_member
 
-// The answer card: what the model said, and how to take it away.
+// The answer card: what the model concluded, and how to take it away.
 
 extension _SheetResult on _AgentBottomSheetState {
   bool _hasResultCard(AgentState state) {
     if (state.currentThought.trim().isNotEmpty) return true;
     return state.status == AgentStatus.completed ||
-        state.status == AgentStatus.error ||
-        state.status == AgentStatus.maxStepsReached;
+        state.status == AgentStatus.error;
   }
 
   String _resultText(AgentState state) {
     // A failure explains itself: the model's last thought is stale by then, and
     // "see the logs" makes the user dig for the one sentence that matters.
     final error = state.errorMessage?.trim() ?? '';
-    if (error.isNotEmpty &&
-        (state.status == AgentStatus.error ||
-            state.status == AgentStatus.maxStepsReached)) {
-      return error;
-    }
+    if (error.isNotEmpty && state.status == AgentStatus.error) return error;
     final thought = state.currentThought.trim();
     if (thought.isNotEmpty) return thought;
     switch (state.status) {
@@ -32,8 +27,6 @@ extension _SheetResult on _AgentBottomSheetState {
         return '任务已完成。';
       case AgentStatus.error:
         return '任务执行失败，请查看日志。';
-      case AgentStatus.maxStepsReached:
-        return '已达到步数上限，任务已停止。';
       default:
         return '';
     }
@@ -73,7 +66,9 @@ extension _SheetResult on _AgentBottomSheetState {
     }
   }
 
-  Widget _smallAction({
+  /// A text action on the result row. 44dp tall so the row is thumb-sized
+  /// without looking like a toolbar of buttons.
+  Widget _resultAction({
     required IconData icon,
     required String label,
     required Color color,
@@ -84,20 +79,17 @@ extension _SheetResult on _AgentBottomSheetState {
       label: label,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(AppRadius.chip),
         child: ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: 44),
+          constraints: const BoxConstraints(minHeight: AppSpace.tap),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10),
+            padding: const EdgeInsets.symmetric(horizontal: AppSpace.x2),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Icon(icon, size: 15, color: color),
-                const SizedBox(width: 4),
-                Text(
-                  label,
-                  style: TextStyle(fontSize: 11.5, color: color),
-                ),
+                const SizedBox(width: AppSpace.x1),
+                Text(label, style: AppType.label.copyWith(color: color)),
               ],
             ),
           ),
@@ -114,9 +106,7 @@ extension _SheetResult on _AgentBottomSheetState {
     required Color onSurface,
     required Color muted,
   }) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final sage = AppTheme.accentOf(isDark);
-    final ochre = AppTheme.warningOf(isDark);
     final brick = AppTheme.dangerOf(isDark);
     final copper = AppTheme.primaryOf(isDark);
 
@@ -135,30 +125,25 @@ extension _SheetResult on _AgentBottomSheetState {
         icon = Icons.error_outline_rounded;
         title = '执行异常';
         break;
-      case AgentStatus.maxStepsReached:
-        color = ochre;
-        icon = Icons.timer_outlined;
-        title = '达到步数上限';
-        break;
       default:
         color = copper;
         finished = false;
         icon = Icons.auto_awesome_rounded;
-        title = 'AI 思路';
+        title = '当前思路';
         break;
     }
 
     final text = _resultText(state);
-    const secondary = '';
     final maxLines = finished ? 3 : 2;
     final needsToggle = text.length > (finished ? 84 : 56) ||
         text.split('\n').length > maxLines;
+    final hasTokens = state.promptTokens + state.completionTokens > 0;
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+      padding: const EdgeInsets.all(AppSpace.x3),
       decoration: BoxDecoration(
         color: surface,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(AppRadius.card),
         border: Border.all(color: hairline),
       ),
       child: Column(
@@ -167,97 +152,73 @@ extension _SheetResult on _AgentBottomSheetState {
           Row(
             children: [
               Icon(icon, size: 15, color: color),
-              const SizedBox(width: 6),
+              const SizedBox(width: AppSpace.x2 - 2),
               Text(
                 title,
-                style: TextStyle(
-                  fontSize: 11.5,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.2,
+                style: AppType.label.copyWith(
                   color: color,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
-              const Spacer(),
-              if (state.currentStep > 0)
-                Text(
-                  finished
-                      ? '共 ${state.currentStep} 步'
-                      : '第 ${state.currentStep}/${state.maxSteps} 步',
-                  style: TextStyle(fontSize: 10.5, color: muted),
-                ),
             ],
           ),
-          const SizedBox(height: 5),
-          Text(
-            text,
-            maxLines: _resultExpanded ? null : maxLines,
-            overflow:
-                _resultExpanded ? TextOverflow.clip : TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: 12.5,
-              height: 1.5,
-              color: onSurface.withValues(alpha: 0.88),
+          const SizedBox(height: AppSpace.x1 + 2),
+          ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: _resultExpanded ? double.infinity : maxLines * 22.0,
+            ),
+            child: ClipRect(
+              child: MarkdownAnswer(
+                text,
+                onOpenLink: widget.onOpenLink,
+                baseStyle: AppType.body.copyWith(
+                  height: 1.5,
+                  color: onSurface.withValues(alpha: 0.9),
+                ),
+              ),
             ),
           ),
-          if (secondary.isNotEmpty) ...[
-            const SizedBox(height: 3),
-            Text(
-              secondary,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 11, height: 1.4, color: muted),
-            ),
-          ],
           if (needsToggle)
             Align(
               alignment: Alignment.centerLeft,
               child: InkWell(
                 onTap: () => setState(() => _resultExpanded = !_resultExpanded),
-                borderRadius: BorderRadius.circular(6),
+                borderRadius: BorderRadius.circular(AppRadius.chip - 4),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(vertical: 3),
                   child: Text(
                     _resultExpanded ? '收起' : '展开',
-                    style: TextStyle(fontSize: 11, color: color),
+                    style: AppType.label.copyWith(color: color),
                   ),
                 ),
               ),
             ),
           if (finished) ...[
-            const SizedBox(height: 4),
-            Wrap(
-              spacing: 2,
-              runSpacing: 2,
-              crossAxisAlignment: WrapCrossAlignment.center,
+            const SizedBox(height: AppSpace.x1 + 2),
+            // One row: what you can do on the left, what it cost on the right.
+            // A run that hides its price is a run nobody dares repeat.
+            Row(
               children: [
-                _smallAction(
+                _resultAction(
                   icon: Icons.copy_rounded,
                   label: '复制',
                   color: muted,
                   onTap: _copyResult,
                 ),
-                _smallAction(
+                _resultAction(
                   icon: Icons.ios_share_rounded,
                   label: '分享',
                   color: muted,
                   onTap: _shareResult,
                 ),
-                if (state.logs.isNotEmpty)
-                  _smallAction(
-                    icon: Icons.subject_rounded,
-                    label: _showLogs ? '收起日志' : '日志 ${state.logs.length}',
-                    color: muted,
-                    onTap: () => setState(() => _showLogs = !_showLogs),
-                  ),
-                // What this run cost. A user who cannot see it cannot decide
-                // whether the task was worth running again.
-                if (state.promptTokens + state.completionTokens > 0)
-                  Padding(
-                    padding: const EdgeInsets.only(left: 6),
-                    child: Text(
-                      '${_tokens(state.promptTokens)} 输入 · '
-                      '${_tokens(state.completionTokens)} 输出 token',
-                      style: TextStyle(fontSize: 10.5, color: muted),
+                const Spacer(),
+                if (hasTokens)
+                  Text(
+                    '${_tokens(state.promptTokens)} / '
+                    '${_tokens(state.completionTokens)} token',
+                    style: AppType.micro.copyWith(
+                      color: AppInk.tertiary(isDark),
+                      fontWeight: FontWeight.w400,
                     ),
                   ),
               ],

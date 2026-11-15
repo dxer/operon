@@ -9,10 +9,17 @@ class GesturePulse {
     required this.at,
     required this.label,
     required this.seq,
+    this.bounds,
   });
 
   /// The point in logical pixels, above the WebView.
   final Offset at;
+
+  /// The element's box in logical pixels, when the layer measured one.
+  ///
+  /// The cursor says "something happens here"; the box says "this is the thing
+  /// it is doing it to", which is the question a person watching actually has.
+  final Rect? bounds;
 
   /// What the element is called, shown briefly beside the cursor.
   final String label;
@@ -47,6 +54,7 @@ class _GestureOverlayState extends State<GestureOverlay>
 
   Offset? _from;
   Offset? _to;
+  Rect? _bounds;
   String _label = '';
 
   @override
@@ -57,7 +65,10 @@ class _GestureOverlayState extends State<GestureOverlay>
         // Clears the label once the gesture is over, so nothing stays on top
         // of the page.
         if (status == AnimationStatus.completed && mounted) {
-          setState(() => _label = '');
+          setState(() {
+            _label = '';
+            _bounds = null;
+          });
         }
       });
     widget.pulse.addListener(_onPulse);
@@ -85,6 +96,7 @@ class _GestureOverlayState extends State<GestureOverlay>
     setState(() {
       _from = _to;
       _to = pulse.at;
+      _bounds = pulse.bounds;
       _label = pulse.label;
     });
     _controller.forward(from: 0);
@@ -113,8 +125,24 @@ class _GestureOverlayState extends State<GestureOverlay>
           final rippleOpacity = raw >= 0.7 ? 0.0 : (1 - ripple) * 0.85;
           final labelOpacity = raw < 0.5 ? 1.0 : (1 - (raw - 0.5) * 1.6).clamp(0.0, 1.0);
 
+          final bounds = _bounds;
           return Stack(
             children: [
+              if (bounds != null && raw < 0.86)
+                Positioned.fromRect(
+                  rect: bounds,
+                  child: CustomPaint(
+                    key: const ValueKey('gesture-target-ring'),
+                    painter: _TargetRingPainter(
+                      settle: Curves.easeOutCubic
+                          .transform((raw / 0.45).clamp(0.0, 1.0)),
+                      fade: raw < 0.62
+                          ? 1.0
+                          : (1 - (raw - 0.62) / 0.24).clamp(0.0, 1.0),
+                      color: color,
+                    ),
+                  ),
+                ),
               if (rippleOpacity > 0)
                 Positioned(
                   left: position.dx - 30,
@@ -220,6 +248,57 @@ class _Label extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Outlines the element the layer is about to act on.
+///
+/// It starts slightly outside the box and settles onto it: the movement is what
+/// makes the eye find it, and the resting state is what makes it trustworthy —
+/// the outline ends exactly where the box was measured, not near it.
+class _TargetRingPainter extends CustomPainter {
+  const _TargetRingPainter({
+    required this.settle,
+    required this.fade,
+    required this.color,
+  });
+
+  /// 0 = six pixels outside the box, 1 = exactly the box.
+  final double settle;
+
+  /// 1 while it is worth looking at, 0 once the gesture is over.
+  final double fade;
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final grow = 6 * (1 - settle);
+    final rect = Rect.fromLTWH(
+      -grow,
+      -grow,
+      size.width + grow * 2,
+      size.height + grow * 2,
+    );
+    final radius = Radius.circular(8 + grow);
+
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(rect, radius),
+      Paint()..color = color.withValues(alpha: 0.10 * fade),
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(rect, radius),
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.5
+        ..color = color.withValues(alpha: 0.85 * fade),
+    );
+  }
+
+  @override
+  bool shouldRepaint(_TargetRingPainter oldDelegate) =>
+      oldDelegate.settle != settle ||
+      oldDelegate.fade != fade ||
+      oldDelegate.color != color;
 }
 
 class _RipplePainter extends CustomPainter {

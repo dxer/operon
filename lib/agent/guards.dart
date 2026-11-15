@@ -124,17 +124,21 @@ class Guards {
   /// "No effect" is not a failure: the call succeeded and the page did not
   /// change. It is the shape of a dead button, so it gets its own counter.
   GuardNudge? record(String tool, Map<String, Object?> args, ToolResultSummary result) {
-    state.recent.add(signature(tool, args));
-    if (state.recent.length > limits.repeatWindow * 2) {
-      state.recent.removeRange(0, state.recent.length - limits.repeatWindow * 2);
-    }
-
     if (!result.ok) {
+      state.recent.add(signature(tool, args));
+      _trimRecent();
       state.errors++;
       state.noEffect = 0;
       return null;
     }
     state.errors = 0;
+
+    // A scroll that moved the page revealed new content; only record it as a
+    // repeat candidate when the page did not react (e.g. hit bottom/top).
+    if (tool != 'scroll' || result.pageReacted == false) {
+      state.recent.add(signature(tool, args));
+      _trimRecent();
+    }
 
     final dead = result.mutates && result.pageReacted == false;
     if (!dead) {
@@ -156,6 +160,12 @@ class Guards {
 
   /// True when the no-effect counter has reached the point of stopping.
   bool get noEffectExhausted => state.noEffect >= limits.noEffectStop;
+
+  void _trimRecent() {
+    if (state.recent.length > limits.repeatWindow * 2) {
+      state.recent.removeRange(0, state.recent.length - limits.repeatWindow * 2);
+    }
+  }
 }
 
 /// The few fields of a tool result the guards need, so guards do not depend on

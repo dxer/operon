@@ -40,68 +40,75 @@ class _AgentPromptsPageState extends State<AgentPromptsPage> {
   Future<void> _edit([AgentPrompt? existing]) async {
     final titleController = TextEditingController(text: existing?.title ?? '');
     final goalController = TextEditingController(text: existing?.goal ?? '');
-    final result = await showDialog<AgentPrompt>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(existing == null ? '新建快捷指令' : '编辑快捷指令'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: titleController,
-              autofocus: true,
-              decoration: const InputDecoration(
-                labelText: '名称',
-                hintText: '例如：今日 AI 新闻',
-                isDense: true,
+    final AgentPrompt? result;
+    try {
+      result = await showDialog<AgentPrompt>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text(existing == null ? '新建快捷指令' : '编辑快捷指令'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: titleController,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  labelText: '名称',
+                  hintText: '例如：今日 AI 新闻',
+                  isDense: true,
+                ),
               ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: goalController,
+                minLines: 2,
+                maxLines: 4,
+                decoration: const InputDecoration(
+                  labelText: '要发送的指令',
+                  hintText: '例如：搜索今天的 AI 新闻并总结要点',
+                  isDense: true,
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('取消'),
             ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: goalController,
-              minLines: 2,
-              maxLines: 4,
-              decoration: const InputDecoration(
-                labelText: '要发送的指令',
-                hintText: '例如：搜索今天的 AI 新闻并总结要点',
-                isDense: true,
-              ),
+            FilledButton(
+              onPressed: () {
+                final goal = goalController.text.trim();
+                if (goal.isEmpty) {
+                  Navigator.of(ctx).pop();
+                  return;
+                }
+                final title = titleController.text.trim();
+                Navigator.of(ctx).pop(AgentPrompt(
+                  id: existing?.id ??
+                      DateTime.now().microsecondsSinceEpoch.toString(),
+                  title: title.isEmpty ? goal : title,
+                  goal: goal,
+                ));
+              },
+              child: const Text('保存'),
             ),
           ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () {
-              final goal = goalController.text.trim();
-              if (goal.isEmpty) {
-                Navigator.of(ctx).pop();
-                return;
-              }
-              final title = titleController.text.trim();
-              Navigator.of(ctx).pop(AgentPrompt(
-                id: existing?.id ??
-                    DateTime.now().microsecondsSinceEpoch.toString(),
-                title: title.isEmpty ? goal : title,
-                goal: goal,
-              ));
-            },
-            child: const Text('保存'),
-          ),
-        ],
-      ),
-    );
-    if (result == null) return;
+      );
+    } finally {
+      titleController.dispose();
+      goalController.dispose();
+    }
+    final saved = result;
+    if (saved == null) return;
 
     final list = [..._prompts];
-    final index = list.indexWhere((item) => item.id == result.id);
+    final index = list.indexWhere((item) => item.id == saved.id);
     if (index >= 0) {
-      list[index] = result;
+      list[index] = saved;
     } else {
-      list.add(result);
+      list.add(saved);
     }
     await _save(list);
   }

@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:operon/agent/loop.dart';
 import 'package:operon/agent/ports.dart';
+import 'package:operon/control/protocol/gesture.dart';
 import 'package:operon/agent/tools.dart';
 import 'package:operon/control/perception/captcha.dart';
 import 'package:operon/control/protocol/results.dart';
@@ -43,7 +44,7 @@ class FakeControl implements ControlPort {
   String? refLabel(String? ref) => null;
 
   @override
-  set onGesture(void Function(double x, double y, String label)? value) {}
+  set onGesture(void Function(GestureTarget target)? value) {}
 }
 
 class FakeHost implements HostPort {
@@ -66,6 +67,9 @@ class FakeHost implements HostPort {
     if (answers.isEmpty) return null;
     return answers.removeAt(0);
   }
+
+  @override
+  Future<List<String>?> pickFiles() async => null;
 
   @override
   void note(String title, {String? detail, bool isError = false}) => notes.add(title);

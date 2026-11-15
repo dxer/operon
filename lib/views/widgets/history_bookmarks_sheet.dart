@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import '../../config/app_theme.dart';
+import '../../config/app_tokens.dart';
 import '../../models/bookmark_item.dart';
 import '../../models/history_item.dart';
 import '../../services/storage_service.dart';
+import '../../utils/url_utils.dart';
+import 'site_icon.dart';
 
 class HistoryBookmarksSheet extends StatefulWidget {
   final StorageService storageService;
@@ -99,7 +102,7 @@ class _HistoryBookmarksSheetState extends State<HistoryBookmarksSheet>
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final bg = isDark ? AppTheme.darkBg : AppTheme.lightCard;
-    final dividerColor = isDark ? AppTheme.darkBorder : AppTheme.lightBorder;
+    final dividerColor = AppInk.hairline(isDark);
     final cardBg = isDark ? AppTheme.darkCard : AppTheme.lightBg;
 
     final filteredHistory = _allHistory.where((h) {
@@ -118,7 +121,8 @@ class _HistoryBookmarksSheetState extends State<HistoryBookmarksSheet>
       height: MediaQuery.of(context).size.height * 0.78,
       decoration: BoxDecoration(
         color: bg,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        borderRadius:
+            const BorderRadius.vertical(top: Radius.circular(AppRadius.sheet)),
       ),
       child: SafeArea(
         top: false,
@@ -130,7 +134,7 @@ class _HistoryBookmarksSheetState extends State<HistoryBookmarksSheet>
               width: 36,
               height: 4,
               decoration: BoxDecoration(
-                color: isDark ? Colors.white24 : Colors.black12,
+                color: AppInk.tertiary(isDark).withValues(alpha: 0.5),
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
@@ -138,18 +142,26 @@ class _HistoryBookmarksSheetState extends State<HistoryBookmarksSheet>
             // Tab Bar
             TabBar(
               controller: _tabController,
-              labelColor: isDark ? Colors.white : Colors.black,
-              unselectedLabelColor: isDark ? Colors.white38 : Colors.black38,
-              indicatorColor: isDark ? Colors.white : Colors.black,
-              indicatorWeight: 2.5,
+              labelColor: AppTheme.primaryOf(isDark),
+              unselectedLabelColor: AppInk.tertiary(isDark),
+              indicatorColor: AppTheme.primaryOf(isDark),
+              indicatorWeight: 2.2,
+              labelStyle: AppType.label.copyWith(fontWeight: FontWeight.w600),
+              unselectedLabelStyle: AppType.label,
               tabs: [
                 Tab(
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(Icons.history_rounded, size: 18),
-                      const SizedBox(width: 8),
-                      Text('历史记录 (${_allHistory.length})'),
+                      const Icon(Icons.history_rounded, size: 17),
+                      const SizedBox(width: 6),
+                      Flexible(
+                        child: Text(
+                          '历史记录 (${_allHistory.length})',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -157,9 +169,15 @@ class _HistoryBookmarksSheetState extends State<HistoryBookmarksSheet>
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(Icons.bookmark_border_rounded, size: 18),
-                      const SizedBox(width: 8),
-                      Text('书签收藏 (${_allBookmarks.length})'),
+                      const Icon(Icons.bookmark_border_rounded, size: 17),
+                      const SizedBox(width: 6),
+                      Flexible(
+                        child: Text(
+                          '书签收藏 (${_allBookmarks.length})',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -169,68 +187,70 @@ class _HistoryBookmarksSheetState extends State<HistoryBookmarksSheet>
             // Search Box & Actions Bar
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Container(
-                      height: 38,
-                      decoration: BoxDecoration(
-                        color: cardBg,
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: dividerColor),
-                      ),
-                      padding: const EdgeInsets.symmetric(horizontal: 10),
-                      child: Row(
-                        children: [
-                          Icon(Icons.search,
-                              size: 18,
-                              color: isDark ? Colors.white38 : Colors.black38),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: TextField(
-                              controller: _searchController,
-                              style: const TextStyle(fontSize: 13),
-                              decoration: AppTheme.flatInput.copyWith(
-                                hintText: '搜索标题或网址...',
-                                hintStyle: TextStyle(
-                                  fontSize: 13,
-                                  color: isDark
-                                      ? AppTheme.darkMuted
-                                          .withValues(alpha: 0.72)
-                                      : AppTheme.lightMuted
-                                          .withValues(alpha: 0.78),
+              child: AnimatedBuilder(
+                animation: _tabController,
+                builder: (context, _) => Row(
+                  children: [
+                    Expanded(
+                      child: Container(
+                        height: 38,
+                        decoration: BoxDecoration(
+                          color: cardBg,
+                          borderRadius: BorderRadius.circular(AppRadius.icon),
+                          border: Border.all(
+                            color: dividerColor,
+                            width: AppStroke.hairline,
+                          ),
+                        ),
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                        child: Row(
+                          children: [
+                            Icon(Icons.search,
+                                size: 17,
+                                color: AppInk.tertiary(isDark)),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: TextField(
+                                controller: _searchController,
+                                style: const TextStyle(fontSize: 13),
+                                decoration: AppTheme.flatInput.copyWith(
+                                  hintText: '搜索标题或网址...',
+                                  hintStyle: TextStyle(
+                                    fontSize: 13,
+                                    color: AppInk.tertiary(isDark),
+                                  ),
                                 ),
                               ),
                             ),
-                          ),
-                          if (_searchQuery.isNotEmpty)
-                            GestureDetector(
-                              onTap: () => _searchController.clear(),
-                              child: Icon(Icons.close,
-                                  size: 16,
-                                  color:
-                                      isDark ? Colors.white38 : Colors.black38),
-                            ),
-                        ],
+                            if (_searchQuery.isNotEmpty)
+                              GestureDetector(
+                                onTap: () => _searchController.clear(),
+                                child: Icon(Icons.close,
+                                    size: 16,
+                                    color: AppInk.tertiary(isDark)),
+                              ),
+                          ],
+                        ),
                       ),
                     ),
-                  ),
-                  if (_allHistory.isNotEmpty) ...[
-                    const SizedBox(width: 8),
-                    TextButton.icon(
-                      style: TextButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                        visualDensity: VisualDensity.compact,
+                    if (_tabController.index == 0 &&
+                        _allHistory.isNotEmpty) ...[
+                      const SizedBox(width: 8),
+                      TextButton.icon(
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          visualDensity: VisualDensity.compact,
+                        ),
+                        icon: Icon(Icons.delete_outline,
+                            size: 16, color: AppTheme.dangerOf(isDark)),
+                        label: Text('清空',
+                            style: TextStyle(
+                                fontSize: 12, color: AppTheme.dangerOf(isDark))),
+                        onPressed: _clearAllHistory,
                       ),
-                      icon: Icon(Icons.delete_outline,
-                          size: 16, color: AppTheme.dangerOf(isDark)),
-                      label: Text('清空',
-                          style:
-                              TextStyle(fontSize: 12, color: AppTheme.dangerOf(isDark))),
-                      onPressed: _clearAllHistory,
-                    ),
+                    ],
                   ],
-                ],
+                ),
               ),
             ),
             Divider(height: 1, color: dividerColor),
@@ -257,22 +277,21 @@ class _HistoryBookmarksSheetState extends State<HistoryBookmarksSheet>
                               dense: true,
                               contentPadding: const EdgeInsets.symmetric(
                                   horizontal: 16, vertical: 2),
-                              leading: Container(
-                                width: 34,
-                                height: 34,
-                                decoration: BoxDecoration(
-                                  color: cardBg,
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Icon(Icons.public,
-                                    size: 18, color: AppTheme.primaryOf(isDark)),
+                              leading: SiteIcon(
+                                host: hostOf(item.url),
+                                size: 32,
+                                label: item.title.isNotEmpty
+                                    ? item.title
+                                    : hostOf(item.url),
                               ),
                               title: Text(
                                 item.title.isNotEmpty ? item.title : item.url,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                    fontSize: 13, fontWeight: FontWeight.w600),
+                                style: AppType.label.copyWith(
+                                  color: AppInk.primary(isDark),
+                                  fontWeight: FontWeight.w500,
+                                ),
                               ),
                               subtitle: Row(
                                 children: [
@@ -281,29 +300,25 @@ class _HistoryBookmarksSheetState extends State<HistoryBookmarksSheet>
                                       item.url,
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        color: isDark
-                                            ? Colors.white38
-                                            : Colors.black45,
+                                      style: AppType.micro.copyWith(
+                                        color: AppInk.tertiary(isDark),
+                                        fontWeight: FontWeight.normal,
                                       ),
                                     ),
                                   ),
                                   const SizedBox(width: 8),
                                   Text(
                                     _formatDateTime(item.visitedAt),
-                                    style: TextStyle(
-                                      fontSize: 10,
-                                      color: isDark
-                                          ? Colors.white24
-                                          : Colors.black38,
+                                    style: AppType.micro.copyWith(
+                                      color: AppInk.tertiary(isDark),
+                                      fontWeight: FontWeight.normal,
                                     ),
                                   ),
                                 ],
                               ),
                               trailing: IconButton(
                                 icon: const Icon(Icons.close, size: 16),
-                                color: isDark ? Colors.white38 : Colors.black38,
+                                color: AppInk.tertiary(isDark),
                                 tooltip: '删除此记录',
                                 onPressed: () async {
                                   await widget.storageService
@@ -336,37 +351,35 @@ class _HistoryBookmarksSheetState extends State<HistoryBookmarksSheet>
                               dense: true,
                               contentPadding: const EdgeInsets.symmetric(
                                   horizontal: 16, vertical: 2),
-                              leading: Container(
-                                width: 34,
-                                height: 34,
-                                decoration: BoxDecoration(
-                                  color: cardBg,
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Icon(Icons.star_rounded,
-                                    size: 20, color: AppTheme.warningOf(isDark)),
+                              leading: SiteIcon(
+                                host: hostOf(item.url),
+                                size: 32,
+                                label: item.title.isNotEmpty
+                                    ? item.title
+                                    : hostOf(item.url),
                               ),
                               title: Text(
                                 item.title.isNotEmpty ? item.title : item.url,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                    fontSize: 13, fontWeight: FontWeight.w600),
+                                style: AppType.label.copyWith(
+                                  color: AppInk.primary(isDark),
+                                  fontWeight: FontWeight.w500,
+                                ),
                               ),
                               subtitle: Text(
                                 item.url,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color:
-                                      isDark ? Colors.white38 : Colors.black45,
+                                style: AppType.micro.copyWith(
+                                  color: AppInk.tertiary(isDark),
+                                  fontWeight: FontWeight.normal,
                                 ),
                               ),
                               trailing: IconButton(
                                 icon:
                                     const Icon(Icons.delete_outline, size: 16),
-                                color: isDark ? Colors.white38 : Colors.black38,
+                                color: AppInk.tertiary(isDark),
                                 tooltip: '移除书签',
                                 onPressed: () async {
                                   await widget.storageService
@@ -399,13 +412,16 @@ class _HistoryBookmarksSheetState extends State<HistoryBookmarksSheet>
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 48, color: isDark ? Colors.white12 : Colors.black12),
-          const SizedBox(height: 12),
+          Icon(
+            icon,
+            size: 40,
+            color: AppInk.tertiary(isDark).withValues(alpha: 0.4),
+          ),
+          const SizedBox(height: 10),
           Text(
             text,
-            style: TextStyle(
-              fontSize: 13,
-              color: isDark ? Colors.white38 : Colors.black38,
+            style: AppType.label.copyWith(
+              color: AppInk.tertiary(isDark),
             ),
           ),
         ],

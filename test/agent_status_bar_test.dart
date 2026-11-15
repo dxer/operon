@@ -27,8 +27,6 @@ void main() {
     await tester.pumpWidget(wrap(AgentStatusBar(
       state: const AgentState(
         status: AgentStatus.observing,
-        currentStep: 2,
-        maxSteps: 10,
       ),
       onOpen: () {},
       onPause: () {},
@@ -46,7 +44,7 @@ void main() {
 
   testWidgets('running status bar shows elapsed time', (tester) async {
     await tester.pumpWidget(wrap(AgentStatusBar(
-      state: const AgentState(status: AgentStatus.executing, currentStep: 3),
+      state: const AgentState(status: AgentStatus.executing),
       startedAt: DateTime.now().subtract(const Duration(seconds: 12)),
       onOpen: () {},
       onPause: () {},
@@ -125,6 +123,40 @@ void main() {
       onConfirmAction: () {},
     )));
     expect(find.textContaining('模型超时'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('executing status shows latest action title and captcha can stop',
+      (tester) async {
+    var stopped = false;
+    await tester.pumpWidget(wrap(AgentStatusBar(
+      state: AgentState(
+        status: AgentStatus.executing,
+        logs: [AgentLogItem(step: 3, title: '点击「登录」', kind: LogKind.action)],
+      ),
+      onOpen: () {},
+      onPause: () {},
+      onResume: () {},
+      onStop: () {},
+      onConfirmCaptcha: () {},
+      onConfirmAction: () {},
+    )));
+
+    expect(find.text('正在操作：点击「登录」'), findsOneWidget);
+    expect(find.textContaining('第 3 步'), findsNothing);
+
+    await tester.pumpWidget(wrap(AgentStatusBar(
+      state: const AgentState(status: AgentStatus.waitingCaptcha),
+      onOpen: () {},
+      onPause: () {},
+      onResume: () {},
+      onStop: () => stopped = true,
+      onConfirmCaptcha: () {},
+      onConfirmAction: () {},
+    )));
+
+    await tester.tap(find.byTooltip('停止'));
+    expect(stopped, isTrue);
     expect(tester.takeException(), isNull);
   });
 }

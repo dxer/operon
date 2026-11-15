@@ -49,9 +49,7 @@ class AgentStatusBar extends StatelessWidget {
       state.status == AgentStatus.waitingConfirmation;
 
   bool get _isFinished =>
-      state.status == AgentStatus.completed ||
-      state.status == AgentStatus.maxStepsReached ||
-      state.status == AgentStatus.error;
+      state.status == AgentStatus.completed || state.status == AgentStatus.error;
 
   @override
   Widget build(BuildContext context) {
@@ -89,14 +87,23 @@ class AgentStatusBar extends StatelessWidget {
                       _StatusIcon(icon: meta.icon, color: meta.color),
                       const SizedBox(width: 10),
                       Expanded(
-                        child: Text(
-                          meta.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.w600,
-                            color: onSurface,
+                        child: AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 180),
+                          layoutBuilder: (currentChild, previousChildren) =>
+                              Align(
+                            alignment: Alignment.centerLeft,
+                            child: currentChild,
+                          ),
+                          child: Text(
+                            meta.title,
+                            key: ValueKey(meta.title),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w600,
+                              color: onSurface,
+                            ),
                           ),
                         ),
                       ),
@@ -138,9 +145,10 @@ class AgentStatusBar extends StatelessWidget {
                 ),
                 if (_isRunning)
                   LinearProgressIndicator(
-                    value: state.maxSteps > 0
-                        ? (state.currentStep / state.maxSteps).clamp(0.0, 1.0)
-                        : null,
+                    // A run has no step ceiling any more, so there is no
+                    // fraction to show. Indeterminate says "working", which is
+                    // the only true thing left.
+                    value: null,
                     minHeight: 2,
                     backgroundColor: Colors.transparent,
                     valueColor: AlwaysStoppedAnimation<Color>(meta.color),
@@ -174,11 +182,13 @@ class AgentStatusBar extends StatelessWidget {
     if (_isWaitingCaptcha) {
       return [
         _TextAction(label: '完成验证', color: accent, onTap: onConfirmCaptcha),
+        _IconAction(icon: Icons.stop_rounded, tooltip: '停止', onTap: onStop),
       ];
     }
     if (_isWaitingConfirmation) {
       return [
         _TextAction(label: '审阅', color: accent, onTap: onConfirmAction),
+        _IconAction(icon: Icons.stop_rounded, tooltip: '停止', onTap: onStop),
       ];
     }
     if (_isFinished) {
@@ -202,19 +212,27 @@ class AgentStatusBar extends StatelessWidget {
             'AI 待命', Icons.auto_awesome_rounded, AppTheme.neutralOf(isDark));
       case AgentStatus.observing:
         return _StatusMeta(
-          '正在读取页面 (${state.currentStep}/${state.maxSteps})',
+          '正在读取页面',
           Icons.visibility_outlined,
           AppTheme.primaryOf(isDark),
         );
       case AgentStatus.thinking:
+        final live = state.streamingText.trim();
         return _StatusMeta(
-          'AI 正在规划下一步 (${state.currentStep}/${state.maxSteps})',
+          live.isNotEmpty ? 'AI 思考：$live' : 'AI 正在规划下一步',
           Icons.psychology_outlined,
           AppTheme.primaryOf(isDark),
         );
       case AgentStatus.executing:
+        final actionTitle = state.logs
+            .where((log) => log.kind == LogKind.action)
+            .lastOrNull
+            ?.title;
+        final label = (actionTitle != null && actionTitle.isNotEmpty)
+            ? '正在操作：$actionTitle'
+            : '正在操作网页';
         return _StatusMeta(
-          '正在操作网页',
+          label,
           Icons.touch_app_outlined,
           AppTheme.primaryOf(isDark),
         );
@@ -243,12 +261,6 @@ class AgentStatusBar extends StatelessWidget {
           '任务已完成 · 点击查看结果',
           Icons.check_circle_outline_rounded,
           AppTheme.accentOf(isDark),
-        );
-      case AgentStatus.maxStepsReached:
-        return _StatusMeta(
-          '已达步数上限 · 任务未完成',
-          Icons.timer_outlined,
-          AppTheme.warningOf(isDark),
         );
       case AgentStatus.error:
         return _StatusMeta(

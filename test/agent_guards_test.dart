@@ -38,6 +38,18 @@ void main() {
       }
     });
 
+    test('repeated effective scrolls do not trip the repeat guard, stuck scrolls do', () {
+      final guards = Guards();
+      for (var i = 0; i < 6; i++) {
+        expect(guards.before('scroll', {'direction': 'down'}), isNull);
+        guards.record('scroll', {'direction': 'down'}, ok(pageReacted: true));
+      }
+      // Now the page hits bottom and stops reacting.
+      guards.record('scroll', {'direction': 'down'}, ok(pageReacted: false));
+      guards.record('scroll', {'direction': 'down'}, ok(pageReacted: false));
+      expect(guards.before('scroll', {'direction': 'down'}), isNotNull);
+    });
+
     test('five consecutive failures stop the run', () {
       final guards = Guards();
       for (var i = 0; i < 5; i++) {

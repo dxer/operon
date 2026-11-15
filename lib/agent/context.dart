@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 /// Keeps the conversation inside the model's window without losing the task.
 ///
 /// Two moves, cheapest first:
@@ -13,24 +15,40 @@
 /// never shortened or dropped: the task must survive a long run.
 class ContextLimits {
   const ContextLimits({
-    this.windowTokens = 32000,
+    this.windowTokens = 200000,
     this.threshold = 0.6,
     this.hardLimit = 0.85,
+    this.autoCompact = true,
+    this.autoCompactTokens,
     this.keepRecentResults = 4,
+    this.keepRecentImages = 1,
     this.stubChars = 140,
   });
 
+  /// Conservative token budget charged per attached/screenshot image.
+  static const int imageTokenEstimate = 1024;
+
   final int windowTokens;
 
-  /// From here, old results are elided.
+  /// From here, old results are elided when [autoCompactTokens] is unset.
   final double threshold;
 
   /// Past here, whole turns are dropped. Over it even after both moves, the
   /// run stops instead of sending a request the provider will reject.
   final double hardLimit;
 
+  /// Whether automatic compaction runs before reaching the model's hard limit.
+  final bool autoCompact;
+
+  /// User-configured Auto-Compact trigger size in tokens (e.g., 200000).
+  /// When null, falls back to `[windowTokens] * [threshold]`.
+  final int? autoCompactTokens;
+
   /// How many of the newest tool results stay full.
   final int keepRecentResults;
+
+  /// How many of the newest page screenshots stay attached as images.
+  final int keepRecentImages;
 
   final int stubChars;
 }
@@ -43,6 +61,7 @@ class ContextPlan {
     this.stop,
     this.elided = 0,
     this.droppedTurns = 0,
+    this.autoCompacted = false,
   });
 
   final List<Map<String, Object?>> messages;
@@ -53,6 +72,7 @@ class ContextPlan {
 
   final int elided;
   final int droppedTurns;
+  final bool autoCompacted;
 
   bool get changed => elided > 0 || droppedTurns > 0;
 }
@@ -70,13 +90,38 @@ class ContextManager {
 
   final ContextLimits limits;
 
-  ContextPlan prepare(List<Map<String, Object?>> messages) {
-    final elided = _elide(messages);
-    final estimate = estimateMessages(elided.messages);
-    final softLimit = (limits.windowTokens * limits.threshold).round();
+  ContextPlan prepare(
+    List<Map<String, Object?>> messages, {
+    int? observedPromptTokens,
+  }) {
     final hardLimit = (limits.windowTokens * limits.hardLimit).round();
+    final rawEstimate =
+        math.max(estimateMessages(messages), observedPromptTokens ?? 0);
 
-    if (estimate <= softLimit) {
+    // When Auto-Compact is turned off, leave context untouched until it
+    // approaches the model's hard physical window.
+    if (!limits.autoCompact && rawEstimate <= hardLimit) {
+      return ContextPlan(
+        messages: messages,
+        estimatedTokens: rawEstimate,
+      );
+    }
+
+    final elided = _elide(messages);
+    final elidedCharEstimate = estimateMessages(elided.messages);
+    final estimate = elided.count > 0
+        ? elidedCharEstimate
+        : math.max(elidedCharEstimate, observedPromptTokens ?? 0);
+
+    final rawThreshold =
+        limits.autoCompactTokens ?? (limits.windowTokens * limits.threshold).round();
+    final softLimit = limits.autoCompact
+        ? (rawThreshold <= hardLimit
+            ? rawThreshold
+            : math.min(rawThreshold, (limits.windowTokens * limits.threshold).round()))
+        : hardLimit;
+
+    if (estimate < softLimit && estimate <= hardLimit) {
       return ContextPlan(
         messages: elided.messages,
         estimatedTokens: estimate,
@@ -84,8 +129,25 @@ class ContextManager {
       );
     }
 
-    // Between the two limits it is enough to have shortened old results; whole
-    // turns only go when even stubs do not fit.
+    // Explicit Auto-Compact threshold reached while still below hardLimit:
+    // shed older intermediate turns so context stays comfortably below trigger.
+    if (limits.autoCompact &&
+        limits.autoCompactTokens != null &&
+        estimate >= softLimit &&
+        estimate <= hardLimit) {
+      final compactTarget = math.max((softLimit * 0.7).round(), 1);
+      final trimmed = _dropOldTurns(elided.messages, compactTarget);
+      final after = estimateMessages(trimmed.messages);
+      return ContextPlan(
+        messages: trimmed.messages,
+        estimatedTokens: after,
+        elided: elided.count,
+        droppedTurns: trimmed.droppedTurns,
+        autoCompacted: elided.count > 0 || trimmed.droppedTurns > 0,
+      );
+    }
+
+    // Between softLimit and hardLimit when using default ratio threshold.
     if (estimate <= hardLimit) {
       return ContextPlan(
         messages: elided.messages,
@@ -101,6 +163,8 @@ class ContextManager {
       estimatedTokens: after,
       elided: elided.count,
       droppedTurns: trimmed.droppedTurns,
+      autoCompacted: limits.autoCompact &&
+          (elided.count > 0 || trimmed.droppedTurns > 0),
       stop: after > hardLimit
           ? '对话已经超出模型的上下文窗口（约 ${after ~/ 1000}k tokens），'
               '继续下去只会被截断。请把任务拆小，或换一个上下文更大的模型。'
@@ -133,7 +197,19 @@ class ContextManager {
     for (final message in messages) {
       total += 4; // role and framing overhead
       final content = message['content'];
-      if (content is String) total += estimateTokens(content);
+      if (content is String) {
+        total += estimateTokens(content);
+      } else if (content is List) {
+        for (final part in content) {
+          if (part is! Map) continue;
+          final type = part['type'];
+          if (type == 'image_url') {
+            total += ContextLimits.imageTokenEstimate;
+          } else if (part['text'] != null) {
+            total += estimateTokens('${part['text']}');
+          }
+        }
+      }
       final calls = message['tool_calls'];
       if (calls is List) {
         for (final call in calls) {
@@ -149,7 +225,8 @@ class ContextManager {
     return total;
   }
 
-  /// Shortens old tool results, keeping the newest [ContextLimits.keepRecentResults].
+  /// Shortens old tool results and older page screenshots, keeping the newest
+  /// [ContextLimits.keepRecentResults] and [ContextLimits.keepRecentImages].
   ///
   /// The message itself stays: an assistant message with tool calls must be
   /// answered, and an endpoint rejects the request when one is missing.
@@ -158,26 +235,62 @@ class ContextManager {
       for (var index = 0; index < messages.length; index++)
         if (messages[index]['role'] == 'tool') index,
     ];
-    if (toolIndexes.length <= limits.keepRecentResults) {
+    final screenshotIndexes = <int>[
+      for (var index = 0; index < messages.length; index++)
+        if (_isPageScreenshot(messages[index])) index,
+    ];
+    final elideTools = toolIndexes.length > limits.keepRecentResults;
+    final elideImages = screenshotIndexes.length > limits.keepRecentImages;
+    if (!elideTools && !elideImages) {
       return _Elide(messages, 0);
     }
 
-    final elideUpTo = toolIndexes.length - limits.keepRecentResults;
     final result = List<Map<String, Object?>>.of(messages);
     var count = 0;
-    for (var position = 0; position < elideUpTo; position++) {
-      final index = toolIndexes[position];
-      final message = result[index];
-      final content = message['content'];
-      if (content is! String || content.length <= limits.stubChars) continue;
-      result[index] = {
-        ...message,
-        'content': '[早先的工具结果已省略，原长 ${content.length} 字符。'
-            '需要时用 snapshot 重新读取当前页面。]',
-      };
-      count++;
+    if (elideTools) {
+      final elideUpTo = toolIndexes.length - limits.keepRecentResults;
+      for (var position = 0; position < elideUpTo; position++) {
+        final index = toolIndexes[position];
+        final message = result[index];
+        final content = message['content'];
+        if (content is! String || content.length <= limits.stubChars) continue;
+        result[index] = {
+          ...message,
+          'content': '[早先的工具结果已省略，原长 ${content.length} 字符。'
+              '需要时用 snapshot 重新读取当前页面。]',
+        };
+        count++;
+      }
+    }
+    if (elideImages) {
+      final elideUpTo = screenshotIndexes.length - limits.keepRecentImages;
+      for (var position = 0; position < elideUpTo; position++) {
+        final index = screenshotIndexes[position];
+        result[index] = const {
+          'role': 'user',
+          'content': '[早先的页面截图已省略，需要时重新 screenshot。]',
+        };
+        count++;
+      }
     }
     return _Elide(result, count);
+  }
+
+  static bool _isPageScreenshot(Map<String, Object?> message) {
+    if (message['role'] != 'user') return false;
+    final content = message['content'];
+    if (content is! List) return false;
+    var hasImage = false;
+    var hasMarker = false;
+    for (final part in content) {
+      if (part is! Map) continue;
+      if (part['type'] == 'image_url') hasImage = true;
+      final text = part['text'];
+      if (text is String && text.startsWith('上面这张图是当前页面的截图')) {
+        hasMarker = true;
+      }
+    }
+    return hasImage && hasMarker;
   }
 
   /// Drops the oldest whole turns until the conversation fits.

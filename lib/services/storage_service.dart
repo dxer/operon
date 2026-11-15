@@ -6,18 +6,56 @@ import '../models/model_profile.dart';
 import '../models/history_item.dart';
 import '../models/bookmark_item.dart';
 import '../models/agent_prompt.dart';
-import '../models/agent_task_record.dart';
+import 'secure_store.dart';
+
+class SavedTabSnapshot {
+  const SavedTabSnapshot({
+    required this.url,
+    this.title = '新标签页',
+    this.isDesktopMode = false,
+  });
+
+  final String url;
+  final String title;
+  final bool isDesktopMode;
+
+  Map<String, dynamic> toJson() => {
+        'url': url,
+        'title': title,
+        'isDesktopMode': isDesktopMode,
+      };
+
+  factory SavedTabSnapshot.fromJson(Map<String, dynamic> json) =>
+      SavedTabSnapshot(
+        url: json['url']?.toString() ?? AppConstants.defaultHomepage,
+        title: json['title']?.toString() ?? '新标签页',
+        isDesktopMode: json['isDesktopMode'] as bool? ?? false,
+      );
+}
+
+class SavedTabSession {
+  const SavedTabSession({required this.tabs, required this.activeIndex});
+
+  final List<SavedTabSnapshot> tabs;
+  final int activeIndex;
+}
 
 class StorageService {
   static StorageService? _instance;
   late SharedPreferences _prefs;
+  late SecureStore _secureStore;
+  String? _cachedApiKey;
+  final Map<String, String> _cachedPresetKeys = <String, String>{};
 
   StorageService._();
 
-  static Future<StorageService> getInstance() async {
+  static Future<StorageService> getInstance({SecureStore? secureStore}) async {
     if (_instance == null) {
-      _instance = StorageService._();
-      _instance!._prefs = await SharedPreferences.getInstance();
+      final instance = StorageService._();
+      instance._prefs = await SharedPreferences.getInstance();
+      instance._secureStore = secureStore ?? SecureStore.instance;
+      await instance._hydrateSecrets();
+      _instance = instance;
     }
     return _instance!;
   }
@@ -27,10 +65,70 @@ class StorageService {
   /// Used by tests that need two "app starts" in one process.
   static void resetForTest() => _instance = null;
 
+  static String _presetKeySlot(String id) => 'preset_api_key_$id';
+
+  Future<void> _hydrateSecrets() async {
+    final storedKey = await _secureStore.read(AppConstants.keyApiKey);
+    if (_secureStore.isSupported) {
+      if (storedKey != null && storedKey.isNotEmpty) {
+        _cachedApiKey = storedKey;
+        if (_prefs.containsKey(AppConstants.keyApiKey)) {
+          await _prefs.remove(AppConstants.keyApiKey);
+        }
+      } else {
+        final legacy = _prefs.getString(AppConstants.keyApiKey) ?? '';
+        _cachedApiKey = legacy;
+        if (legacy.isNotEmpty) {
+          final written =
+              await _secureStore.write(AppConstants.keyApiKey, legacy);
+          if (written) {
+            await _prefs.remove(AppConstants.keyApiKey);
+          }
+        }
+      }
+    } else {
+      _cachedApiKey = _prefs.getString(AppConstants.keyApiKey) ?? '';
+    }
+
+    final rawPresets = _readRawPresets();
+    var presetsDirty = false;
+    final sanitized = <LlmPreset>[];
+    for (final preset in rawPresets) {
+      final slot = _presetKeySlot(preset.id);
+      if (_secureStore.isSupported) {
+        if (preset.config.apiKey.isNotEmpty) {
+          final written =
+              await _secureStore.write(slot, preset.config.apiKey);
+          _cachedPresetKeys[preset.id] = preset.config.apiKey;
+          if (written) {
+            presetsDirty = true;
+            sanitized.add(
+              preset.copyWith(config: preset.config.copyWith(apiKey: '')),
+            );
+            continue;
+          }
+        } else {
+          final secret = await _secureStore.read(slot);
+          if (secret != null && secret.isNotEmpty) {
+            _cachedPresetKeys[preset.id] = secret;
+          }
+        }
+      } else if (preset.config.apiKey.isNotEmpty) {
+        _cachedPresetKeys[preset.id] = preset.config.apiKey;
+      }
+      sanitized.add(preset);
+    }
+    if (presetsDirty) {
+      await _writeRawPresets(sanitized);
+    }
+  }
+
   // LLM Config
   LlmConfig getLlmConfig() {
     final baseUrl = _prefs.getString(AppConstants.keyBaseUrl) ?? '';
-    final apiKey = _prefs.getString(AppConstants.keyApiKey) ?? '';
+    final apiKey = _secureStore.isSupported
+        ? (_cachedApiKey ?? '')
+        : (_prefs.getString(AppConstants.keyApiKey) ?? '');
     final model = _prefs.getString(AppConstants.keyModel) ?? '';
     final temp = _prefs.getDouble(AppConstants.keyTemperature) ?? 0.1;
     final thinkingName = _prefs.getString(AppConstants.keyThinking);
@@ -51,7 +149,15 @@ class StorageService {
 
   Future<void> saveLlmConfig(LlmConfig config) async {
     await _prefs.setString(AppConstants.keyBaseUrl, config.baseUrl);
-    await _prefs.setString(AppConstants.keyApiKey, config.apiKey);
+    _cachedApiKey = config.apiKey;
+    final storedSecurely = config.apiKey.isEmpty
+        ? await _secureStore.delete(AppConstants.keyApiKey)
+        : await _secureStore.write(AppConstants.keyApiKey, config.apiKey);
+    if (storedSecurely) {
+      await _prefs.remove(AppConstants.keyApiKey);
+    } else {
+      await _prefs.setString(AppConstants.keyApiKey, config.apiKey);
+    }
     await _prefs.setString(AppConstants.keyModel, config.model);
     await _prefs.setDouble(AppConstants.keyTemperature, config.temperature);
     await _prefs.setString(AppConstants.keyThinking, config.thinking.name);
@@ -61,6 +167,82 @@ class StorageService {
     } else {
       await _prefs.setInt(AppConstants.keyMaxOutputTokens, maxTokens);
     }
+  }
+
+  // Named LLM presets for one-tap switching between providers/models.
+  static const String _keyLlmPresets = 'pref_llm_presets';
+
+  List<LlmPreset> _readRawPresets() {
+    final raw = _prefs.getString(_keyLlmPresets);
+    if (raw == null || raw.isEmpty) return const [];
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! List) return const [];
+      return decoded
+          .whereType<Map>()
+          .map((item) => LlmPreset.fromJson(Map<String, dynamic>.from(item)))
+          .where((preset) => preset.id.isNotEmpty && preset.name.isNotEmpty)
+          .toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  Future<void> _writeRawPresets(List<LlmPreset> presets) async {
+    await _prefs.setString(
+      _keyLlmPresets,
+      jsonEncode([for (final item in presets) item.toJson()]),
+    );
+  }
+
+  List<LlmPreset> getLlmPresets() {
+    final raw = _readRawPresets();
+    if (!_secureStore.isSupported) return raw;
+    return [
+      for (final preset in raw)
+        preset.copyWith(
+          config: preset.config.copyWith(
+            apiKey: _cachedPresetKeys[preset.id] ?? preset.config.apiKey,
+          ),
+        ),
+    ];
+  }
+
+  Future<void> saveLlmPreset(LlmPreset preset) async {
+    var storedPreset = preset;
+    if (preset.config.apiKey.isEmpty) {
+      _cachedPresetKeys.remove(preset.id);
+      await _secureStore.delete(_presetKeySlot(preset.id));
+    } else {
+      _cachedPresetKeys[preset.id] = preset.config.apiKey;
+      final storedSecurely = await _secureStore.write(
+        _presetKeySlot(preset.id),
+        preset.config.apiKey,
+      );
+      if (storedSecurely) {
+        storedPreset = preset.copyWith(
+          config: preset.config.copyWith(apiKey: ''),
+        );
+      }
+    }
+
+    final presets = List<LlmPreset>.from(_readRawPresets());
+    final index = presets.indexWhere((item) => item.id == preset.id);
+    if (index >= 0) {
+      presets[index] = storedPreset;
+    } else {
+      presets.add(storedPreset);
+    }
+    await _writeRawPresets(presets);
+  }
+
+  Future<void> deleteLlmPreset(String id) async {
+    _cachedPresetKeys.remove(id);
+    await _secureStore.delete(_presetKeySlot(id));
+    final presets = _readRawPresets()
+        .where((item) => item.id != id)
+        .toList(growable: false);
+    await _writeRawPresets(presets);
   }
 
   // Model capability profiles, keyed by `baseUrl|model`.
@@ -105,15 +287,6 @@ class StorageService {
 
   Future<void> saveUserAgent(String ua) async {
     await _prefs.setString(AppConstants.keyUserAgent, ua);
-  }
-
-  // Max Steps
-  int getMaxSteps() {
-    return _prefs.getInt(AppConstants.keyMaxSteps) ?? 15;
-  }
-
-  Future<void> saveMaxSteps(int steps) async {
-    await _prefs.setInt(AppConstants.keyMaxSteps, steps);
   }
 
   // Safe Mode (Human confirmation before post/tweet)
@@ -344,43 +517,6 @@ class StorageService {
     await _prefs.setStringList(_keyShortcuts, raw);
   }
 
-  // --- Agent Task History & Audit ---
-  static const String _keyAgentTaskHistory = 'agent_task_history';
-  static const int _maxAgentTaskRecords = 50;
-
-  List<AgentTaskRecord> getAgentTaskHistory() {
-    final raw = _prefs.getStringList(_keyAgentTaskHistory) ?? [];
-    final list = <AgentTaskRecord>[];
-    for (final s in raw) {
-      try {
-        final map = jsonDecode(s) as Map<String, dynamic>;
-        list.add(AgentTaskRecord.fromJson(map));
-      } catch (_) {}
-    }
-    return list;
-  }
-
-  Future<void> addAgentTaskRecord(AgentTaskRecord record) async {
-    final list = getAgentTaskHistory();
-    list.removeWhere((r) => r.id == record.id);
-    list.insert(0, record);
-    if (list.length > _maxAgentTaskRecords) {
-      list.removeRange(_maxAgentTaskRecords, list.length);
-    }
-    final raw = list.map((r) => jsonEncode(r.toJson())).toList();
-    await _prefs.setStringList(_keyAgentTaskHistory, raw);
-  }
-
-  Future<void> removeAgentTaskRecord(String id) async {
-    final list = getAgentTaskHistory()..removeWhere((r) => r.id == id);
-    final raw = list.map((r) => jsonEncode(r.toJson())).toList();
-    await _prefs.setStringList(_keyAgentTaskHistory, raw);
-  }
-
-  Future<void> clearAgentTaskHistory() async {
-    await _prefs.remove(_keyAgentTaskHistory);
-  }
-
   // --- Saved prompts ("shortcuts") for the composer ---
 
   static const String _keyAgentPrompts = 'pref_agent_prompts';
@@ -511,4 +647,80 @@ class StorageService {
     await _prefs.remove(_keyAgentAllowedSites);
   }
 
+  // --- Tab session persistence ---
+  bool getRestoreTabsEnabled() =>
+      _prefs.getBool(AppConstants.keyRestoreTabs) ?? true;
+
+  Future<void> saveRestoreTabsEnabled(bool enabled) async {
+    await _prefs.setBool(AppConstants.keyRestoreTabs, enabled);
+    if (!enabled) {
+      await _prefs.remove(AppConstants.keySavedTabs);
+    }
+  }
+
+  SavedTabSession? getSavedTabSession() {
+    if (!getRestoreTabsEnabled()) return null;
+    final raw = _prefs.getString(AppConstants.keySavedTabs);
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return null;
+      final list = decoded['tabs'];
+      if (list is! List || list.isEmpty) return null;
+      final tabs = list
+          .whereType<Map>()
+          .map((item) =>
+              SavedTabSnapshot.fromJson(Map<String, dynamic>.from(item)))
+          .where((t) => t.url.isNotEmpty)
+          .toList();
+      if (tabs.isEmpty) return null;
+      final active = (decoded['activeIndex'] as num?)?.toInt() ?? 0;
+      return SavedTabSession(
+        tabs: tabs,
+        activeIndex: active.clamp(0, tabs.length - 1),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> saveTabSession(
+    List<SavedTabSnapshot> tabs,
+    int activeIndex,
+  ) async {
+    if (!getRestoreTabsEnabled()) return;
+    if (tabs.isEmpty) {
+      await _prefs.remove(AppConstants.keySavedTabs);
+      return;
+    }
+    await _prefs.setString(
+      AppConstants.keySavedTabs,
+      jsonEncode({
+        'activeIndex': activeIndex.clamp(0, tabs.length - 1),
+        'tabs': [for (final t in tabs) t.toJson()],
+      }),
+    );
+  }
+
+  // --- Auto-Compact settings ---
+
+  bool getAutoCompactEnabled() =>
+      _prefs.getBool(AppConstants.keyAutoCompactEnabled) ?? true;
+
+  Future<void> saveAutoCompactEnabled(bool enabled) async {
+    await _prefs.setBool(AppConstants.keyAutoCompactEnabled, enabled);
+  }
+
+  int getAutoCompactTokens() {
+    final stored = _prefs.getInt(AppConstants.keyAutoCompactTokens);
+    if (stored == null || stored < 8000) {
+      return AppConstants.defaultAutoCompactTokens;
+    }
+    return stored;
+  }
+
+  Future<void> saveAutoCompactTokens(int tokens) async {
+    final safe = tokens < 8000 ? 8000 : tokens;
+    await _prefs.setInt(AppConstants.keyAutoCompactTokens, safe);
+  }
 }

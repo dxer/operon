@@ -64,6 +64,20 @@ const Set<String> _evidenceRoles = {
   'image',
 };
 
+const List<String> _challengeButtonPhrases = [
+  "i'm not a robot",
+  'i am not a robot',
+  'not a robot',
+  'verify you are human',
+  'verify you are a human',
+  '我不是机器人',
+  '我是人类',
+  '点击完成验证',
+  '点击进行人机验证',
+  '开始人机验证',
+  '点击验证',
+];
+
 CaptchaInfo detectCaptcha(List<AxNode> nodes) {
   for (final node in nodes) {
     if (node.ignored) continue;
@@ -81,13 +95,13 @@ CaptchaInfo detectCaptcha(List<AxNode> nodes) {
     }
   }
 
-  // A checkbox labelled exactly like a challenge widget is the common shape:
-  // the widget itself is a frame, the checkbox is what it renders.
+  // A checkbox or button labelled explicitly as a bot challenge (not ordinary
+  // SMS/account labels such as "获取验证码" or "实名验证").
   for (final node in nodes) {
     if (node.ignored) continue;
     if (node.role != 'checkbox' && node.role != 'button') continue;
     final name = node.name.trim().toLowerCase();
-    if (name.contains('robot') || name.contains('验证') || name.contains('human')) {
+    if (_challengeButtonPhrases.any(name.contains)) {
       return CaptchaInfo(
         present: true,
         kind: '人机验证',

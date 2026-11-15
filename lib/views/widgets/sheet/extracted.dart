@@ -1,12 +1,13 @@
 part of '../agent_bottom_sheet.dart';
 
-// Structured data the run produced, summarised and openable in full.
+// Structured data the run produced: what it is, and the three ways to take it
+// away — a table to read, a CSV for a spreadsheet, text for a chat.
 
 extension _SheetExtracted on _AgentBottomSheetState {
   void _copyExtractedData() {
     if (widget.state.extractedData == null) return;
-    final jsonStr =
-        const JsonEncoder.withIndent('  ').convert(widget.state.extractedData);
+    final jsonStr = exportToJson(widget.state.extractedData);
+    HapticService.selection();
     Clipboard.setData(ClipboardData(text: jsonStr));
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
@@ -16,21 +17,24 @@ extension _SheetExtracted on _AgentBottomSheetState {
     );
   }
 
-  int _dataCount(dynamic data) => data is List ? data.length : 1;
-
-  String _shortValue(dynamic value) {
-    if (value == null) return '—';
-    if (value is String) return value;
-    if (value is num || value is bool) return value.toString();
-    return jsonEncode(value);
+  /// One preview cell: the same text the export would write, with a visible
+  /// placeholder for "the model left this out".
+  String _previewValue(dynamic value) {
+    final text = exportCell(value);
+    return text.isEmpty ? '—' : text;
   }
 
   String _dataSummary(dynamic data) {
-    final fields = _dataEntries(data).length;
-    if (fields == 0) return '已抓取结构化数据';
-    final count = _dataCount(data);
-    if (data is List) return '$count 条数据 · $fields 个字段';
-    return '$fields 个字段';
+    final table = buildExportTable(data);
+    if (table.fieldCount == 0) return '已抓取结构化数据';
+    return <String>[
+      if (data is List) '${table.recordCount} 条数据',
+      '${table.fieldCount} 个字段',
+      // An empty cell reads as "the page had nothing there". If some records
+      // simply left a field out, say so instead of letting the table answer
+      // a question the page was never asked.
+      if (table.hasMissing) '有缺列',
+    ].join(' · ');
   }
 
   Widget _iconAction({
@@ -60,11 +64,7 @@ extension _SheetExtracted on _AgentBottomSheetState {
     required Color muted,
   }) {
     final entries = _dataEntries(data);
-    final count = _dataCount(data);
     final preview = entries.take(3).toList();
-    final canExpand = entries.isEmpty ||
-        entries.length > preview.length ||
-        (data is List && count > 1);
 
     return Container(
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
@@ -86,26 +86,18 @@ extension _SheetExtracted on _AgentBottomSheetState {
                   _dataSummary(data),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 11.5,
-                    fontWeight: FontWeight.w700,
+                  style: AppType.caption.copyWith(
                     color: onSurface.withValues(alpha: 0.82),
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ),
               _iconAction(
                 icon: Icons.copy_rounded,
-                tooltip: '复制数据',
+                tooltip: '复制数据（JSON）',
                 color: muted,
                 onTap: _copyExtractedData,
               ),
-              if (canExpand)
-                _iconAction(
-                  icon: Icons.open_in_full_rounded,
-                  tooltip: '展开全部',
-                  color: muted,
-                  onTap: _showExtractedDataSheet,
-                ),
             ],
           ),
           if (preview.isNotEmpty) ...[
@@ -122,25 +114,19 @@ extension _SheetExtracted on _AgentBottomSheetState {
                         entry.key,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 10.5,
-                          height: 1.4,
+                        style: AppType.micro.copyWith(
                           color: muted,
+                          fontWeight: FontWeight.w400,
                         ),
                       ),
                     ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        _shortValue(entry.value),
+                        _previewValue(entry.value),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontFamily: 'monospace',
-                          fontSize: 11,
-                          height: 1.4,
-                          color: onSurface.withValues(alpha: 0.86),
-                        ),
+                        style: AppType.caption.copyWith(color: onSurface),
                       ),
                     ),
                   ],
@@ -148,6 +134,32 @@ extension _SheetExtracted on _AgentBottomSheetState {
               ),
             ),
           ],
+          const SizedBox(height: AppSpace.x1 + 2),
+          // What the user came for. Copy holds the raw payload; these three
+          // are the shapes an answer actually leaves in — a sheet, a file, a
+          // message.
+          Row(
+            children: [
+              _resultAction(
+                icon: Icons.table_chart_outlined,
+                label: '表格',
+                color: muted,
+                onTap: _showExtractedDataSheet,
+              ),
+              _resultAction(
+                icon: Icons.grid_on_rounded,
+                label: 'CSV',
+                color: muted,
+                onTap: _shareExtractedCsv,
+              ),
+              _resultAction(
+                icon: Icons.ios_share_rounded,
+                label: '分享',
+                color: muted,
+                onTap: _shareExtractedText,
+              ),
+            ],
+          ),
         ],
       ),
     );
@@ -156,11 +168,55 @@ extension _SheetExtracted on _AgentBottomSheetState {
   Future<void> _showExtractedDataSheet() async {
     final data = widget.state.extractedData;
     if (data == null) return;
+    HapticService.selection();
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (_) => ExtractedDataSheet(data: data),
     );
+  }
+
+  /// Sends the rows out as a `.csv` file.
+  ///
+  /// A CSV pasted into a chat is a wall of commas; the file is what opens in a
+  /// spreadsheet, which is where scraped rows are actually used.
+  Future<void> _shareExtractedCsv() async {
+    final data = widget.state.extractedData;
+    if (data == null) return;
+    final table = buildExportTable(data);
+    if (table.isEmpty) return;
+    HapticService.selection();
+    final goal = widget.state.goal.trim();
+    final shared = await const ShareService().shareTextFile(
+      fileName: exportFileName('csv'),
+      content: exportToCsv(table),
+      mimeType: exportMimeType('csv'),
+      subject: goal.isEmpty ? null : goal,
+    );
+    if (!shared && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('这台设备没有可用的分享目标，可以先复制数据')),
+      );
+    }
+  }
+
+  /// Sends the rows out as a Markdown table, for a chat or a document.
+  Future<void> _shareExtractedText() async {
+    final text = exportToMarkdownTable(
+      buildExportTable(widget.state.extractedData),
+    );
+    if (text.isEmpty) return;
+    HapticService.selection();
+    final goal = widget.state.goal.trim();
+    final shared = await const ShareService().shareText(
+      text,
+      subject: goal.isEmpty ? null : goal,
+    );
+    if (!shared && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('这台设备没有可用的分享目标，可以改用复制')),
+      );
+    }
   }
 }

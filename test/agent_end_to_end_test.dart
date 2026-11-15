@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:operon/agent/prompt.dart';
 import 'package:operon/agent/runner.dart';
+import 'package:operon/models/agent_conversation.dart';
 import 'package:operon/models/agent_state.dart';
 import 'package:operon/models/llm_config.dart';
 import 'package:operon/models/model_profile.dart';
@@ -53,7 +54,6 @@ void main() {
     required List<FakeTurn> script,
     required String goal,
     Future<String?> Function(String question)? onAsk,
-    int maxTurns = 12,
     bool safeMode = false,
     bool expectThrow = false,
     ThinkingLevel thinking = ThinkingLevel.auto,
@@ -70,7 +70,6 @@ void main() {
       urlHint: fakePage.url,
       config: model.config.copyWith(thinking: thinking),
       profile: profile,
-      maxTurns: maxTurns,
       safeMode: safeMode,
       notifyOnComplete: false,
       controlConnect: page.connect,
@@ -170,7 +169,6 @@ void main() {
       goal: '一直点',
       // A link that changes nothing: the shape of a dead control.
       script: List.generate(8, (_) => call('click', {'ref': 'a3'})),
-      maxTurns: 10,
     );
 
     final text = runner.state.logs
@@ -339,5 +337,99 @@ void main() {
     expect(runner.state.status, AgentStatus.completed);
     final skipped = runner.state.logs.map((log) => log.title).join('\n');
     expect(skipped, contains('跳过'));
+  });
+  test('the model receives the earlier turns of the same conversation',
+      () async {
+    // The file's own page/model/runner, so tearDown cleans them up.
+    page = await FakeDevTools.start(FakePage(
+      url: 'https://example.com/list',
+      title: '清单',
+      nodes: const [FakePageNode(backendNodeId: 1, role: 'heading', name: '清单')],
+    ));
+    model = await FakeOpenAi.start([call('done', {'summary': '好了'})]);
+    runner = makeRunner();
+
+    await runner.run(
+      goal: '继续，把第二条也标上',
+      urlHint: 'https://example.com/list',
+      config: model.config,
+      safeMode: false,
+      notifyOnComplete: false,
+      controlConnect: page.connect,
+      priorTurns: [
+        AgentTurn(
+          id: 't1',
+          message: '把第一条标成完成',
+          startedAt: DateTime(2026, 3, 1, 10),
+          endedAt: DateTime(2026, 3, 1, 10, 1),
+          status: 'completed',
+          result: '标好了。',
+        ),
+      ],
+    );
+
+    // The earlier turn is in the request, before this turn's own goal: that is
+    // what 「继续」 points at.
+    final all = model.allMessages.map((m) => '${m['content']}').join('\n');
+    expect(all, contains('把第一条标成完成'));
+    expect(all, contains('标好了。'));
+    expect(all, contains('继续，把第二条也标上'));
+    final index = model.allMessages.indexWhere(
+      (m) => '${m['content']}'.contains('把第一条标成完成'),
+    );
+    final goalIndex = model.allMessages.indexWhere(
+      (m) => '${m['content']}'.contains('继续，把第二条也标上'),
+    );
+    expect(index, lessThan(goalIndex));
+  });
+
+  test('modelVision profile exposes screenshot tool and targetUrl stays populated', () async {
+    page = await FakeDevTools.start(articlePage());
+    model = await FakeOpenAi.start([
+      call('done', {'summary': '完成'}),
+    ]);
+    runner = makeRunner();
+
+    await runner.run(
+      goal: '看看页面',
+      urlHint: 'https://news.example.com/article/1',
+      config: model.config,
+      profile: const ModelProfile(vision: ModelTrait.yes),
+      safeMode: false,
+      notifyOnComplete: false,
+      controlConnect: page.connect,
+    );
+
+    final tools = (model.requests.single['tools'] as List)
+        .map((entry) => ((entry as Map)['function'] as Map)['name'])
+        .toList();
+    expect(tools, contains('screenshot'));
+    expect(runner.state.targetUrl, 'https://news.example.com/article/1');
+  });
+
+  test('stopping a runner does not poison its next run', () async {
+    page = await FakeDevTools.start(articlePage());
+    model = await FakeOpenAi.start([
+      call('done', {'summary': '第二次完成'}),
+    ]);
+    runner = makeRunner();
+    runner.stop();
+
+    await runner.run(
+      goal: '再次执行',
+      urlHint: 'https://news.example.com/article/1',
+      config: model.config,
+      safeMode: false,
+      notifyOnComplete: false,
+      controlConnect: page.connect,
+    );
+
+    expect(runner.state.status, AgentStatus.completed,
+        reason: runner.state.errorMessage);
+    expect(model.requests, hasLength(1));
+    expect(
+      runner.state.logs.any((item) => (item.detail ?? '').contains('第二次完成')),
+      isTrue,
+    );
   });
 }

@@ -4,28 +4,26 @@ part of '../agent_bottom_sheet.dart';
 
 extension _SheetRunBar on _AgentBottomSheetState {
   /// Fixed bottom control bar while a task runs.
-  Widget _buildRunBar({
-    required AgentState state,
-    required Color surface,
-    required Color hairline,
-    required Color onSurface,
-    required Color muted,
-  }) {
+  Widget _buildRunBar({required AgentState state}) {
+    final isDark = _isDarkTheme;
+    final surface = AppInk.sunken(isDark);
+    final hairline = AppInk.hairline(isDark);
+    final onSurface = AppInk.primary(isDark);
+    final muted = AppInk.tertiary(isDark);
     final paused = state.status == AgentStatus.paused;
     final waiting = state.status == AgentStatus.waitingConfirmation ||
         state.status == AgentStatus.waitingCaptcha;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final accent = paused || waiting
         ? AppTheme.warningOf(isDark)
         : AppTheme.primaryOf(isDark);
-    final goal = state.goal.trim();
-    final label = goal.isEmpty
-        ? (paused
-            ? '已暂停'
-            : waiting
-                ? '等待你的操作'
-                : '正在执行')
-        : goal;
+    // The message itself is already in the transcript above; repeating it in
+    // the control bar was the old form's way of saying "this is what is
+    // running". Here the bar says what the run is *doing*.
+    final label = paused
+        ? '已暂停 · 点继续回到这一步'
+        : waiting
+            ? '等待你的操作'
+            : '正在执行…';
 
     return Container(
       constraints: const BoxConstraints(minHeight: 52),
@@ -52,19 +50,7 @@ extension _SheetRunBar on _AgentBottomSheetState {
               label,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 12,
-                color: onSurface.withValues(alpha: 0.86),
-              ),
-            ),
-          ),
-          const SizedBox(width: 6),
-          Text(
-            '${state.currentStep}/${state.maxSteps}',
-            style: TextStyle(
-              fontSize: 10.5,
-              fontWeight: FontWeight.w600,
-              color: muted,
+              style: AppType.label.copyWith(color: onSurface),
             ),
           ),
           IconButton(

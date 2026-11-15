@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../config/app_theme.dart';
+import '../../config/app_tokens.dart';
 import '../../models/llm_config.dart';
 import '../../services/llm_service.dart';
 
@@ -95,14 +96,15 @@ class _SelectionActionDialogState extends State<SelectionActionDialog> {
       ),
       decoration: BoxDecoration(
         color: cardBg,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-        boxShadow: const [
-          BoxShadow(
-            color: Colors.black26,
-            blurRadius: 18,
-            offset: Offset(0, -6),
+        borderRadius: const BorderRadius.vertical(
+          top: Radius.circular(AppRadius.sheet),
+        ),
+        border: Border(
+          top: BorderSide(
+            color: AppInk.hairline(isDark),
+            width: AppStroke.hairline,
           ),
-        ],
+        ),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -114,7 +116,7 @@ class _SelectionActionDialogState extends State<SelectionActionDialog> {
               width: 36,
               height: 4,
               decoration: BoxDecoration(
-                color: isDark ? Colors.white24 : Colors.black12,
+                color: AppInk.hairline(isDark),
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
@@ -128,7 +130,7 @@ class _SelectionActionDialogState extends State<SelectionActionDialog> {
                   size: 18, color: AppTheme.primaryOf(isDark)),
               const SizedBox(width: 8),
               const Text('划词 AI 伴随',
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
               const Spacer(),
               IconButton(
                 icon: const Icon(Icons.close, size: 18),
@@ -142,9 +144,9 @@ class _SelectionActionDialogState extends State<SelectionActionDialog> {
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
             decoration: BoxDecoration(
               color: isDark ? AppTheme.darkInput : AppTheme.lightInput,
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(AppRadius.chip),
               border: Border.all(
-                color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
+                color: AppInk.hairline(isDark),
               ),
             ),
             child: Text(
@@ -153,7 +155,7 @@ class _SelectionActionDialogState extends State<SelectionActionDialog> {
                   : widget.selectedText,
               style: TextStyle(
                 fontSize: 12,
-                color: isDark ? Colors.white70 : Colors.black87,
+                color: AppInk.secondary(isDark),
                 fontStyle: FontStyle.italic,
               ),
             ),
@@ -227,7 +229,7 @@ class _SelectionActionDialogState extends State<SelectionActionDialog> {
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
                   color: isDark ? AppTheme.darkInput : AppTheme.lightBg,
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(AppRadius.icon),
                   border: Border.all(
                       color: AppTheme.primaryOf(isDark).withValues(alpha: 0.3)),
                 ),
@@ -273,7 +275,7 @@ class _SelectionActionDialogState extends State<SelectionActionDialog> {
                           style: TextStyle(
                             fontSize: 13,
                             height: 1.5,
-                            color: isDark ? Colors.white : Colors.black87,
+                            color: AppInk.primary(isDark),
                           ),
                         ),
                       ),

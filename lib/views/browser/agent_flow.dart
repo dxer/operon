@@ -9,6 +9,68 @@ part of '../browser_page.dart';
 // Turning a goal into a run, and everything the panel needs while it happens.
 
 extension _AgentFlow on _BrowserPageState {
+  /// The app's tab strip, as the control layer needs it.
+  ///
+  /// Targets and tabs are matched on URL because that is all they share: a
+  /// DevTools target id never reaches the Flutter side. Two tabs on the same
+  /// URL therefore match the first one, which is the same answer the user
+  /// would give.
+  TabHost _buildTabHost() => TabHost(
+        activate: (page) async {
+          final index = _tabIndexFor(page);
+          if (index == null) return false;
+          _switchTab(index);
+          // The run lives on this tab now. The status strip and the close guard
+          // both read this id; leaving it on the old tab means they protect a
+          // page nobody is driving.
+          if (_agentTabId != null) _agentTabId = _tabs[index].id;
+          return true;
+        },
+        close: (page) async {
+          final index = _tabIndexFor(page);
+          if (index == null) return false;
+          if (_tabs.length <= 1) return false;
+          // The same guard the tab strip uses: a tab a run is driving is not
+          // closed from under it.
+          if (_runCoordinator.closeTabRejection(_tabs[index].id) != null) {
+            return false;
+          }
+          _closeTab(index);
+          return true;
+        },
+        open: (url) async {
+          _createNewTab(url: url);
+          // The WebView needs a frame before its DevTools target exists.
+          await Future<void>.delayed(const Duration(milliseconds: 120));
+        },
+      );
+
+  int? _tabIndexFor(CdpTarget page) {
+    for (var index = 0; index < _tabs.length; index++) {
+      if (_tabs[index].url == page.url) return index;
+    }
+    // A half-typed address or a redirect can leave the two out of step; the
+    // host is the next best identity for the same page.
+    final host = Uri.tryParse(page.url)?.host ?? '';
+    if (host.isEmpty) return null;
+    for (var index = 0; index < _tabs.length; index++) {
+      if ((Uri.tryParse(_tabs[index].url)?.host ?? '') == host) return index;
+    }
+    return null;
+  }
+
+  Future<void> _openConversations() async {
+    final store = await ConversationStore.open();
+    if (!mounted) return;
+    setState(() {
+      _conversations = store;
+      // The most recent conversation is the useful default: it is almost
+      // always the one the user means to open again.
+      _activeConversationId ??=
+          store.conversations.isEmpty ? null : store.conversations.first.id;
+    });
+  }
+
   /// Applies one state update, whichever engine produced it.
   void _applyAgentState(AgentState state) {
     if (!mounted) return;
@@ -26,20 +88,21 @@ extension _AgentFlow on _BrowserPageState {
       }
       if (state.status == AgentStatus.idle ||
           state.status == AgentStatus.completed ||
-          state.status == AgentStatus.maxStepsReached ||
           state.status == AgentStatus.error) {
         _agentTabId = null;
         _runCoordinator.end(RunKind.agent);
       }
       _agentState = state;
       final isTerminal = state.status == AgentStatus.completed ||
-          state.status == AgentStatus.maxStepsReached ||
           state.status == AgentStatus.error;
       final shouldRecord = isTerminal ||
           (state.status == AgentStatus.idle && _taskStartedAt != null);
-      if (shouldRecord && !_taskRecorded && state.goal.isNotEmpty) {
-        _taskRecorded = true;
-        unawaited(_persistTaskRecord(state));
+      if (shouldRecord &&
+          !_turnSaved &&
+          state.goal.isNotEmpty &&
+          state.goal != '/compact') {
+        _turnSaved = true;
+        unawaited(_saveTurn(state));
       }
       if (state.status == AgentStatus.idle) {
         _taskStartedAt = null;
@@ -52,12 +115,101 @@ extension _AgentFlow on _BrowserPageState {
     }
   }
 
+  Future<void> _compactConversation(
+    AgentConversation conversation, {
+    required LlmConfig config,
+    String focusNote = '',
+    bool isAuto = false,
+  }) async {
+    final outcome = await _loopRunner.compact(
+      conversation,
+      config: config,
+      focusNote: focusNote,
+    );
+    if (outcome.summary.isEmpty) return;
+
+    String fmtTokens(int tokens) => tokens >= 1000
+        ? '${(tokens / 1000).toStringAsFixed(1)}K'
+        : '$tokens';
+    final triggerLabel = isAuto ? 'Auto-Compact 自动压缩' : '/compact 上下文压缩';
+    final methodLabel = outcome.usedLlm ? '模型摘要' : '本地结构化压缩';
+    final reason =
+        '$triggerLabel · $methodLabel（前 ${outcome.compactedTurnCount} 轮，'
+        '约 ${fmtTokens(outcome.beforeTokens)} → ${fmtTokens(outcome.afterTokens)} tokens）';
+    final now = DateTime.now();
+    await _conversations?.applyCompaction(
+      conversation.id,
+      summary: outcome.summary,
+      recordTurn: AgentTurn(
+        id: 'compact_${now.microsecondsSinceEpoch}',
+        message: isAuto
+            ? 'Auto-Compact'
+            : (focusNote.isEmpty ? '/compact' : '/compact $focusNote'),
+        startedAt: now,
+        endedAt: now,
+        status: 'completed',
+        result: outcome.summary,
+        stopReason: reason,
+        isCompaction: true,
+      ),
+    );
+    if (mounted) {
+      setState(() {});
+      if (!isAuto) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '已压缩上下文：约 ${fmtTokens(outcome.beforeTokens)} → ${fmtTokens(outcome.afterTokens)} tokens',
+            ),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    }
+  }
+
   void _startAgentTask(
     String goal, [
     List<AgentAttachment> attachments = const [],
   ]) async {
     if (_wrapper == null) return;
     final config = _storage?.getLlmConfig() ?? LlmConfig.defaultConfig();
+    final compactCommand = parseCompactCommand(goal);
+    if (compactCommand != null) {
+      final store = _conversations;
+      final conversation = store?.byId(_activeConversationId);
+      if (conversation == null ||
+          (!conversation.hasUncompactedHistory &&
+              (conversation.compactedSummary ?? '').trim().isEmpty)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('当前对话暂无可压缩的上下文')),
+        );
+        return;
+      }
+      final rejection = _runCoordinator.begin(RunKind.agent, _currentTab.id);
+      if (rejection != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(rejection)),
+        );
+        return;
+      }
+      _agentTabId = _currentTab.id;
+      _statusBarDismissed = false;
+      _runningConversationId = null;
+      _turnSaved = true;
+      try {
+        await _compactConversation(
+          conversation,
+          config: config,
+          focusNote: compactCommand.focusNote,
+        );
+      } finally {
+        _agentTabId = null;
+        _runCoordinator.end(RunKind.agent);
+      }
+      return;
+    }
+
     if (!config.isValid) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -82,19 +234,43 @@ extension _AgentFlow on _BrowserPageState {
     }
 
     final profile = _storage?.getModelProfile(config) ?? const ModelProfile();
-    final maxSteps = _storage?.getMaxSteps() ?? 15;
+    final autoCompact = _storage?.getAutoCompactEnabled() ?? true;
+    final autoCompactTokens =
+        _storage?.getAutoCompactTokens() ?? AppConstants.defaultAutoCompactTokens;
     final safeMode = _storage?.getSafeMode() ?? true;
+
+    // Which conversation this turn belongs to. Created here if the panel
+    // opened one that has no messages yet.
+    final store = _conversations;
+    var conversation = store?.byId(_activeConversationId);
+    if (conversation == null && store != null) {
+      conversation = store.create();
+      _activeConversationId = conversation.id;
+    }
+    _runningConversationId = conversation?.id;
 
     _agentTabId = _currentTab.id;
     _statusBarDismissed = false;
     _taskStartedAt = DateTime.now();
-    _taskRecorded = false;
+    _runningAttachmentNames =
+        attachments.map((item) => item.label).toList(growable: false);
+    _turnSaved = false;
+
+    if (autoCompact &&
+        conversation != null &&
+        conversation.hasUncompactedHistory &&
+        estimateConversationTokens(conversation) >= autoCompactTokens) {
+      await _compactConversation(
+        conversation,
+        config: config,
+        isAuto: true,
+      );
+    }
 
     unawaited(_loopRunner.run(
       goal: goal,
       urlHint: _currentTab.url,
       config: config,
-      maxTurns: maxSteps,
       safeMode: safeMode,
       isSiteAllowed: (host) => _storage?.isAgentSiteAllowed(host) ?? false,
       isSiteBlocked: (host) => _storage?.isAgentSiteBlocked(host) ?? false,
@@ -105,7 +281,14 @@ extension _AgentFlow on _BrowserPageState {
       // whether it accepts reasoning_effort, whether it calls tools at all.
       // Guessing all four is what used to break runs in ways nobody could see.
       profile: profile,
+      autoCompact: autoCompact,
+      autoCompactTokens: autoCompactTokens,
       attachments: attachments,
+      // What this user and this agent already did together. Without it 「继续」
+      // is a request to start over.
+      priorTurns: conversation?.turns ?? const [],
+      compactedSummary: conversation?.compactedSummary,
+      compactedTurns: conversation?.compactedTurns ?? 0,
     ));
   }
 
@@ -163,49 +346,86 @@ extension _AgentFlow on _BrowserPageState {
     }
   }
 
-  Future<void> _persistTaskRecord(AgentState state) async {
-    final storage = _storage;
-    if (storage == null) return;
+  /// Writes the finished run into its conversation.
+  ///
+  /// The steps are the actions the model asked for, in order, one readable
+  /// line each. Thoughts are left out: a stored transcript is what happened,
+  /// and re-reading a hundred "我看看" lines is not how you find out.
+  Future<void> _saveTurn(AgentState state) async {
+    final store = _conversations;
+    final conversationId = _runningConversationId;
+    if (store == null || conversationId == null) return;
+
     final startedAt = _taskStartedAt ??
         (state.logs.isNotEmpty ? state.logs.first.timestamp : DateTime.now());
-    final lines = state.logs.map((log) {
-      final detail =
-          log.detail == null || log.detail!.isEmpty ? '' : ' — ${log.detail}';
-      final line = '[${log.step}] ${log.title}$detail';
-      return line.length > 300 ? '${line.substring(0, 300)}…' : line;
-    }).toList();
-    if (lines.length > 80) {
-      lines.removeRange(0, lines.length - 80);
-    }
-    final sensitive = state.logs
-        .where((log) =>
-            log.title.contains('敏感操作') ||
-            log.title.contains('完全自主模式') ||
-            log.title.contains('信任列表') ||
-            log.title.contains('取消'))
-        .map((log) => log.detail == null || log.detail!.isEmpty
-            ? log.title
-            : '${log.title} — ${log.detail}')
-        .toList();
+    final now = DateTime.now();
 
-    final record = AgentTaskRecord(
-      id: startedAt.millisecondsSinceEpoch.toString(),
-      goal: state.goal,
-      status: state.status == AgentStatus.idle ? 'stopped' : state.status.name,
+    final steps = <AgentTurnStep>[
+      for (final log in state.logs)
+        if (log.kind == LogKind.action)
+          AgentTurnStep(
+            tool: '',
+            summary: log.title,
+            ok: !log.isError,
+            detail: log.detail,
+          ),
+    ];
+
+    // The answer the user reads: what `done` said, else the model's last
+    // words. A run that stopped also says why.
+    String? result;
+    for (final log in state.logs.reversed) {
+      if (log.kind == LogKind.result && (log.detail ?? '').isNotEmpty) {
+        result = log.detail;
+        break;
+      }
+    }
+    result ??= state.currentThought.trim().isEmpty
+        ? null
+        : state.currentThought.trim();
+
+    String? stopReason;
+    for (final log in state.logs.reversed) {
+      if (log.title == '结束原因') {
+        stopReason = log.detail;
+        break;
+      }
+    }
+    if (state.errorMessage?.isNotEmpty == true) {
+      stopReason ??= state.errorMessage;
+      result ??= state.errorMessage;
+    }
+
+    final status = switch (state.status) {
+      AgentStatus.completed => 'completed',
+      AgentStatus.error => 'error',
+      AgentStatus.idle => 'stopped',
+      _ => 'partial',
+    };
+
+    final turn = AgentTurn(
+      id: 't${startedAt.microsecondsSinceEpoch}',
+      message: state.goal,
       startedAt: startedAt,
-      endedAt: DateTime.now(),
-      steps: state.currentStep,
-      maxSteps: state.maxSteps,
-      safeMode: storage.getSafeMode(),
-      errorMessage: state.errorMessage,
-      targetUrl: _currentTab.url,
-      logs: lines,
-      sensitiveActions: sensitive,
+      endedAt: now,
+      status: status,
+      result: result,
+      stopReason: stopReason,
+      steps: steps,
+      attachmentNames: _runningAttachmentNames,
+      promptTokens: state.promptTokens,
+      completionTokens: state.completionTokens,
+      targetUrl: state.targetUrl ?? _currentTab.url,
     );
     try {
-      await storage.addAgentTaskRecord(record);
+      await store.appendTurn(conversationId, turn);
     } catch (_) {
       // History is best-effort; never let persistence break the task flow.
+    }
+    if (mounted) {
+      setState(() {
+        _activeConversationId = conversationId;
+      });
     }
   }
 
@@ -233,7 +453,7 @@ extension _AgentFlow on _BrowserPageState {
   }
 
   String _confirmationToken(AgentState state) {
-    return '${state.currentStep}|'
+    return '${state.logs.length}|'
         '${state.confirmationPayload ?? ''}';
   }
 
@@ -317,31 +537,61 @@ extension _AgentFlow on _BrowserPageState {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
+      // The scrim would sit between the panel and the page; a chat that grows
+      // to full height wants the page gone, not dimmed behind it.
+      barrierColor: Colors.black.withValues(alpha: 0.28),
       builder: (ctx) {
-        return StreamBuilder<AgentState>(
-          stream: _loopRunner.stateStream,
-          initialData: _agentState,
-          builder: (context, snapshot) {
-            final state = snapshot.data ?? _agentState;
-            return AgentBottomSheet(
-              state: state,
-              currentUrl: _currentTab.url,
-              taskStartedAt: _taskStartedAt,
-              initialGoal: initialGoal,
-              imageAttachmentsEnabled: _modelTakesImages,
-              prompts: _storage?.getAgentPrompts() ?? const [],
-              safeMode: _storage?.getSafeMode() ?? true,
-              onSafeModeChanged: _setSafeMode,
-              onAllowSite: _allowSiteForTask,
-              onStart: (goal, attachments) {
-                _startAgentTask(goal, attachments);
-                Navigator.of(ctx).pop();
+        return DraggableScrollableSheet(
+          // Three resting heights: enough to read an answer, enough to see the
+          // page behind it, and 80% for a long transcript.
+          //
+          // Never full height. The page above is the thing being talked about,
+          // and a panel that can cover all of it turns the browser into a chat
+          // app — the one thing this product is not.
+          initialChildSize: 0.6,
+          minChildSize: 0.38,
+          maxChildSize: 0.8,
+          snap: true,
+          snapSizes: const [0.6, 0.72, 0.8],
+          expand: false,
+          builder: (context, scrollController) {
+            return StreamBuilder<AgentState>(
+              stream: _loopRunner.stateStream,
+              initialData: _agentState,
+              builder: (context, snapshot) {
+                final state = snapshot.data ?? _agentState;
+                return AgentBottomSheet(
+                  scrollController: scrollController,
+                  state: state,
+                  currentUrl: _currentTab.url,
+                  taskStartedAt: _taskStartedAt,
+                  initialGoal: initialGoal,
+                  imageAttachmentsEnabled: _modelTakesImages,
+                  prompts: _storage?.getAgentPrompts() ?? const [],
+                  safeMode: _storage?.getSafeMode() ?? true,
+                  onSafeModeChanged: _setSafeMode,
+                  onAllowSite: _allowSiteForTask,
+                  store: _conversations,
+                  conversationId: _activeConversationId,
+                  onConversationChanged: (id) =>
+                      _activeConversationId = id,
+                  // A link in an answer is a place to go: this is a browser,
+                  // so it opens where the user is already looking.
+                  onOpenLink: (url) {
+                    Navigator.of(ctx).pop();
+                    _loadUrl(url);
+                  },
+                  onStart: (conversationId, goal, attachments) {
+                    _activeConversationId = conversationId;
+                    _startAgentTask(goal, attachments);
+                  },
+                  onPause: _loopRunner.pause,
+                  onResume: _loopRunner.resume,
+                  onStop: _loopRunner.stop,
+                  onConfirmAction: _loopRunner.confirmAction,
+                  onConfirmCaptcha: _loopRunner.confirmCaptchaSolved,
+                );
               },
-              onPause: _loopRunner.pause,
-              onResume: _loopRunner.resume,
-              onStop: _loopRunner.stop,
-              onConfirmAction: _loopRunner.confirmAction,
-              onConfirmCaptcha: _loopRunner.confirmCaptchaSolved,
             );
           },
         );

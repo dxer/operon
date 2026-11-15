@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../../config/app_constants.dart';
 import '../../config/app_theme.dart';
+import '../../config/app_tokens.dart';
 import '../../services/app_version_service.dart';
+import '../widgets/operon_mark.dart';
 import 'control_diagnostics_page.dart';
 
 class AboutSettingsPage extends StatelessWidget {
@@ -11,7 +12,8 @@ class AboutSettingsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final cardColor = isDark ? AppTheme.darkCard : Colors.white;
+    final cardColor = isDark ? AppTheme.darkCard : AppTheme.lightCard;
+    final hairline = AppInk.hairline(isDark);
 
     return Scaffold(
       appBar: AppBar(
@@ -19,121 +21,134 @@ class AboutSettingsPage extends StatelessWidget {
       ),
       body: ListView(
         padding: EdgeInsets.fromLTRB(
-            16, 16, 16, 16 + MediaQuery.of(context).viewPadding.bottom),
+          AppSpace.page,
+          AppSpace.x4,
+          AppSpace.page,
+          AppSpace.page + MediaQuery.of(context).viewPadding.bottom,
+        ),
         children: [
-          const SizedBox(height: 16),
+          const SizedBox(height: AppSpace.x3),
           Center(
             child: Column(
               children: [
-                Text(
-                  'OPERON',
-                  style: TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 6.0,
-                    color: isDark ? Colors.white : Colors.black,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  AppConstants.appSlogan,
-                  style: TextStyle(
-                      fontSize: 12,
-                      color: AppTheme.neutralOf(isDark),
-                      letterSpacing: 1.0),
-                ),
-                const SizedBox(height: 16),
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  width: 44,
+                  height: 44,
                   decoration: BoxDecoration(
-                    color: AppTheme.primaryOf(isDark).withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(12),
+                    color: AppInk.accentTint(isDark),
+                    borderRadius: BorderRadius.circular(AppRadius.icon),
                   ),
-                  child: Text(
-                    '版本: ${AppVersionService.fullLabel}',
-                    style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                        color: AppTheme.primaryOf(isDark)),
+                  child: Center(
+                    child: OperonMark(
+                      size: 22,
+                      color: AppTheme.primaryOf(isDark),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: AppSpace.x2 + 2),
+                Text(
+                  'Operon',
+                  style: AppType.body.copyWith(
+                    color: AppInk.primary(isDark),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: AppSpace.x1),
+                Text(
+                  AppVersionService.fullLabel,
+                  style: AppType.caption.copyWith(
+                    color: AppInk.tertiary(isDark),
                   ),
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 28),
-          Container(
-            decoration: BoxDecoration(
-              color: cardColor,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-                width: 0.8,
-              ),
+          const SizedBox(height: AppSpace.x6),
+          Material(
+            color: cardColor,
+            clipBehavior: Clip.antiAlias,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(AppRadius.icon),
+              side: BorderSide(color: hairline, width: AppStroke.hairline),
             ),
             child: Column(
               children: [
                 ListTile(
-                  leading:
-                      Icon(Icons.architecture_rounded, color: AppTheme.primaryOf(isDark)),
-                  title: const Text('轻量化设计',
-                      style:
-                          TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                  subtitle: Text('参考 Via 浏览器的极简设计哲学与单手握持底栏交互，极低内存开销。',
-                      style: TextStyle(fontSize: 12, color: AppTheme.neutralOf(isDark))),
-                ),
-                const Divider(height: 1),
-                ListTile(
-                  leading:
-                      Icon(Icons.psychology_rounded, color: AppTheme.accentOf(isDark)),
-                  title: const Text('自主 Agent 引擎',
-                      style:
-                          TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                  subtitle: Text('原生 DOM 语义感知、边缘吸附悬浮球与手动暂停接管。',
-                      style: TextStyle(fontSize: 12, color: AppTheme.neutralOf(isDark))),
-                ),
-                const Divider(height: 1),
-                ListTile(
-                  leading:
-                      Icon(Icons.developer_mode_rounded, color: AppTheme.warningOf(isDark)),
-                  title: const Text('控制层自检',
-                      style:
-                          TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                  subtitle: Text('逐项验证页面读取、真实输入与截图的链路是否可用。',
-                      style: TextStyle(fontSize: 12, color: AppTheme.neutralOf(isDark))),
-                  trailing: const Icon(Icons.chevron_right_rounded, size: 20),
+                  dense: true,
+                  leading: Icon(
+                    Icons.developer_mode_rounded,
+                    size: 19,
+                    color: AppTheme.warningOf(isDark),
+                  ),
+                  title: Text(
+                    '控制层自检',
+                    style: AppType.label.copyWith(
+                      color: AppInk.primary(isDark),
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  subtitle: Text(
+                    '检测页面读取、输入与截图链路',
+                    style: AppType.caption.copyWith(
+                      color: AppInk.tertiary(isDark),
+                    ),
+                  ),
+                  trailing: Icon(
+                    Icons.chevron_right_rounded,
+                    size: 18,
+                    color: AppInk.tertiary(isDark),
+                  ),
                   onTap: () {
-                    Navigator.of(context).push(MaterialPageRoute<void>(
-                      builder: (_) => const ControlDiagnosticsPage(),
-                    ));
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const ControlDiagnosticsPage(),
+                      ),
+                    );
                   },
                 ),
-                const Divider(height: 1),
+                Divider(
+                  height: AppStroke.hairline,
+                  thickness: AppStroke.hairline,
+                  indent: 52,
+                  color: hairline,
+                ),
                 ListTile(
-                  leading:
-                      Icon(Icons.code_rounded, color: AppTheme.neutralOf(isDark)),
-                  title: const Text('开源代码仓库',
-                      style:
-                          TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                  subtitle: Text('https://github.com/dxer/operon',
-                      style: TextStyle(fontSize: 12, color: AppTheme.neutralOf(isDark))),
-                  trailing: const Icon(Icons.copy_rounded, size: 18),
+                  dense: true,
+                  leading: Icon(
+                    Icons.code_rounded,
+                    size: 19,
+                    color: AppInk.secondary(isDark),
+                  ),
+                  title: Text(
+                    '开源代码仓库',
+                    style: AppType.label.copyWith(
+                      color: AppInk.primary(isDark),
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  subtitle: Text(
+                    'https://github.com/dxer/operon',
+                    style: AppType.caption.copyWith(
+                      color: AppInk.tertiary(isDark),
+                    ),
+                  ),
+                  trailing: Icon(
+                    Icons.copy_rounded,
+                    size: 16,
+                    color: AppInk.tertiary(isDark),
+                  ),
                   onTap: () {
-                    Clipboard.setData(const ClipboardData(
-                        text: 'https://github.com/dxer/operon'));
+                    Clipboard.setData(
+                      const ClipboardData(
+                        text: 'https://github.com/dxer/operon',
+                      ),
+                    );
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('已复制项目仓库地址')),
+                      const SnackBar(content: Text('已复制仓库地址')),
                     );
                   },
                 ),
               ],
-            ),
-          ),
-          const SizedBox(height: 24),
-          Center(
-            child: Text(
-              'Operon Browser · 极简 · 智能 · 严谨',
-              style: TextStyle(fontSize: 11, color: AppTheme.neutralOf(isDark)),
             ),
           ),
         ],

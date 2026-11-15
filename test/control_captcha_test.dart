@@ -25,11 +25,14 @@ void main() {
       expect(info.present, isTrue);
     });
 
-    test('a login form with a 验证码 field is not a challenge', () {
-      // The word alone proves nothing: it is an ordinary input label.
+    test('a login form with a 验证码 field or SMS button is not a challenge', () {
+      // The word alone proves nothing: it is an ordinary input label or SMS button.
       final info = detectCaptcha([
         node('textbox', '请输入验证码'),
-        node('button', '登录'),
+        node('button', '获取验证码', id: 'n2'),
+        node('button', '发送验证码', id: 'n3'),
+        node('button', '实名验证', id: 'n4'),
+        node('button', '登录', id: 'n5'),
       ]);
       expect(info.present, isFalse);
     });

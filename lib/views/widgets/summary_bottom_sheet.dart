@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../config/app_theme.dart';
+import '../../config/app_tokens.dart';
 import '../../models/llm_config.dart';
 import '../../services/llm_service.dart';
+import 'markdown_answer.dart';
 
 class SummaryBottomSheet extends StatefulWidget {
   final String title;
@@ -47,11 +49,21 @@ class _SummaryBottomSheetState extends State<SummaryBottomSheet> {
     });
 
     try {
+      DateTime lastUpdate = DateTime.fromMillisecondsSinceEpoch(0);
+      final buffer = StringBuffer();
       final summary = await _llmService.summarizeWebPage(
         config: widget.config,
         title: widget.title,
         url: widget.url,
         content: widget.content,
+        onDelta: (delta) {
+          buffer.write(delta);
+          final now = DateTime.now();
+          if (mounted && now.difference(lastUpdate).inMilliseconds >= 80) {
+            lastUpdate = now;
+            setState(() => _summaryText = buffer.toString());
+          }
+        },
       );
 
       if (mounted) {
@@ -98,10 +110,11 @@ class _SummaryBottomSheetState extends State<SummaryBottomSheet> {
       ),
       decoration: BoxDecoration(
         color: cardBg,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        borderRadius:
+            const BorderRadius.vertical(top: Radius.circular(AppRadius.sheet)),
         boxShadow: const [
           BoxShadow(
-            color: Colors.black26,
+            color: Color(0x44000000),
             blurRadius: 18,
             offset: Offset(0, -6),
           ),
@@ -117,7 +130,7 @@ class _SummaryBottomSheetState extends State<SummaryBottomSheet> {
               width: 36,
               height: 4,
               decoration: BoxDecoration(
-                color: isDark ? Colors.white24 : Colors.black12,
+                color: AppInk.tertiary(isDark).withValues(alpha: 0.5),
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
@@ -130,11 +143,11 @@ class _SummaryBottomSheetState extends State<SummaryBottomSheet> {
               Container(
                 padding: const EdgeInsets.all(6),
                 decoration: BoxDecoration(
-                  color: AppTheme.primaryOf(isDark).withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(8),
+                  color: AppTheme.primaryOf(isDark).withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(AppRadius.chip),
                 ),
                 child:
-                    Icon(Icons.bolt, color: AppTheme.primaryOf(isDark), size: 20),
+                    Icon(Icons.bolt, color: AppTheme.primaryOf(isDark), size: 18),
               ),
               const SizedBox(width: 10),
               Expanded(
@@ -145,16 +158,18 @@ class _SummaryBottomSheetState extends State<SummaryBottomSheet> {
                       widget.title.isNotEmpty ? widget.title : '网页速读摘要',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                          fontSize: 14, fontWeight: FontWeight.bold),
+                      style: AppType.body.copyWith(
+                        color: AppInk.primary(isDark),
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                     Text(
                       widget.url,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: isDark ? Colors.white38 : Colors.black38,
+                      style: AppType.micro.copyWith(
+                        color: AppInk.tertiary(isDark),
+                        fontWeight: FontWeight.normal,
                       ),
                     ),
                   ],
@@ -174,10 +189,15 @@ class _SummaryBottomSheetState extends State<SummaryBottomSheet> {
           ),
 
           const Divider(height: 16),
+          if (_isLoading && _summaryText.isNotEmpty)
+            const Padding(
+              padding: EdgeInsets.only(bottom: 8),
+              child: LinearProgressIndicator(minHeight: 2),
+            ),
 
           // Content body
           Expanded(
-            child: _isLoading
+            child: _isLoading && _summaryText.isEmpty
                 ? Center(
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
@@ -192,9 +212,9 @@ class _SummaryBottomSheetState extends State<SummaryBottomSheet> {
                         const SizedBox(height: 6),
                         Text(
                           '已提取约 ${widget.content.length} 字正文',
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: isDark ? Colors.white38 : Colors.black38,
+                          style: AppType.micro.copyWith(
+                            color: AppInk.tertiary(isDark),
+                            fontWeight: FontWeight.normal,
                           ),
                         ),
                       ],
@@ -215,9 +235,9 @@ class _SummaryBottomSheetState extends State<SummaryBottomSheet> {
                                   fontSize: 12, color: AppTheme.dangerOf(isDark)),
                             ),
                             const SizedBox(height: 12),
-                            ElevatedButton.icon(
+                            FilledButton.icon(
                               onPressed: _generateSummary,
-                              icon: const Icon(Icons.refresh, size: 16),
+                              icon: const Icon(Icons.refresh_rounded, size: 16),
                               label: const Text('重试'),
                             ),
                           ],
@@ -225,14 +245,11 @@ class _SummaryBottomSheetState extends State<SummaryBottomSheet> {
                       )
                     : SingleChildScrollView(
                         physics: const BouncingScrollPhysics(),
-                        child: SelectableText(
+                        child: MarkdownAnswer(
                           _summaryText,
-                          style: TextStyle(
-                            fontSize: 13.5,
+                          baseStyle: AppType.body.copyWith(
                             height: 1.6,
-                            color: isDark
-                                ? AppTheme.darkOnSurface.withValues(alpha: 0.9)
-                                : AppTheme.lightOnSurface,
+                            color: AppInk.primary(isDark),
                           ),
                         ),
                       ),

@@ -19,10 +19,14 @@ class AgentWorkingFrame extends StatefulWidget {
 
 class _AgentWorkingFrameState extends State<AgentWorkingFrame>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _controller = AnimationController(
-    vsync: this,
-    duration: widget.period,
-  )..repeat(reverse: true);
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(vsync: this, duration: widget.period)
+      ..repeat(reverse: true);
+  }
 
   @override
   void dispose() {
