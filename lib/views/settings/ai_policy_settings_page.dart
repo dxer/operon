@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../config/app_theme.dart';
 import '../../config/app_tokens.dart';
+import '../widgets/operon_card.dart';
 import '../../services/storage_service.dart';
 
 class AiPolicySettingsPage extends StatefulWidget {
@@ -151,15 +152,9 @@ class _AiPolicySettingsPageState extends State<AiPolicySettingsPage> {
         padding: EdgeInsets.fromLTRB(
             16, 12, 16, 16 + MediaQuery.of(context).viewPadding.bottom),
         children: [
-          Container(
-            decoration: BoxDecoration(
-              color: cardColor,
-              borderRadius: BorderRadius.circular(AppRadius.icon),
-              border: Border.all(
-                color: AppInk.hairline(isDark),
-                width: AppStroke.hairline,
-              ),
-            ),
+          OperonCard(
+            color: cardColor,
+            borderColor: AppInk.hairline(isDark),
             padding: const EdgeInsets.all(14),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -192,15 +187,9 @@ class _AiPolicySettingsPageState extends State<AiPolicySettingsPage> {
             ),
           ),
           const SizedBox(height: 12),
-          Container(
-            decoration: BoxDecoration(
-              color: cardColor,
-              borderRadius: BorderRadius.circular(AppRadius.icon),
-              border: Border.all(
-                color: AppInk.hairline(isDark),
-                width: AppStroke.hairline,
-              ),
-            ),
+          OperonCard(
+            color: cardColor,
+            borderColor: AppInk.hairline(isDark),
             child: SwitchListTile(
               dense: true,
               contentPadding:
@@ -220,15 +209,9 @@ class _AiPolicySettingsPageState extends State<AiPolicySettingsPage> {
             ),
           ),
           const SizedBox(height: 12),
-          Container(
-            decoration: BoxDecoration(
-              color: cardColor,
-              borderRadius: BorderRadius.circular(AppRadius.icon),
-              border: Border.all(
-                color: AppInk.hairline(isDark),
-                width: AppStroke.hairline,
-              ),
-            ),
+          OperonCard(
+            color: cardColor,
+            borderColor: AppInk.hairline(isDark),
             child: SwitchListTile(
               dense: true,
               contentPadding:
@@ -247,15 +230,9 @@ class _AiPolicySettingsPageState extends State<AiPolicySettingsPage> {
             ),
           ),
           const SizedBox(height: 12),
-          Container(
-            decoration: BoxDecoration(
-              color: cardColor,
-              borderRadius: BorderRadius.circular(AppRadius.icon),
-              border: Border.all(
-                color: AppInk.hairline(isDark),
-                width: AppStroke.hairline,
-              ),
-            ),
+          OperonCard(
+            color: cardColor,
+            borderColor: AppInk.hairline(isDark),
             padding: const EdgeInsets.all(14),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -329,15 +306,9 @@ class _AiPolicySettingsPageState extends State<AiPolicySettingsPage> {
             ),
           ),
           const SizedBox(height: 12),
-          Container(
-            decoration: BoxDecoration(
-              color: cardColor,
-              borderRadius: BorderRadius.circular(AppRadius.icon),
-              border: Border.all(
-                color: AppInk.hairline(isDark),
-                width: AppStroke.hairline,
-              ),
-            ),
+          OperonCard(
+            color: cardColor,
+            borderColor: AppInk.hairline(isDark),
             padding: const EdgeInsets.all(14),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -425,15 +396,9 @@ class _AiPolicySettingsPageState extends State<AiPolicySettingsPage> {
             ),
           ),
           const SizedBox(height: 12),
-          Container(
-            decoration: BoxDecoration(
-              color: cardColor,
-              borderRadius: BorderRadius.circular(AppRadius.icon),
-              border: Border.all(
-                color: AppInk.hairline(isDark),
-                width: AppStroke.hairline,
-              ),
-            ),
+          OperonCard(
+            color: cardColor,
+            borderColor: AppInk.hairline(isDark),
             padding: const EdgeInsets.all(14),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../config/app_theme.dart';
+import '../widgets/operon_card.dart';
 import '../../control/diagnostics.dart';
 
 /// Runs the control layer's self-check on the page the user is looking at.
@@ -104,15 +105,10 @@ class _ControlDiagnosticsPageState extends State<ControlDiagnosticsPage> {
           ],
           if (_checks.isNotEmpty) ...[
             const SizedBox(height: 16),
-            Container(
-              decoration: BoxDecoration(
-                color: cardColor,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
-                  width: 0.8,
-                ),
-              ),
+            OperonCard(
+              color: cardColor,
+              borderColor: isDark ? AppTheme.darkBorder : AppTheme.lightBorder,
+              radius: 16,
               child: Column(
                 children: [
                   for (var index = 0; index < _checks.length; index++) ...[

@@ -4,6 +4,7 @@ import '../../config/app_constants.dart';
 import '../../config/app_theme.dart';
 import '../../config/app_tokens.dart';
 import '../../services/storage_service.dart';
+import '../widgets/operon_card.dart';
 import '../widgets/operon_list_row.dart';
 
 class GeneralSettingsPage extends StatefulWidget {
@@ -155,15 +156,9 @@ class _GeneralSettingsPageState extends State<GeneralSettingsPage> {
         padding: EdgeInsets.fromLTRB(
             16, 12, 16, 16 + MediaQuery.of(context).viewPadding.bottom),
         children: [
-          Container(
-            decoration: BoxDecoration(
-              color: cardColor,
-              borderRadius: BorderRadius.circular(AppRadius.icon),
-              border: Border.all(
-                color: AppInk.hairline(isDark),
-                width: AppStroke.hairline,
-              ),
-            ),
+          OperonCard(
+            color: cardColor,
+            borderColor: AppInk.hairline(isDark),
             padding: const EdgeInsets.all(14),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -243,15 +238,9 @@ class _GeneralSettingsPageState extends State<GeneralSettingsPage> {
             ),
           ),
           const SizedBox(height: 12),
-          Container(
-            decoration: BoxDecoration(
-              color: cardColor,
-              borderRadius: BorderRadius.circular(AppRadius.icon),
-              border: Border.all(
-                color: AppInk.hairline(isDark),
-                width: AppStroke.hairline,
-              ),
-            ),
+          OperonCard(
+            color: cardColor,
+            borderColor: AppInk.hairline(isDark),
             child: ListTile(
               dense: true,
               contentPadding:

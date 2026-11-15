@@ -3,6 +3,7 @@ import '../../config/app_theme.dart';
 import '../../config/app_tokens.dart';
 import '../../services/storage_service.dart';
 import '../../services/theme_service.dart';
+import '../widgets/operon_card.dart';
 import '../widgets/operon_list_row.dart';
 
 class AppearanceSettingsPage extends StatefulWidget {
@@ -57,15 +58,9 @@ class _AppearanceSettingsPageState extends State<AppearanceSettingsPage> {
         padding: EdgeInsets.fromLTRB(
             16, 12, 16, 16 + MediaQuery.of(context).viewPadding.bottom),
         children: [
-          Container(
-            decoration: BoxDecoration(
-              color: cardColor,
-              borderRadius: BorderRadius.circular(AppRadius.icon),
-              border: Border.all(
-                color: AppInk.hairline(isDark),
-                width: AppStroke.hairline,
-              ),
-            ),
+          OperonCard(
+            color: cardColor,
+            borderColor: AppInk.hairline(isDark),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [

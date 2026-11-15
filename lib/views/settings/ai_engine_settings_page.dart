@@ -11,6 +11,7 @@ import '../../services/llm_service.dart';
 import '../../services/llm_tools.dart';
 import '../../services/model_probe.dart';
 import '../../services/storage_service.dart';
+import '../widgets/operon_card.dart';
 import '../widgets/operon_list_row.dart';
 
 part 'ai_engine_sections.dart';

@@ -5,6 +5,7 @@ import '../../models/bookmark_item.dart';
 import '../../models/history_item.dart';
 import '../../services/storage_service.dart';
 import '../../utils/url_utils.dart';
+import 'operon_card.dart';
 import 'site_icon.dart';
 
 class HistoryBookmarksSheet extends StatefulWidget {
@@ -117,13 +118,11 @@ class _HistoryBookmarksSheetState extends State<HistoryBookmarksSheet>
           b.url.toLowerCase().contains(_searchQuery);
     }).toList();
 
-    return Container(
+    return OperonCard(
       height: MediaQuery.of(context).size.height * 0.78,
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius:
-            const BorderRadius.vertical(top: Radius.circular(AppRadius.sheet)),
-      ),
+      color: bg,
+      borderRadius:
+          const BorderRadius.vertical(top: Radius.circular(AppRadius.sheet)),
       child: SafeArea(
         top: false,
         child: Column(

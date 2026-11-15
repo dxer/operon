@@ -89,15 +89,10 @@ extension _AiEngineSections on _AiEngineSettingsPageState {
     required Color hairline,
     required LlmPreset? activePreset,
   }) {
-    return Container(
-      decoration: BoxDecoration(
-        color: cardColor,
-        borderRadius: BorderRadius.circular(AppRadius.card),
-        border: Border.all(
-          color: hairline,
-          width: AppStroke.hairline,
-        ),
-      ),
+    return OperonCard(
+      color: cardColor,
+      borderColor: hairline,
+      radius: AppRadius.card,
       padding: const EdgeInsets.all(AppSpace.page),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -226,15 +221,10 @@ extension _AiEngineSections on _AiEngineSettingsPageState {
     required List<String> uniqueModels,
     required String? matchedModel,
   }) {
-    return Container(
-      decoration: BoxDecoration(
-        color: cardColor,
-        borderRadius: BorderRadius.circular(AppRadius.card),
-        border: Border.all(
-          color: hairline,
-          width: AppStroke.hairline,
-        ),
-      ),
+    return OperonCard(
+      color: cardColor,
+      borderColor: hairline,
+      radius: AppRadius.card,
       padding: const EdgeInsets.all(AppSpace.page),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

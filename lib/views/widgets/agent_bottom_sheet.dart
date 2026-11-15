@@ -17,6 +17,7 @@ import '../../utils/url_utils.dart';
 import 'agent_confirmation_card.dart';
 import 'elapsed_label.dart';
 import 'markdown_answer.dart';
+import 'operon_card.dart';
 import 'step_log_view.dart';
 import 'extracted_data_sheet.dart';
 

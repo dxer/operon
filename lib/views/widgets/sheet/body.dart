@@ -206,12 +206,10 @@ extension _SheetBody on _AgentBottomSheetState {
     final summary = (turn.result ?? '').trim();
     return Padding(
       padding: const EdgeInsets.only(bottom: AppSpace.x5),
-      child: Container(
-        decoration: BoxDecoration(
-          color: AppInk.sunken(isDark),
-          borderRadius: BorderRadius.circular(AppRadius.card),
-          border: Border.all(color: AppInk.hairline(isDark)),
-        ),
+      child: OperonCard(
+        color: AppInk.sunken(isDark),
+        borderColor: AppInk.hairline(isDark),
+        radius: AppRadius.card,
         padding: const EdgeInsets.symmetric(
           horizontal: AppSpace.x3,
           vertical: AppSpace.x2 + 2,

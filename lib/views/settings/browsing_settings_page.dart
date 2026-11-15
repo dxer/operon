@@ -4,6 +4,7 @@ import '../../config/app_theme.dart';
 import '../../config/app_tokens.dart';
 import '../../services/haptic_service.dart';
 import '../../services/storage_service.dart';
+import '../widgets/operon_card.dart';
 import '../widgets/operon_list_row.dart';
 
 class BrowsingSettingsPage extends StatefulWidget {
@@ -71,15 +72,9 @@ class _BrowsingSettingsPageState extends State<BrowsingSettingsPage> {
         padding: EdgeInsets.fromLTRB(
             16, 12, 16, 16 + MediaQuery.of(context).viewPadding.bottom),
         children: [
-          Container(
-            decoration: BoxDecoration(
-              color: cardColor,
-              borderRadius: BorderRadius.circular(AppRadius.icon),
-              border: Border.all(
-                color: AppInk.hairline(isDark),
-                width: AppStroke.hairline,
-              ),
-            ),
+          OperonCard(
+            color: cardColor,
+            borderColor: AppInk.hairline(isDark),
             child: Column(
               children: [
                 SwitchListTile(
@@ -179,15 +174,9 @@ class _BrowsingSettingsPageState extends State<BrowsingSettingsPage> {
             ),
           ),
           const SizedBox(height: 6),
-          Container(
-            decoration: BoxDecoration(
-              color: cardColor,
-              borderRadius: BorderRadius.circular(AppRadius.icon),
-              border: Border.all(
-                color: AppInk.hairline(isDark),
-                width: AppStroke.hairline,
-              ),
-            ),
+          OperonCard(
+            color: cardColor,
+            borderColor: AppInk.hairline(isDark),
             child: Column(
               children: [
                 SwitchListTile(
@@ -255,15 +244,9 @@ class _BrowsingSettingsPageState extends State<BrowsingSettingsPage> {
             ),
           ),
           const SizedBox(height: 12),
-          Container(
-            decoration: BoxDecoration(
-              color: cardColor,
-              borderRadius: BorderRadius.circular(AppRadius.icon),
-              border: Border.all(
-                color: AppInk.hairline(isDark),
-                width: AppStroke.hairline,
-              ),
-            ),
+          OperonCard(
+            color: cardColor,
+            borderColor: AppInk.hairline(isDark),
             padding: const EdgeInsets.all(14),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
