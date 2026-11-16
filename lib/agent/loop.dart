@@ -8,6 +8,7 @@ import 'ports.dart';
 import 'prompt.dart';
 import 'tools.dart';
 import 'transcript.dart';
+import 'verification.dart';
 
 /// How a run ended, in the terms the panel and the log need.
 enum LoopOutcome { success, partial, failed }
@@ -160,10 +161,48 @@ class AgentLoop {
   int? _lastObservedPromptTokens;
   bool _mutatedThisTurn = false;
 
+  /// Steps whose outcome the run has not seen yet. See [DebtLedger].
+  final DebtLedger _debt = DebtLedger();
+
+  /// Consecutive `done(success)` refusals. Two is enough to end honestly.
+  int _doneRefusals = 0;
+
+  /// The steps this run still owes evidence for, exposed for tests.
+  List<DebtItem> get verificationDebt => _debt.all;
+
   /// The conversation as it was sent. Exposed for export and for tests.
   List<Map<String, Object?>> get history => List.unmodifiable(_messages);
 
-  Future<LoopEnd> run(String goal) async {
+  Future<LoopEnd> run(String goal) async =>
+      _withVerification(await _runToEnd(goal));
+
+  /// Whatever ended the run, a step nobody could check is said out loud.
+  ///
+  /// The model's summary is its own account of what it meant to do. These lines
+  /// are the run's own account of what it could not confirm, and they are the
+  /// reason the answer is worth reading: a success claim that survives them was
+  /// actually seen.
+  LoopEnd _withVerification(LoopEnd end) {
+    final lines = _debt.unverifiedLines();
+    if (lines.isEmpty) return end;
+
+    final summary = (end.summary ?? '').trim();
+    final admitted = '未能确认的步骤：\n${lines.join('\n')}';
+    return LoopEnd(
+      outcome: end.outcome == LoopOutcome.success
+          ? LoopOutcome.partial
+          : end.outcome,
+      summary: summary.isEmpty ? admitted : '$summary\n\n$admitted',
+      stopReason: end.stopReason,
+      error: end.error,
+      turns: end.turns,
+      toolCalls: end.toolCalls,
+      stoppedByUser: end.stoppedByUser,
+      data: end.data,
+    );
+  }
+
+  Future<LoopEnd> _runToEnd(String goal) async {
     _messages
       ..clear()
       ..add({'role': 'system', 'content': system});
@@ -375,6 +414,23 @@ class AgentLoop {
 
     if (done != null) {
       final report = DoneReport.fromArgs(done.args);
+      final open = _debt.open;
+      if (report.outcome == 'success' && open.isNotEmpty) {
+        _doneRefusals++;
+        _messages.add(toolMessage(done.id, _debt.refusal()));
+        onSkipped?.call(done, '结论还没有证据');
+        if (_doneRefusals < 2) return null;
+        // Refused twice: stop arguing and end with what the run can prove.
+        return LoopEnd(
+          outcome: LoopOutcome.partial,
+          summary: report.summary,
+          stopReason: '有步骤的结果始终没有确认，这次只算部分完成。',
+          data: report.data,
+          turns: turn,
+          toolCalls: _toolCalls,
+        );
+      }
+      _doneRefusals = 0;
       _messages.add(toolMessage(done.id, '已结束任务'));
       return LoopEnd(
         outcome: switch (report.outcome) {
@@ -506,6 +562,7 @@ class AgentLoop {
     final result = await control.execute(call.name, effectiveArgs);
     _toolCalls++;
     _rememberUrl(result);
+    _trackVerification(call, result);
 
     final nudge = guards.record(
       call.name,
@@ -765,6 +822,48 @@ class AgentLoop {
       _currentUrl = raw;
       onUrlChanged?.call(raw);
     }
+  }
+
+  /// Keeps the ledger honest for one call: pay off what this result proved,
+  /// owe what it left unseen, and retire what the run can no longer check.
+  void _trackVerification(ToolCallRequest call, ToolResult result) {
+    // Evidence first: an observation may be exactly the payment due.
+    if (clearsDebt(call.name, result)) _debt.clear();
+    if (createsDebt(call.name, result)) {
+      _debt.add(DebtItem(
+        tool: call.name,
+        label: _debtLabel(call),
+        url: _currentUrl,
+      ));
+    }
+    // A page the run has left cannot be looked at again, whatever came back.
+    _debt.retireElsewhere(_currentUrl);
+  }
+
+  /// 「点击「提交」」 — short enough for a summary line, specific enough that the
+  /// user knows which step is being admitted.
+  String _debtLabel(ToolCallRequest call) {
+    final verb = switch (call.name) {
+      'click' => '点击',
+      'type' => '输入',
+      'fill_form' => '填写表单',
+      'clear' => '清空',
+      'select' => '选择',
+      'press' => '按键',
+      'navigate' => '打开',
+      'back' => '后退',
+      'forward' => '前进',
+      'handle_dialog' => '处理弹窗',
+      'upload' => '上传文件',
+      _ => call.name,
+    };
+    final label = _actionLabel(call)?.trim() ?? '';
+    if (label.isEmpty) return verb;
+    // `refLabel` reports `button "提交"`; the quoted name is the part a person
+    // recognizes, the role is noise in a sentence.
+    final quoted = RegExp(r'"([^"]+)"').firstMatch(label)?.group(1);
+    final target = (quoted ?? label).trim();
+    return target.isEmpty ? verb : '$verb「$target」';
   }
 
   Future<bool> _mayGo() async {

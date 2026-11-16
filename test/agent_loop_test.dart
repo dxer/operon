@@ -717,6 +717,9 @@ void main() {
     test('upload without files invokes host picker and forwards selected paths', () async {
       final llm = ScriptedLlm([
         use([call('upload', {'ref': 'a4'})]),
+        // The upload's own result proved nothing about the page, so the run
+        // looks before it claims success.
+        use([call('snapshot')]),
         use([call('done', {'summary': '已上传', 'outcome': 'success'})]),
       ]);
       final control = FakeControl();

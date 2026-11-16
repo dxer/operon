@@ -47,6 +47,8 @@ String systemPrompt({String? extra}) {
     ..writeln('- 用户让你关掉某个页面用 close_tab；最后一个标签页关不掉，别反复尝试。')
     ..writeln('- 上传文件调用 upload 并传入文件控件的 ref（省略 files 时应用会弹出系统文件选择器让用户直接选取；只有用户明确给出路径时才传 files）。')
     ..writeln('- 用 done 结束任务。outcome 只有在你亲眼看到每一步的结果后才填 success；没做完填 partial；失败填 failed。done 的 summary 就是用户读到的答案。')
+    ..writeln('- 动作返回「页面无变化」或派发状态未知时，这一步等于还没看到结果：先 snapshot 确认再继续。'
+        '没确认就报 success 会被拒绝一次；再报就按 partial 结束，并在答案里标出这一步「未证实」。')
     ..writeln('- 不需要动作就能回答的问题，直接用文字回答，不要再调用工具。')
     ..writeln()
     ..writeln('## 需要人来做的事')
