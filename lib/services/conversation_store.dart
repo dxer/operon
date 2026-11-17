@@ -54,6 +54,10 @@ class ConversationStore {
     final dir = directory ?? await getApplicationSupportDirectory();
     final file = File('${dir.path}${Platform.pathSeparator}conversations.json');
     final list = <AgentConversation>[];
+    // A turn still marked running is one no process is running any more: the
+    // file is only ever read at start-up. Say so once, here, rather than
+    // leaving a row that looks busy forever.
+    var migrated = false;
     try {
       if (await file.exists()) {
         final raw = await file.readAsString();
@@ -77,6 +81,12 @@ class ConversationStore {
                   conversation.turns.length - maxTurnsPerConversation,
                 );
               }
+              for (var i = 0; i < conversation.turns.length; i++) {
+                if (!conversation.turns[i].isRunning) continue;
+                conversation.turns[i] =
+                    conversation.turns[i].copyWith(status: 'interrupted');
+                migrated = true;
+              }
               list.add(conversation);
             }
           }
@@ -87,7 +97,9 @@ class ConversationStore {
       // save overwrites it, which is the only recovery that matters here.
     }
     list.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
-    return ConversationStore._(file, list);
+    final store = ConversationStore._(file, list);
+    if (migrated) await store.save();
+    return store;
   }
 
   /// A conversation that exists in memory and on disk only once it has a turn.
@@ -124,15 +136,148 @@ class ConversationStore {
       );
     }
     conversation.append(turn);
-    if (conversation.turns.length > maxTurnsPerConversation) {
-      final dropped = conversation.turns.length - maxTurnsPerConversation;
-      conversation.turns.removeRange(0, dropped);
-      conversation.compactedTurns =
-          (conversation.compactedTurns - dropped).clamp(0, conversation.turns.length);
-    }
+    _pruneTurns(conversation);
     // Newest first, so the list order matches "most recent".
     _conversations.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
     await save();
+  }
+
+  /// Starts a turn and writes it now, before the run touches the page.
+  ///
+  /// The old shape wrote a turn only when the run ended, so a killed app erased
+  /// the work: reopening the panel showed a conversation as if the user had
+  /// never asked. This row is the floor [journalStep] fills in and
+  /// [completeTurn] closes.
+  Future<AgentTurn> beginTurn(
+    String conversationId, {
+    required String message,
+    required DateTime startedAt,
+    String? targetUrl,
+    List<String> attachmentNames = const [],
+  }) async {
+    final turn = AgentTurn(
+      id: 't${startedAt.microsecondsSinceEpoch}',
+      message: message,
+      startedAt: startedAt,
+      endedAt: startedAt,
+      status: 'running',
+      targetUrl: targetUrl,
+      attachmentNames: attachmentNames,
+      // Grown one step at a time by [journalStep].
+      steps: <AgentTurnStep>[],
+    );
+    final conversation = byId(conversationId);
+    if (conversation == null) return turn;
+    conversation.append(turn);
+    _pruneTurns(conversation);
+    _conversations.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    await save();
+    return turn;
+  }
+
+  /// Adds a step to a running turn, in the order the model asked for it.
+  ///
+  /// Appending the intent *before* the call is dispatched is the whole point:
+  /// the last line on this list is always something that really went out.
+  Future<void> journalStep(
+    String conversationId,
+    String turnId,
+    AgentTurnStep step,
+  ) async {
+    final turn = _turnIn(conversationId, turnId);
+    if (turn == null) return;
+    if (turn.steps.length >= maxStepsPerTurn) return;
+    turn.steps.add(step);
+    await save();
+  }
+
+  /// Lands the outcome on the row its intent opened.
+  ///
+  /// A call that never announced itself still gets a row: a refusal or a guard
+  /// is part of what happened, and dropping it would hide the reason.
+  Future<void> settleStep(
+    String conversationId,
+    String turnId, {
+    required String callId,
+    required String status,
+    String? detail,
+  }) async {
+    final turn = _turnIn(conversationId, turnId);
+    if (turn == null) return;
+    // Newest first, and preferably one that is still waiting: a model that
+    // reuses a call id (the fake one in the tests does, and some providers have
+    // been seen to) must not settle a row that was already closed.
+    var index = -1;
+    for (var i = turn.steps.length - 1; i >= 0; i--) {
+      if (turn.steps[i].callId == callId && turn.steps[i].isPending) {
+        index = i;
+        break;
+      }
+    }
+    if (index < 0) {
+      for (var i = turn.steps.length - 1; i >= 0; i--) {
+        if (turn.steps[i].callId == callId) {
+          index = i;
+          break;
+        }
+      }
+    }
+    if (index < 0) return;
+    turn.steps[index] = turn.steps[index].copyWith(status: status, detail: detail);
+    await save();
+  }
+
+  /// Closes a running turn with what the run ended up being.
+  ///
+  /// The steps stay exactly as the journal wrote them: the answer and the steps
+  /// cannot disagree, because neither was reconstructed after the fact.
+  Future<void> completeTurn(
+    String conversationId,
+    String turnId, {
+    required String status,
+    String? result,
+    String? stopReason,
+    int promptTokens = 0,
+    int completionTokens = 0,
+    String? targetUrl,
+  }) async {
+    final turn = _turnIn(conversationId, turnId);
+    if (turn == null) return;
+    final conversation = byId(conversationId);
+    final endedAt = DateTime.now();
+    final closed = turn.copyWith(
+      status: status,
+      result: () => result,
+      stopReason: () => stopReason,
+      endedAt: endedAt,
+      promptTokens: promptTokens,
+      completionTokens: completionTokens,
+      targetUrl: targetUrl,
+    );
+    final index = conversation!.turns.indexWhere((item) => item.id == turnId);
+    if (index >= 0) conversation.turns[index] = closed;
+    conversation.updatedAt = endedAt;
+    _conversations.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    await save();
+  }
+
+  /// Keeps a conversation within its turn budget without losing the boundary
+  /// of what was compacted: dropping old turns moves that index with it.
+  void _pruneTurns(AgentConversation conversation) {
+    if (conversation.turns.length <= maxTurnsPerConversation) return;
+    final dropped = conversation.turns.length - maxTurnsPerConversation;
+    conversation.turns.removeRange(0, dropped);
+    conversation.compactedTurns = (conversation.compactedTurns - dropped)
+        .clamp(0, conversation.turns.length);
+  }
+
+  AgentTurn? _turnIn(String conversationId, String turnId) {
+    final conversation = byId(conversationId);
+    if (conversation == null) return null;
+    for (final turn in conversation.turns) {
+      if (turn.id == turnId) return turn;
+    }
+    return null;
   }
 
   /// Records a `/compact` or Auto-Compact boundary and persists the summary.

@@ -22,6 +22,7 @@ import '../agent/transcript.dart' show estimateConversationTokens;
 import '../control/protocol/gesture.dart';
 import '../control/tab_host.dart';
 import '../control/transport/endpoint.dart' show CdpTarget;
+import '../services/conversation_journal.dart';
 import '../services/conversation_store.dart';
 import '../services/download_service.dart';
 import '../services/foreground_task_service.dart';
@@ -82,6 +83,10 @@ class _BrowserPageState extends State<BrowserPage>
   /// The conversation the running task belongs to. Captured at start: the user
   /// can open another one while it runs, and the turn must go where it started.
   String? _runningConversationId;
+
+  /// The turn the current run is writing into. Created when the run starts, so
+  /// an app that dies mid-run still leaves the steps that went out.
+  String? _liveTurnId;
   StreamSubscription<AgentState>? _loopSub;
   final ValueNotifier<GesturePulse?> _gesturePulse = ValueNotifier(null);
   int _gestureSeq = 0;

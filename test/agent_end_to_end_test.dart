@@ -1,10 +1,13 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:operon/agent/ports.dart' show RunJournal;
 import 'package:operon/agent/prompt.dart';
 import 'package:operon/agent/runner.dart';
 import 'package:operon/models/agent_conversation.dart';
 import 'package:operon/models/agent_state.dart';
 import 'package:operon/models/llm_config.dart';
 import 'package:operon/models/model_profile.dart';
+import 'package:operon/services/conversation_journal.dart';
+import 'package:operon/services/conversation_store.dart';
 
 import 'support/fake_devtools.dart';
 import 'support/fake_openai.dart';
@@ -59,6 +62,7 @@ void main() {
     ThinkingLevel thinking = ThinkingLevel.auto,
     void Function(FakeOpenAi model)? prepare,
     ModelProfile profile = const ModelProfile(),
+    RunJournal? journal,
   }) async {
     page = await FakeDevTools.start(fakePage);
     model = await FakeOpenAi.start(script);
@@ -73,6 +77,7 @@ void main() {
       safeMode: safeMode,
       notifyOnComplete: false,
       controlConnect: page.connect,
+      journal: journal,
     );
     if (expectThrow) {
       await expectLater(run, throwsA(isA<StateError>()));
@@ -431,5 +436,41 @@ void main() {
       runner.state.logs.any((item) => (item.detail ?? '').contains('第二次完成')),
       isTrue,
     );
+  });
+
+  test('a run writes each step before it happens, so a kill still leaves them',
+      () async {
+    // A real store and a real journal: the question is whether the runner
+    // actually fills it, not whether the store can hold a list.
+    final store = ConversationStore.inMemory();
+    final conversation = store.create();
+    final turn = await store.beginTurn(
+      conversation.id,
+      message: '在评论框里说一句「期待」',
+      startedAt: DateTime(2026, 5, 1, 10),
+    );
+
+    await runWith(
+      fakePage: articlePage(),
+      goal: '在评论框里说一句「期待」',
+      script: [
+        call('snapshot'),
+        call('type', {'ref': 'a1', 'text': '期待'}),
+        call('click', {'ref': 'a2'}),
+        call('done', {'summary': '已评论', 'success': 'success'}),
+      ],
+      journal: ConversationJournal(store, conversation.id, turn.id),
+    );
+
+    final stored = store.byId(conversation.id)!.turns.single;
+    expect(stored.steps, isNotEmpty, reason: 'the journal was never called');
+    expect(stored.steps.map((step) => step.tool), contains('click'));
+    expect(stored.steps.every((step) => step.summary.trim().isNotEmpty), isTrue);
+    expect(stored.steps.any((step) => step.isPending), isFalse,
+        reason: 'every result landed on the row its intent opened');
+
+    // Nothing closed the turn: that is what the app being killed looks like,
+    // and a restart turns exactly this state into "interrupted".
+    expect(stored.isRunning, isTrue);
   });
 }

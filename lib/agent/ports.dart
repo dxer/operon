@@ -2,6 +2,29 @@ import '../control/perception/captcha.dart';
 import '../control/protocol/gesture.dart';
 import '../control/protocol/results.dart';
 
+/// Where a run writes what it is about to do.
+///
+/// [intent] is awaited *before* the call is dispatched, so an action that kills
+/// the process is still on disk. [result] is not awaited: a run must not wait on
+/// history, and the next intent would carry the answer anyway. The pair is what
+/// makes a killed run readable — the last line of a stored turn is something
+/// that really went out.
+abstract class RunJournal {
+  Future<void> intent({
+    required String callId,
+    required String tool,
+    required String summary,
+  });
+
+  void result({
+    required String callId,
+    required String tool,
+    required String summary,
+    required bool ok,
+    String? detail,
+  });
+}
+
 /// One tool call the model asked for.
 class ToolCallRequest {
   const ToolCallRequest({

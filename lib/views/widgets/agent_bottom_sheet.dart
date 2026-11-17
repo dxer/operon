@@ -91,6 +91,10 @@ class AgentBottomSheet extends StatefulWidget {
   /// Which conversation was open last time. Null shows the list.
   final String? conversationId;
 
+  /// The turn the running task is writing into. It is drawn as the live block,
+  /// so the store's copy of it must not be drawn as well.
+  final String? liveTurnId;
+
   /// Told when the open conversation changes, so it survives a reopen.
   final ValueChanged<String?>? onConversationChanged;
 
@@ -123,6 +127,7 @@ class AgentBottomSheet extends StatefulWidget {
     this.prompts = const [],
     this.store,
     this.conversationId,
+    this.liveTurnId,
     this.onConversationChanged,
     this.onOpenLink,
     this.onHandleDrag,

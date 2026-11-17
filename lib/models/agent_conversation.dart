@@ -13,36 +13,69 @@
 
 /// One tool call inside a turn, kept as a line the user can read and the next
 /// turn can be reminded of.
+///
+/// A step is written twice: once as an intent, before the call is dispatched,
+/// and once as an outcome. That is what makes a killed run readable — the rows
+/// below are what actually went out, not what the model meant to do.
 class AgentTurnStep {
   const AgentTurnStep({
     required this.tool,
     required this.summary,
-    this.ok = true,
+    this.status = stepOk,
     this.detail,
+    this.callId,
   });
+
+  /// The intent is on disk and the result is not: the app died, or the call
+  /// never came back.
+  static const String stepStarted = 'started';
+  static const String stepOk = 'ok';
+  static const String stepFailed = 'failed';
+  static const String stepSkipped = 'skipped';
 
   final String tool;
 
   /// Human-readable: 「点击「Star」」 rather than `click({"ref":"a3"})`.
   final String summary;
 
-  final bool ok;
+  final String status;
 
   /// The one line worth keeping: an error message, a new URL.
   final String? detail;
 
+  /// The model's tool-call id, so the outcome lands on the row the intent
+  /// opened instead of adding a second one.
+  final String? callId;
+
+  bool get ok => status != stepFailed;
+
+  bool get isPending => status == stepStarted;
+
+  AgentTurnStep copyWith({String? status, String? detail}) => AgentTurnStep(
+        tool: tool,
+        summary: summary,
+        status: status ?? this.status,
+        detail: detail ?? this.detail,
+        callId: callId,
+      );
+
   Map<String, Object?> toJson() => {
         'tool': tool,
         'summary': summary,
-        'ok': ok,
+        if (status != stepOk) 'status': status,
         if (detail != null) 'detail': detail,
+        if (callId != null) 'callId': callId,
       };
 
   factory AgentTurnStep.fromJson(Map<String, Object?> json) => AgentTurnStep(
         tool: (json['tool'] ?? '').toString(),
         summary: (json['summary'] ?? '').toString(),
-        ok: json['ok'] != false,
+        // Older files carried `ok` instead of `status`.
+        status: (json['status'] ?? '').toString().isNotEmpty
+            ? (json['status'] ?? '').toString()
+            : (json['ok'] == false ? stepFailed : stepOk),
         detail: json['detail']?.toString(),
+        callId: json['callId']?.toString(),
       );
 }
 
@@ -75,6 +108,16 @@ class AgentTurn {
   /// `completed` / `partial` / `error` / `stopped`.
   final String status;
 
+  /// A run that started and has not finished yet. Written to disk before the
+  /// first action is dispatched, so a process that dies leaves a row instead of
+  /// nothing at all.
+  bool get isRunning => status == 'running';
+
+  /// A run that never got to write its ending: the app was killed, the tab was
+  /// lost, or the phone restarted. It is not a failure of the model, and it is
+  /// not a success either — the steps below are as far as it got.
+  bool get wasInterrupted => status == 'interrupted';
+
   /// What the agent said at the end.
   final String? result;
 
@@ -98,6 +141,34 @@ class AgentTurn {
   bool get failed => status == 'error';
 
   Duration get duration => endedAt.difference(startedAt);
+
+  /// A copy with new ending fields. The steps, message and id stay: they are
+  /// what the turn *is*, and the journal already wrote them.
+  AgentTurn copyWith({
+    String? status,
+    String? Function()? result,
+    String? Function()? stopReason,
+    DateTime? endedAt,
+    List<AgentTurnStep>? steps,
+    int? promptTokens,
+    int? completionTokens,
+    String? targetUrl,
+  }) =>
+      AgentTurn(
+        id: id,
+        message: message,
+        startedAt: startedAt,
+        endedAt: endedAt ?? this.endedAt,
+        status: status ?? this.status,
+        result: result == null ? this.result : result(),
+        stopReason: stopReason == null ? this.stopReason : stopReason(),
+        steps: steps ?? this.steps,
+        attachmentNames: attachmentNames,
+        promptTokens: promptTokens ?? this.promptTokens,
+        completionTokens: completionTokens ?? this.completionTokens,
+        targetUrl: targetUrl ?? this.targetUrl,
+        isCompaction: isCompaction,
+      );
 
   Map<String, Object?> toJson() => {
         'id': id,

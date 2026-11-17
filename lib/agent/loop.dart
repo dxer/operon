@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import '../control/protocol/results.dart';
 import '../models/agent_attachment.dart';
 import '../utils/url_utils.dart';
@@ -127,7 +129,13 @@ class AgentLoop {
 
   final void Function(int turn)? onTurn;
   final void Function(String? thought)? onThought;
-  final void Function(int index, ToolCallRequest call, String description)? onToolStarted;
+  /// Awaited before the call is dispatched, so a run that journals its intent
+  /// can be sure the intent is on disk first.
+  final FutureOr<void> Function(
+    int index,
+    ToolCallRequest call,
+    String description,
+  )? onToolStarted;
   final void Function(ToolCallRequest call, ToolResultLike result)? onToolFinished;
   final void Function(ToolCallRequest call, String reason)? onSkipped;
   final void Function(String note)? onContextNote;
@@ -557,7 +565,7 @@ class AgentLoop {
       }
     }
 
-    onToolStarted?.call(_toolCalls, call, describeToolCall(call.name, effectiveArgs));
+    await onToolStarted?.call(_toolCalls, call, describeToolCall(call.name, effectiveArgs));
     if (toolMutates(call.name)) _mutatedThisTurn = true;
     final result = await control.execute(call.name, effectiveArgs);
     _toolCalls++;

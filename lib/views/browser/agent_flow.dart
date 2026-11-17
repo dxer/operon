@@ -276,6 +276,25 @@ extension _AgentFlow on _BrowserPageState {
         attachments.map((item) => item.label).toList(growable: false);
     _turnSaved = false;
 
+    // The turn is written now, not when it ends: an app that dies mid-run must
+    // leave the steps it already took, and the panel that reads them tomorrow
+    // should not look like the user had never asked.
+    _liveTurnId = null;
+    if (store != null && conversation != null) {
+      try {
+        final turn = await store.beginTurn(
+          conversation.id,
+          message: goal,
+          startedAt: _taskStartedAt!,
+          targetUrl: _currentTab.url,
+          attachmentNames: _runningAttachmentNames,
+        );
+        _liveTurnId = turn.id;
+      } catch (_) {
+        // History is best-effort; a failed write must not stop the task.
+      }
+    }
+
     if (autoCompact &&
         conversation != null &&
         conversation.hasUncompactedHistory &&
@@ -286,6 +305,8 @@ extension _AgentFlow on _BrowserPageState {
         isAuto: true,
       );
     }
+
+    final liveTurn = _liveTurnId;
 
     unawaited(_loopRunner.run(
       goal: goal,
@@ -309,6 +330,9 @@ extension _AgentFlow on _BrowserPageState {
       priorTurns: conversation?.turns ?? const [],
       compactedSummary: conversation?.compactedSummary,
       compactedTurns: conversation?.compactedTurns ?? 0,
+      journal: liveTurn == null
+          ? null
+          : ConversationJournal(store!, conversation!.id, liveTurn),
     ));
   }
 
@@ -447,11 +471,12 @@ extension _AgentFlow on _BrowserPageState {
     }
   }
 
-  /// Writes the finished run into its conversation.
+  /// Closes the turn the run opened when it started.
   ///
-  /// The steps are the actions the model asked for, in order, one readable
-  /// line each. Thoughts are left out: a stored transcript is what happened,
-  /// and re-reading a hundred "我看看" lines is not how you find out.
+  /// The steps are already on disk — the journal wrote each one before it was
+  /// dispatched — so this only adds the ending: the answer, why it stopped, and
+  /// what it cost. A run that ended before its journal existed still falls back
+  /// to building a turn from the log, which is worse but not nothing.
   Future<void> _saveTurn(AgentState state) async {
     final store = _conversations;
     final conversationId = _runningConversationId;
@@ -467,7 +492,9 @@ extension _AgentFlow on _BrowserPageState {
           AgentTurnStep(
             tool: '',
             summary: log.title,
-            ok: !log.isError,
+            status: log.isError
+                ? AgentTurnStep.stepFailed
+                : AgentTurnStep.stepOk,
             detail: log.detail,
           ),
     ];
@@ -504,25 +531,43 @@ extension _AgentFlow on _BrowserPageState {
       _ => 'partial',
     };
 
-    final turn = AgentTurn(
-      id: 't${startedAt.microsecondsSinceEpoch}',
-      message: state.goal,
-      startedAt: startedAt,
-      endedAt: now,
-      status: status,
-      result: result,
-      stopReason: stopReason,
-      steps: steps,
-      attachmentNames: _runningAttachmentNames,
-      promptTokens: state.promptTokens,
-      completionTokens: state.completionTokens,
-      targetUrl: state.targetUrl ?? _currentTab.url,
-    );
+    final targetUrl = state.targetUrl ?? _currentTab.url;
+    final liveTurn = _liveTurnId;
     try {
-      await store.appendTurn(conversationId, turn);
+      if (liveTurn != null) {
+        await store.completeTurn(
+          conversationId,
+          liveTurn,
+          status: status,
+          result: result,
+          stopReason: stopReason,
+          promptTokens: state.promptTokens,
+          completionTokens: state.completionTokens,
+          targetUrl: targetUrl,
+        );
+      } else {
+        await store.appendTurn(
+          conversationId,
+          AgentTurn(
+            id: 't${startedAt.microsecondsSinceEpoch}',
+            message: state.goal,
+            startedAt: startedAt,
+            endedAt: now,
+            status: status,
+            result: result,
+            stopReason: stopReason,
+            steps: steps,
+            attachmentNames: _runningAttachmentNames,
+            promptTokens: state.promptTokens,
+            completionTokens: state.completionTokens,
+            targetUrl: targetUrl,
+          ),
+        );
+      }
     } catch (_) {
       // History is best-effort; never let persistence break the task flow.
     }
+    _liveTurnId = null;
     if (mounted) {
       setState(() {
         _activeConversationId = conversationId;
@@ -691,6 +736,7 @@ extension _AgentFlow on _BrowserPageState {
                   onAllowSite: _allowSiteForTask,
                   store: _conversations,
                   conversationId: _activeConversationId,
+                  liveTurnId: _liveTurnId,
                   onConversationChanged: (id) => _activeConversationId = id,
                   // A link in an answer is a place to go: this is a browser,
                   // so it opens where the user is already looking.

@@ -329,6 +329,11 @@ extension _SheetBody on _AgentBottomSheetState {
         'completed' => '已完成。',
         'stopped' => '已停止。',
         'error' => '执行失败。',
+        // A run nothing closed: the app was killed or the phone restarted. The
+        // steps above are what really went out, so the honest line says so
+        // instead of pretending the turn simply has no summary.
+        'running' || 'interrupted' =>
+          '这次运行被打断了（应用退出或手机重启）。上面是它已经执行到的步骤。',
         _ => '没有留下总结。',
       };
 
@@ -359,7 +364,12 @@ extension _SheetBody on _AgentBottomSheetState {
     final surface = AppInk.sunken(isDark);
     final onSurface = AppInk.primary(isDark);
     final muted = AppInk.secondary(isDark);
-    final turns = _conversation?.turns ?? const <AgentTurn>[];
+    // The live run's own turn is rendered by the live block below; drawing the
+    // store's copy of it too would show every task twice.
+    final turns = [
+      for (final turn in _conversation?.turns ?? const <AgentTurn>[])
+        if (turn.id != widget.liveTurnId) turn,
+    ];
     final live = _showsLiveBlock(state, turns);
     final goal = state.goal.trim();
 

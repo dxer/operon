@@ -63,6 +63,10 @@ class AgentLoopRunner {
   /// is better than an agent guessing an answer.
   Future<String?> Function(String question)? onAsk;
 
+  /// Where this run's steps are written before they are dispatched. Set per
+  /// run by the panel; without it the run simply does not journal.
+  RunJournal? _journal;
+
   /// Picks local device files when an `upload` tool call omits `files`.
   Future<List<String>?> Function()? onPickFiles;
 
@@ -95,7 +99,9 @@ class AgentLoopRunner {
     String? compactedSummary,
     int compactedTurns = 0,
     SocketConnector? controlConnect,
+    RunJournal? journal,
   }) async {
+    _journal = journal;
     _stopped = false;
     _paused = false;
     // Fresh token per run so cancelling an earlier task never aborts the next.
@@ -212,6 +218,7 @@ class AgentLoopRunner {
     } catch (error) {
       _fail(describeLlmFailure(error));
     } finally {
+      _journal = null;
       llmService.dispose();
       await _control?.detach();
       _control = null;
@@ -370,8 +377,18 @@ class AgentLoopRunner {
     );
   }
 
-  void _onToolStarted(int index, ToolCallRequest call, String description) {
+  Future<void> _onToolStarted(
+    int index,
+    ToolCallRequest call,
+    String description,
+  ) async {
     if (_stopped) return;
+    // Before anything else: the row on disk comes first, the page second.
+    await _journal?.intent(
+      callId: call.id,
+      tool: call.name,
+      summary: description,
+    );
     _streamBuffer.clear();
     _state = _state.copyWith(
       status: AgentStatus.executing,
@@ -385,6 +402,13 @@ class AgentLoopRunner {
   }
 
   void _onToolFinished(ToolCallRequest call, ToolResultLike result) {
+    _journal?.result(
+      callId: call.id,
+      tool: call.name,
+      summary: describeToolCall(call.name, call.args),
+      ok: result.ok,
+      detail: result.ok ? null : _failureText(result),
+    );
     final evidence = result.receipt == null
         ? null
         : StepEvidence.fromReceipt(result.receipt!);
